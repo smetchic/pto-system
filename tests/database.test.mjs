@@ -83,7 +83,9 @@ test('subcontract prices, allocation limits, NaN, and stale source version guard
  const incomingContract=(await db.query("select id from pto_contracts where direction='incoming'")).rows[0].id;
  const incoming=(await run('create_document',{contract_id:incomingContract,kind:'c2a',number:'С1',amount:'40'})).document_id;await accept(incoming);
  await assert.rejects(run('allocate',{outgoing_document:doc,incoming_document:incoming,amount:'NaN',note:'Проверка'}));
- await assert.rejects(run('allocate',{outgoing_document:doc,incoming_document:incoming,amount:'200',note:'Проверка'}),/превышает/);
+ // Субподряд больше выполнения допустим: собственные силы отрицательны и только подсвечиваются (Паркинг, дог. №265).
+ await run('allocate',{outgoing_document:doc,incoming_document:incoming,amount:'200',note:'Проверка'});
+ let neg=(await db.query('select * from pto_register')).rows[0];assert.equal(Number(neg.total)-Number(neg.subcontract),-70);
  await run('allocate',{outgoing_document:doc,incoming_document:incoming,amount:'50',note:'Стоимость сопоставленных работ на заказчика'});
  let r=(await db.query('select * from pto_register')).rows[0];assert.equal(Number(r.total),130);assert.equal(Number(r.subcontract),50);
  for(const d of [summary,materials]){await run('revise',{document_id:d,amount:d===summary?'130':'0',reason:'Обновлены основания'});await accept(d);}
