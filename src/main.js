@@ -74,7 +74,7 @@ async function action(name,id){
  if(name==='flow-filter'){ui.flowProject=id;return render();}
  if(name==='theme'){if(!['light','dark','system'].includes(id))return;ui.theme=id;try{localStorage.setItem('pto-theme',id);}catch{}applyTheme();return render();}
  if(name==='project'){ui.project=id;ui.route='project';ui.projectTab='summary';ui.more=false;return render();}
- if(name==='new-project')return form('Новый объект',field('name','Название')+field('address','Адрес','text','',false),async x=>{const r=await mutate({op:'create_project',...x});ui.project=r.project_id;ui.route='project';render();});
+ if(name==='new-project')return form('Новый объект',field('name','Короткое название')+field('full_name','Полное наименование объекта')+field('address','Адрес','text','',false),async x=>{const r=await mutate({op:'create_project',...x});ui.project=r.project_id;ui.route='project';render();});
  if(name==='new-contract')return form('Новый договор',field('number','Номер договора')+field('party','Контрагент')+select('direction','Направление',[['outgoing','Предъявление заказчику'],['incoming','Входящий субподряд']]),x=>mutate({op:'create_contract',project_id:ui.project,...x}));
  if(name==='open-period')return mutate({op:'open_period',project_id:ui.project,month:ui.month+'-01'});
  if(name==='new-doc'){
