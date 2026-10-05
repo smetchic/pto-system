@@ -1,7 +1,7 @@
 -- Шаг 3 плана: реестр выполнения за месяц целиком считается в базе (numeric), клиент только форматирует.
 -- Колонка на каждый договор субподряда; пустые строки и колонки не выводятся; итоги по объекту и общий итог.
 -- Суммы возвращаются строками, чтобы клиент не округлял их числами с плавающей точкой.
--- Откат: supabase/rollback/20261005214543_register_matrix.down.sql
+-- Откат: supabase/rollback/20261005215002_register_matrix.down.sql
 create or replace function public.pto_register_matrix(p_month date) returns jsonb
 language sql stable set search_path='' as $$
 with reg as (
