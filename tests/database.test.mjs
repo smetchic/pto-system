@@ -196,6 +196,67 @@ test('contracts: direction and counterparty name are derived, current price and 
  for(const a of ['update_contract','create_addendum','set_addendum_status','create_counterparty','update_counterparty'])assert.ok(actions.includes(a),a);
  await as(users.engineer);await assert.rejects(db.query('insert into pto_contract_addenda(contract_id,number,agreement_date) values($1,$2,$3)',[c.id,'9','2026-01-01']),/permission denied/);
 });
+test('C-3a: SMR comes from accepted acts, to-pay and cumulative columns are computed; C-29 has no sum; estimates kept apart',async()=>{
+ await as(users.head);
+ const revOf=async per=>(await db.query('select revision from pto_periods where id=$1',[per])).rows[0].revision;
+ const op=async(per,name,extra)=>command({op:name,period_id:per,expected_revision:await revOf(per),...extra});
+ const pid=(await command({op:'create_project',name:'С-3а'})).project_id;
+ await command({op:'create_contract',project_id:pid,number:'21',party:'Трест',direction:'outgoing'});
+ await command({op:'create_contract',project_id:pid,number:'22',party:'Трест',direction:'outgoing'});
+ await command({op:'create_contract',project_id:pid,number:'С-1',party:'Субподрядчик',direction:'incoming'});
+ const cid=async n=>(await db.query('select id from pto_contracts where project_id=$1 and number=$2',[pid,n])).rows[0].id;
+ const c21=await cid('21');
+ async function doc(per,kind,number,extra,accepted=true){
+  const d=(await op(per,'create_document',{contract_id:c21,kind,number,...extra})).document_id;if(!accepted)return d;
+  const v=(await db.query('select current_version from pto_documents where id=$1',[d])).rows[0].current_version,path=`${pid}/${d}/${v}/${randomUUID()}.pdf`;
+  await db.query("insert into storage.objects(bucket_id,name) values('pto-documents',$1)",[path]);await op(per,'attach',{document_id:d,path,name:'Скан.pdf'});
+  for(const name of ['send','receive','sign','accept'])await op(per,name,{document_id:d,person:'Ответственный',proof:'Подтверждение',method:'Лично'});
+  return d;
+ }
+ const report=async d=>(await db.query('select r.* from pto_c3a_report r join pto_documents d on d.current_version=r.version_id where d.id=$1',[d])).rows[0];
+ // Июль: предыдущий месяц для накопления.
+ const jul=(await command({op:'open_period',project_id:pid,month:'2026-07-01'})).period_id;
+ await doc(jul,'c2a','7',{amount:'1000.00'});
+ await doc(jul,'c3a','7',{smr_vat:'166.67'});
+ // Август: цифры приёмки из брифа (раздел 7).
+ const aug=(await command({op:'open_period',project_id:pid,month:'2026-08-01'})).period_id;
+ await doc(aug,'c2a','8',{amount:'1973259.89'});
+ const c3a=await doc(aug,'c3a','8',{amount:'5',smr_vat:'328876.65',equipment_amount:'731538.30',equipment_vat:'121923.05',advance_target_offset:'1000000.00',advance_current_offset:'153974.13'},false);
+ let r=await report(c3a);
+ assert.equal(r.smr,'1973259.89','СМР с НДС берётся из принятых актов, введённая сумма игнорируется');
+ assert.equal(r.to_pay,'1550824.06','к оплате = 1 973 259,89 + 731 538,30 − 1 153 974,13');
+ assert.deepEqual([r.ytd_smr,r.total_smr,r.ytd_smr_vat,r.total_to_pay],['1974259.89','1974259.89','329043.32','1551824.06']);
+ // В августе есть и другие объекты (тест «Пружаны»): строки берутся только этого объекта.
+ const aug8=async()=>(await db.query("select pto_register_matrix('2026-08-01') m")).rows[0].m.rows.filter(x=>x.project_id===pid);
+ const line=(rows,n)=>rows.find(x=>x.kind==='contract'&&x.number===n);
+ let rows=await aug8();
+ assert.equal(line(rows,'21').basis,'acts');
+ // Новая версия без переданных полей сохраняет прежние значения, кроме изменённого.
+ await op(aug,'revise',{document_id:c3a,advance_current_offset:'153974.14',reason:'Исправление зачёта'});
+ r=await report(c3a);assert.deepEqual([r.equipment,r.current_offset,r.to_pay],['731538.30','153974.14','1550824.05']);
+ await assert.rejects(op(aug,'revise',{document_id:c3a,smr_vat:'1.001',reason:'Проверка'}),/рублях и копейках/);
+ const v=(await db.query('select current_version from pto_documents where id=$1',[c3a])).rows[0].current_version,path=`${pid}/${c3a}/${v}/${randomUUID()}.pdf`;
+ await db.query("insert into storage.objects(bucket_id,name) values('pto-documents',$1)",[path]);await op(aug,'attach',{document_id:c3a,path,name:'С-3а.pdf'});
+ for(const name of ['send','receive','sign','accept'])await op(aug,name,{document_id:c3a,person:'Ответственный',proof:'Подтверждение',method:'Лично'});
+ rows=await aug8();
+ assert.equal(line(rows,'21').basis,'c3a');assert.equal(line(rows,'21').total,'1973259.89');
+ // С-29 без суммы.
+ const c29=await doc(aug,'c29','8',{amount:'999'},false);
+ assert.equal((await db.query('select v.amount from pto_documents d join pto_versions v on v.id=d.current_version where d.id=$1',[c29])).rows[0].amount,'0.00');
+ // Оценка: отдельно от принятого, последняя действует, история не изменяется.
+ await command({op:'set_estimate',period_id:aug,contract_id:c21,amount:'2000000.00'});
+ await command({op:'set_estimate',period_id:aug,contract_id:c21,amount:'2100000.00',note:'Уточнено прорабом'});
+ await command({op:'set_estimate',period_id:aug,contract_id:await cid('22'),amount:'500.00'});
+ await assert.rejects(command({op:'set_estimate',period_id:aug,contract_id:await cid('С-1'),amount:'1.00'}),/договору с заказчиком/);
+ rows=await aug8();
+ const row21=line(rows,'21'),row22=line(rows,'22'),subtotal=rows.find(x=>x.kind==='project');
+ assert.deepEqual([row21.estimate,row21.total],['2100000.00','1973259.89']);
+ assert.deepEqual([row22.estimate,row22.total,row22.basis],['500.00','0.00',null],'договор только с оценкой виден в реестре');
+ assert.deepEqual([subtotal.total,subtotal.estimate],['1973259.89','2100500.00'],'оценка не входит во «Всего»');
+ assert.equal((await db.query('select count(*)::int n from pto_estimates where contract_id=$1',[c21])).rows[0].n,2);
+ await as(users.outsider);await assert.rejects(command({op:'set_estimate',period_id:aug,contract_id:c21,amount:'1.00'}),/Нет доступа/);
+ await db.exec('reset role');await assert.rejects(db.query('update pto_estimates set amount=0'),/только на добавление/);
+});
 test('audit log, process events and snapshots are append-only even for the database owner',async()=>{
  await db.exec('reset role');
  assert.ok((await db.query('select count(*)::int n from pto_events')).rows[0].n>0);
