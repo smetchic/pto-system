@@ -1,5 +1,5 @@
--- Откат миграции 20261006090000_security_hardening.sql: возвращает состояние базы на 6 октября 2026.
--- После выполнения удалить запись версии 20261006090000 из supabase_migrations.schema_migrations.
+-- Откат миграции 20261005213054_security_hardening.sql: возвращает состояние базы до её применения.
+-- После выполнения удалить запись версии 20261005213054 из supabase_migrations.schema_migrations.
 
 create or replace function public.pto_command(request_id uuid, payload jsonb) returns jsonb
 language sql set search_path='' as $$

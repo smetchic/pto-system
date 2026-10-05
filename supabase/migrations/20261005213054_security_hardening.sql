@@ -1,5 +1,5 @@
 -- Шаг 1 плана: права, журнал только на добавление, запрет каскадного удаления, общая блокировка команд.
--- Откат: supabase/rollback/20261006090000_security_hardening.down.sql
+-- Откат: supabase/rollback/20261005213054_security_hardening.down.sql
 
 -- 1. Клиент только читает. Запись в любые таблицы и представления public идёт через pto_command.
 do $$ declare r record; begin
