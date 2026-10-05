@@ -36,6 +36,13 @@ test('dashboard financial bars retain accepted values while the new draft is in 
  ctx.ui.flowProject='another-object';assert.doesNotMatch(renderWorkspace(ctx),/data-id="act"/);
 });
 
+test('negative own forces are shown and highlighted, not hidden',()=>{
+ const ctx=fixture();ctx.data.register[0].subcontract=324.58;
+ for(const route of ['register','objects']){ctx.ui.route=route;ctx.ui.portfolioView='table';
+  assert.match(renderWorkspace(ctx),/class="num neg"[^>]*>-224,58</,route);}
+ ctx.ui.route='project';ctx.ui.projectTab='month';assert.match(renderWorkspace(ctx),/<b class="neg"[^>]*>-224,58</);
+});
+
 test('object tabs preserve role and period gates for work actions',()=>{
  for(const role of ['head','engineer','accountant','admin']){
   const ctx=fixture(role);ctx.ui.route='project';
