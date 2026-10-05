@@ -28,7 +28,13 @@ if(url&&key&&key.startsWith('sb_publishable_')){
   .cp-empty{padding:30px 0}.cp-table button.link{text-align:left}.cp-table td{vertical-align:top}
   .cp-role-list{display:flex;gap:6px;flex-wrap:wrap}.cp-role-checks{display:flex;gap:8px 16px;flex-wrap:wrap;padding:10px 0 2px}
   .cp-role-checks label{display:flex;align-items:center;gap:7px;margin:0}.cp-role-checks input{width:auto;margin:0}
-  @media(max-width:760px){.cp-grid{grid-template-columns:1fr}.cp-grid .wide{grid-column:auto}}
+  #dialog.cp-drawer{margin:0 0 0 auto!important;inset:0 0 0 auto!important;width:640px;max-width:calc(100vw - 56px);height:100vh;max-height:100vh;border:0;border-left:1px solid var(--ln);border-radius:0;padding:0;background:var(--sf);color:var(--ink);box-shadow:-10px 0 28px rgba(0,0,0,.08);overflow:hidden}
+  #dialog.cp-drawer::backdrop{background:rgba(15,17,21,.08)}
+  .cp-drawer-shell{height:100%;overflow:auto;padding:0 26px 28px}
+  .cp-drawer-head{position:sticky;top:0;z-index:3;display:flex;align-items:center;justify-content:space-between;gap:16px;background:var(--sf);border-bottom:1px solid var(--ln);padding:18px 0 14px;margin-bottom:16px}
+  .cp-drawer-head h2{margin:0;color:var(--ink);font-size:18px;text-transform:none;letter-spacing:0}.cp-drawer-head button{flex:none}
+  .cp-drawer .actions{padding-bottom:8px}
+  @media(max-width:760px){.cp-grid{grid-template-columns:1fr}.cp-grid .wide{grid-column:auto}#dialog.cp-drawer{width:100%;max-width:100%}.cp-drawer-shell{padding:0 18px 24px}}
  `;
  document.head.appendChild(css);
 
@@ -86,10 +92,12 @@ if(url&&key&&key.startsWith('sb_publishable_')){
  function field(name,label,value='',type='text',required=false){return `<label>${esc(label)}<input name="${esc(name)}" type="${esc(type)}" value="${esc(value)}" autocomplete="off" ${required?'required':''}></label>`;}
  function area(name,label,value='',cls=''){return `<label class="${cls}">${esc(label)}<textarea name="${esc(name)}" autocomplete="off">${esc(value)}</textarea></label>`;}
  function roleChecks(c){const selected=new Set(c?rolesFor(c.id):[]);return `<div class="wide"><b>Роли контрагента</b><div class="cp-role-checks">${roleOrder.map(r=>`<label><input type="checkbox" data-cp-role value="${esc(r)}" ${selected.has(r)?'checked':''}>${esc(roleNames[r])}</label>`).join('')}</div></div>`;}
+ function resetDrawerClass(){dialog.classList.remove('cp-drawer');}
  function openCard(c=null){
   const edit=!!c;
-  dialog.classList.remove('document-drawer');
-  dialog.innerHTML=`<div class="row"><h2>${edit?'Контрагент':'Новый контрагент'}</h2><button data-cp-action="close">Закрыть</button></div>
+  dialog.classList.remove('document-drawer','proc-drawer');
+  dialog.classList.add('cp-drawer');
+  dialog.innerHTML=`<div class="cp-drawer-shell"><div class="cp-drawer-head"><h2>${edit?'Контрагент':'Новый контрагент'}</h2><button data-cp-action="close">Закрыть</button></div>
    ${edit?`<div class="cp-card-meta"><span class="pill">УНП ${esc(c.unp)}</span>${c.status_name?`<span class="pill ${c.status_name==='Действующий'?'g':''}">${esc(c.status_name)}</span>`:''}<span class="muted">Источник: ${esc(c.source||'manual')}</span></div>`:''}
    <form id="cp-form" autocomplete="off">
     <div class="cp-grid">
@@ -112,7 +120,7 @@ if(url&&key&&key.startsWith('sb_publishable_')){
     <input type="hidden" name="source" value="${esc(c?.source||'manual')}">
     <p id="cp-error" class="error" role="alert"></p>
     <div class="actions"><button class="primary" type="submit">Сохранить</button></div>
-   </form>`;
+   </form></div>`;
   if(!dialog.open)dialog.showModal();
   const form=dialog.querySelector('#cp-form');
   form.onsubmit=async ev=>{
@@ -123,7 +131,7 @@ if(url&&key&&key.startsWith('sb_publishable_')){
    if(edit)payload.counterparty_id=c.id;
    try{
     await q(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload}));
-    cache=null;dialog.close();
+    cache=null;resetDrawerClass();dialog.close();
     const pg=document.querySelector('#shell main .pg');if(pg)pg.innerHTML='<h1>Контрагенты</h1>';
     await renderPage();
    }catch(err){dialog.querySelector('#cp-error').textContent=/duplicate key|pto_counterparties_unp_key/i.test(err.message||'')?'Контрагент с таким УНП уже существует.':(err.message||String(err));}
@@ -134,7 +142,7 @@ if(url&&key&&key.startsWith('sb_publishable_')){
  document.addEventListener('click',async ev=>{
   const b=ev.target.closest('[data-cp-action]');if(!b)return;
   ev.preventDefault();ev.stopPropagation();
-  if(b.dataset.cpAction==='close'){dialog.close();return;}
+  if(b.dataset.cpAction==='close'){resetDrawerClass();dialog.close();return;}
   if(b.dataset.cpAction==='new'){await Promise.all([load(),getRole()]);if(canEdit())openCard();return;}
   if(b.dataset.cpAction==='open'){
    await Promise.all([load(),getRole()]);
