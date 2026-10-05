@@ -1,7 +1,7 @@
--- Откат миграции 20261005225931_pto_only_roles.sql: возвращает роль бухгалтерии, проверку роли шагов и описания шагов.
+-- Откат миграции 20261005230629_pto_only_roles.sql: возвращает роль бухгалтерии, проверку роли шагов и описания шагов.
 -- Тема оформления из профиля удаляется (сайт снова хранит её в браузере после отката кода).
 -- Определения взяты из миграции 20261005224629.
--- После выполнения удалить запись версии 20261005225931 из supabase_migrations.schema_migrations.
+-- После выполнения удалить запись версии 20261005230629 из supabase_migrations.schema_migrations.
 
 create or replace function public.pto_command(request_id uuid, payload jsonb) returns jsonb
 language plpgsql set search_path='' as $$
