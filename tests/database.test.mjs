@@ -4,7 +4,7 @@ import { readFile, readdir } from 'node:fs/promises';
 import { PGlite } from '@electric-sql/pglite';
 import { randomUUID } from 'node:crypto';
 let db, project, otherProject, period, contract, doc, summary, materials;
-const users={head:randomUUID(),engineer:randomUUID(),outsider:randomUUID(),admin:randomUUID(),accountant:randomUUID()};
+const users={head:randomUUID(),engineer:randomUUID(),outsider:randomUUID(),admin:randomUUID(),second:randomUUID()};
 async function as(user) { await db.exec('reset role'); await db.query("select set_config('request.jwt.claim.sub',$1,false)",[user]); await db.exec('set role authenticated'); }
 async function command(payload,request=randomUUID()){const r=await db.query('select public.pto_command($1,$2::jsonb) result',[request,JSON.stringify(payload)]);return r.rows[0].result;}
 async function rev(){return (await db.query('select revision from pto_periods where id=$1',[period])).rows[0].revision;}
@@ -33,7 +33,7 @@ before(async()=>{
  create table storage.objects(id uuid default gen_random_uuid(),bucket_id text,name text,unique(bucket_id,name));
  alter table storage.objects enable row level security;grant usage on schema storage to authenticated;grant select,insert on storage.objects to authenticated;`);
  for(const migration of (await readdir(new URL('../supabase/migrations/',import.meta.url))).sort()) await db.exec(await readFile(new URL('../supabase/migrations/'+migration,import.meta.url),'utf8'));
- for(const [name,id] of Object.entries(users)){await db.query('insert into auth.users values($1,$2)',[id,`${name}@test.invalid`]);await db.query('update pto_profiles set active=true,role=$2 where id=$1',[id,['engineer','outsider'].includes(name)?'engineer':name]);}
+ for(const [name,id] of Object.entries(users)){await db.query('insert into auth.users values($1,$2)',[id,`${name}@test.invalid`]);await db.query('update pto_profiles set active=true,role=$2 where id=$1',[id,['engineer','outsider','second'].includes(name)?'engineer':name]);}
 });
 after(async()=>db?.close());
 test('create workspace, object scope, memberships and idempotent commands',async()=>{
@@ -49,8 +49,7 @@ test('create workspace, object scope, memberships and idempotent commands',async
  contract=(await db.query('select id from pto_contracts')).rows[0].id;
  period=(await command({op:'open_period',project_id:project,month:'2026-10-01'})).period_id;
 });
-test('kit route: steps from the template, roles per step, returns with reason, acceptance of the whole kit',async()=>{
- await as(users.head);await command({op:'member',project_id:project,user_id:users.accountant});
+test('kit route: steps from the template, PTO marks accounting steps, returns with reason, acceptance of the whole kit',async()=>{
  await as(users.engineer);doc=await create('c2b','1');
  const w=(await docRow(doc)).workflow_id;assert.equal(await stepOf(w),'prepared');
  await assert.rejects(advance(w),/акты и одна С-3а/);
@@ -65,15 +64,16 @@ test('kit route: steps from the template, roles per step, returns with reason, a
  await assert.rejects(advance(w),/файл к каждому документу/);
  await assert.rejects(run('send',{document_id:doc,person:'Прораб',proof:'Опись',method:'Лично'}),/по маршруту комплекта/);
  await attachFile(doc);await attachFile(summary);await advance(w);await advance(w);assert.equal(await stepOf(w),'accounting');
- await assert.rejects(advance(w),/бухгалтерия/);
- await as(users.accountant);
+ // Бухгалтерия системой не пользуется: возврат и принятие бухгалтерией отмечает ПТО.
  await assert.rejects(command({op:'workflow_return',workflow_id:w,to_step:'signed',note:''}),/причину возврата/);
  await command({op:'workflow_return',workflow_id:w,to_step:'signed',document_id:summary,note:'Нет подписи заказчика на С-3а'});
  const last=(await db.query('select * from pto_workflow_list where id=$1',[w])).rows[0];
  assert.deepEqual([last.step_code,last.attention_document_id,last.last_note],['signed',summary,'Нет подписи заказчика на С-3а']);
- await assert.rejects(advance(w),/ПТО/);
+ await as(users.admin);await assert.rejects(advance(w),/отмечает ПТО/);
  await as(users.engineer);await advance(w);await advance(w);
- await as(users.accountant);await advance(w);assert.equal(await stepOf(w),'accepted');
+ await assert.rejects(advance(w,{proof:''}),/подтверждение/,'принятие бухгалтерией — с подтверждением');
+ await advance(w,{person:'Главный бухгалтер',proof:'Отметка на описи № 15'});assert.equal(await stepOf(w),'accepted');
+ assert.equal((await db.query("select person from pto_workflow_events where workflow_id=$1 and to_step='accepted'",[w])).rows[0].person,'Главный бухгалтер');
  assert.equal(Number((await db.query('select total from pto_register')).rows[0].total),100);
  assert.deepEqual((await db.query('select is_accepted from pto_document_list where workflow_id=$1',[w])).rows.map(r=>r.is_accepted),[true,true]);
  await advance(w);assert.equal(await stepOf(w),'closed');
@@ -237,7 +237,7 @@ test('contracts: direction and counterparty name are derived, current price and 
  await assert.rejects(command({op:'set_addendum_status',addendum_id:ds1,status:'signed'}),/Недопустимый переход/);
  // Права и журнал.
  await as(users.outsider);await assert.rejects(command({...terms}),/Нет доступа/);
- await as(users.accountant);await assert.rejects(command({...terms}),/Недостаточно прав/);
+ await as(users.admin);await assert.rejects(command({...terms}),/Недостаточно прав/);
  await as(users.head);
  const actions=(await db.query("select action from pto_events where action in ('update_contract','create_addendum','set_addendum_status','create_counterparty','update_counterparty')")).rows.map(r=>r.action);
  for(const a of ['update_contract','create_addendum','set_addendum_status','create_counterparty','update_counterparty'])assert.ok(actions.includes(a),a);
@@ -298,6 +298,17 @@ test('C-3a: SMR comes from the kit acts, to-pay and cumulative columns are compu
  assert.equal((await db.query('select count(*)::int n from pto_estimates where contract_id=$1',[c21])).rows[0].n,2);
  await as(users.outsider);await assert.rejects(command({op:'set_estimate',period_id:aug,contract_id:c21,amount:'1.00'}),/Нет доступа/);
  await db.exec('reset role');await assert.rejects(db.query('update pto_estimates set amount=0'),/только на добавление/);
+});
+test('roles are PTO only; the theme is kept in the profile and only by its owner',async()=>{
+ await as(users.admin);
+ await assert.rejects(command({op:'profile',user_id:users.second,role:'accountant',active:'true',display_name:'Бухгалтер'}),/pto_profiles_role_check/);
+ await command({op:'profile',user_id:users.second,role:'head',active:'true',display_name:'Второй'});
+ await as(users.engineer);
+ await command({op:'set_theme',theme:'dark'});
+ await assert.rejects(command({op:'set_theme',theme:'neon'}),/тема/);
+ assert.equal((await db.query('select theme from pto_profiles where id=$1',[users.engineer])).rows[0].theme,'dark');
+ await assert.rejects(db.query("update pto_profiles set theme='light' where id=$1",[users.engineer]),/permission denied/);
+ await as(users.head);assert.equal((await db.query('select theme from pto_profiles where id=$1',[users.head])).rows[0].theme,'system');
 });
 test('audit log, workflow events and snapshots are append-only even for the database owner',async()=>{
  await db.exec('reset role');
