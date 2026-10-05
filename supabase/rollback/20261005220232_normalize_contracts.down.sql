@@ -1,6 +1,6 @@
--- Откат миграции 20261005215418_normalize_contracts.sql: возвращает хранимые direction и party и прежние функции.
+-- Откат миграции 20261005220232_normalize_contracts.sql: возвращает хранимые direction и party и прежние функции.
 -- Определения функций взяты из миграций 20261004174232, 20261005124044, 20261005185841, 20261005213054, 20261005215002.
--- После выполнения удалить запись версии 20261005215418 из supabase_migrations.schema_migrations.
+-- После выполнения удалить запись версии 20261005220232 из supabase_migrations.schema_migrations.
 
 drop view public.pto_contract_list;
 drop view public.pto_register;
