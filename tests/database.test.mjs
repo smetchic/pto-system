@@ -10,8 +10,20 @@ async function command(payload,request=randomUUID()){const r=await db.query('sel
 async function rev(){return (await db.query('select revision from pto_periods where id=$1',[period])).rows[0].revision;}
 async function run(op,extra={}){return command({op,period_id:period,expected_revision:await rev(),...extra});}
 async function create(kind,number,amount='100.00'){return (await run('create_document',{contract_id:contract,kind,number,amount})).document_id;}
-async function attach(d){const v=(await db.query('select current_version from pto_documents where id=$1',[d])).rows[0].current_version;const path=`${project}/${d}/${v}/${randomUUID()}.pdf`;await db.query("insert into storage.objects(bucket_id,name) values('pto-documents',$1)",[path]);await run('attach',{document_id:d,path,name:'Акт.pdf'});}
-async function accept(d){await attach(d);for(const op of ['send','receive','sign','accept'])await run(op,{document_id:d,person:'Ответственный',proof:'Подтверждение получения или подписи',method:'Лично'});}
+// Маршрут комплекта (шаг 6): документы не переходят по одному, комплект движется по шагам шаблона.
+async function docRow(d){return (await db.query('select d.*,wd.workflow_id from pto_documents d join pto_workflow_documents wd on wd.document_id=d.id where d.id=$1',[d])).rows[0];}
+async function periodRev(per){return (await db.query('select revision from pto_periods where id=$1',[per])).rows[0].revision;}
+async function attachFile(d){const r=await docRow(d);const path=`${r.project_id}/${d}/${r.current_version}/${randomUUID()}.pdf`;await db.query("insert into storage.objects(bucket_id,name) values('pto-documents',$1)",[path]);await command({op:'attach',period_id:r.period_id,expected_revision:await periodRev(r.period_id),document_id:d,path,name:'Скан.pdf'});}
+async function stepOf(w){return (await db.query('select step_code from pto_workflows where id=$1',[w])).rows[0].step_code;}
+const advance=(w,extra={})=>command({op:'workflow_advance',workflow_id:w,person:'Ответственный',method:'Лично',proof:'Подтверждение по описи',...extra});
+// Прогоняет комплект документа до шага upTo, прикладывая файлы, где их нет (действует текущий пользователь).
+async function pass(d,upTo='accepted'){
+ const w=(await docRow(d)).workflow_id;
+ const docs=(await db.query('select d.id from pto_workflow_documents wd join pto_documents d on d.id=wd.document_id where wd.workflow_id=$1 and not exists(select 1 from pto_files f where f.version_id=d.current_version)',[w])).rows;
+ for(const x of docs)await attachFile(x.id);
+ for(let i=0;i<12&&await stepOf(w)!==upTo;i++)await advance(w);
+ assert.equal(await stepOf(w),upTo);return w;
+}
 before(async()=>{
  db=new PGlite();
  await db.exec(`create role anon;create role authenticated;create schema auth;create table auth.users(id uuid primary key,email text);
@@ -37,37 +49,70 @@ test('create workspace, object scope, memberships and idempotent commands',async
  contract=(await db.query('select id from pto_contracts')).rows[0].id;
  period=(await command({op:'open_period',project_id:project,month:'2026-10-01'})).period_id;
 });
-test('document versions, transfer receipt and acceptance are separate; reject stale writes',async()=>{
- await as(users.engineer);doc=await create('c2b','1');const revision=await rev();await attach(doc);
- await assert.rejects(command({op:'send',period_id:period,document_id:doc,expected_revision:revision}),/Данные уже изменились/);
- await run('send',{document_id:doc,person:'Прораб',proof:'Передано по описи',method:'Лично'});
- assert.equal((await db.query('select status from pto_documents where id=$1',[doc])).rows[0].status,'sent');
- await assert.rejects(run('accept',{document_id:doc,person:'Бухгалтер',proof:'Приём подтверждён'}),/Недопустимый переход/);
- await run('receive',{document_id:doc,person:'Прораб',proof:'Опись получения'});
- await run('sign',{document_id:doc,person:'Заказчик',proof:'Скан подписанного акта'});
- await assert.rejects(run('accept',{document_id:doc,person:'Бухгалтер',proof:'Принято в учёт'}),/Принятие доступно/);
- await as(users.head);await run('accept',{document_id:doc,person:'Бухгалтер',proof:'Принято в учёт'});
+test('kit route: steps from the template, roles per step, returns with reason, acceptance of the whole kit',async()=>{
+ await as(users.head);await command({op:'member',project_id:project,user_id:users.accountant});
+ await as(users.engineer);doc=await create('c2b','1');
+ const w=(await docRow(doc)).workflow_id;assert.equal(await stepOf(w),'prepared');
+ await assert.rejects(advance(w),/акты и одна С-3а/);
+ summary=await create('c3a','1','999');
+ assert.equal((await docRow(summary)).workflow_id,w,'С-3а попадает в тот же комплект');
+ assert.equal((await db.query('select v.amount from pto_versions v join pto_documents d on d.current_version=v.id where d.id=$1',[summary])).rows[0].amount,'100.00');
+ await assert.rejects(command({op:'workflow_advance',workflow_id:w,person:'Прораб',expected_revision:(await rev())-1}),/Данные уже изменились/);
+ await assert.rejects(advance(w,{person:''}),/кому передан/);
+ await advance(w);await advance(w);
+ await assert.rejects(advance(w,{method:''}),/способ передачи/);
+ await advance(w);await advance(w);assert.equal(await stepOf(w),'signed');
+ await assert.rejects(advance(w),/файл к каждому документу/);
+ await assert.rejects(run('send',{document_id:doc,person:'Прораб',proof:'Опись',method:'Лично'}),/по маршруту комплекта/);
+ await attachFile(doc);await attachFile(summary);await advance(w);await advance(w);assert.equal(await stepOf(w),'accounting');
+ await assert.rejects(advance(w),/бухгалтерия/);
+ await as(users.accountant);
+ await assert.rejects(command({op:'workflow_return',workflow_id:w,to_step:'signed',note:''}),/причину возврата/);
+ await command({op:'workflow_return',workflow_id:w,to_step:'signed',document_id:summary,note:'Нет подписи заказчика на С-3а'});
+ const last=(await db.query('select * from pto_workflow_list where id=$1',[w])).rows[0];
+ assert.deepEqual([last.step_code,last.attention_document_id,last.last_note],['signed',summary,'Нет подписи заказчика на С-3а']);
+ await assert.rejects(advance(w),/ПТО/);
+ await as(users.engineer);await advance(w);await advance(w);
+ await as(users.accountant);await advance(w);assert.equal(await stepOf(w),'accepted');
  assert.equal(Number((await db.query('select total from pto_register')).rows[0].total),100);
+ assert.deepEqual((await db.query('select is_accepted from pto_document_list where workflow_id=$1',[w])).rows.map(r=>r.is_accepted),[true,true]);
+ await advance(w);assert.equal(await stepOf(w),'closed');
+ await assert.rejects(advance(w),/завершён/);
+ const kinds=(await db.query('select kind from pto_workflow_events where workflow_id=$1 order by id',[w])).rows.map(r=>r.kind);
+ assert.deepEqual([kinds[0],kinds.filter(k=>k==='return').length],['created',1]);
 });
-test('new draft preserves accepted financial value and immutable history',async()=>{
+test('a new version keeps the accepted value, sends the kit back and requires a fresh C-3a',async()=>{
+ await as(users.head);
  await run('revise',{document_id:doc,amount:'120.50',note:'Уточнение объёма',reason:'Исправление'});
- assert.equal(Number((await db.query('select total from pto_register')).rows[0].total),100);
+ const w=(await docRow(doc)).workflow_id;
+ assert.equal(await stepOf(w),'prepared','комплект вернулся на подготовку');
+ assert.equal((await db.query("select note from pto_workflow_events where workflow_id=$1 and kind='reset' order by id desc limit 1",[w])).rows[0].note,'Новая версия документа № 1: Исправление');
+ assert.equal(Number((await db.query('select total from pto_register')).rows[0].total),100,'принятая сумма сохраняется');
  assert.equal((await db.query('select * from pto_versions where document_id=$1',[doc])).rows.length,2);
  await assert.rejects(db.query('update pto_versions set amount=1'),/permission denied/);
- await accept(doc);assert.equal(Number((await db.query('select total from pto_register')).rows[0].total),120.5);
+ await assert.rejects(advance(w),/Обновите С-3а/);
+ await run('revise',{document_id:summary,reason:'По новой версии акта'});
+ await pass(doc);assert.equal(Number((await db.query('select total from pto_register')).rows[0].total),120.5);
 });
-test('required package blocks review; summary is not double counted; close and reopen retain snapshots',async()=>{
+test('required package blocks review; review needs accepted kits; close and reopen retain snapshots',async()=>{
  await assert.rejects(run('review'),/обязательный комплект/);
- summary=await create('c3a','1','120.50');await accept(summary);
- materials=await create('c29','1','0');await accept(materials);
+ materials=await create('c29','1','5');
+ assert.equal((await db.query('select v.amount from pto_versions v join pto_documents d on d.current_version=v.id where d.id=$1',[materials])).rows[0].amount,'0.00','С-29 без суммы');
+ assert.equal((await db.query('select template_code from pto_workflow_list where id=$1',[(await docRow(materials)).workflow_id])).rows[0].template_code,'c29');
+ await assert.rejects(run('review'),/не принятые бухгалтерией/);
+ await pass(materials);
  assert.equal(Number((await db.query('select total from pto_register')).rows[0].total),120.5);
  await run('review');await run('close');
  await assert.rejects(run('revise',{document_id:doc,amount:'5',reason:'Проверка'}),/Период закрыт/);
+ await assert.rejects(advance((await docRow(doc)).workflow_id),/Период закрыт/);
  assert.equal((await db.query('select * from pto_snapshots')).rows.length,1);
+ assert.equal((await db.query('select data from pto_snapshots')).rows[0].data.workflows.length,2);
  await as(users.admin);await assert.rejects(run('reopen',{reason:''}),/причину/);await run('reopen',{reason:'Уточнение по письму заказчика'});
  assert.equal((await db.query('select * from pto_snapshots')).rows.length,1);
- await as(users.head);await run('revise',{document_id:doc,amount:'130',reason:'Уточнение'});await accept(doc);
- await assert.rejects(run('review'),/Обновите справку/);
+ await as(users.head);await run('revise',{document_id:doc,amount:'130',reason:'Уточнение'});
+ await assert.rejects(run('review'),/не принятые бухгалтерией/);
+ await run('revise',{document_id:summary,reason:'По новой версии акта'});await pass(doc);
+ await assert.rejects(run('review'),/Обновите справку и С-29/);
 });
 test('anonymous and unrelated users cannot read files or documents',async()=>{
  await as(users.head);assert.ok((await db.query('select * from storage.objects')).rows.length>0);
@@ -81,17 +126,19 @@ test('subcontract prices, allocation limits, NaN, and stale source version guard
  await as(users.head);
  await command({op:'create_contract',project_id:project,number:'СУБ-1',party:'Субподрядчик',direction:'incoming'});
  const incomingContract=(await db.query("select id from pto_contracts where direction='incoming'")).rows[0].id;
- const incoming=(await run('create_document',{contract_id:incomingContract,kind:'c2a',number:'С1',amount:'40'})).document_id;await accept(incoming);
+ const incoming=(await run('create_document',{contract_id:incomingContract,kind:'c2a',number:'С1',amount:'40'})).document_id;
+ assert.equal((await db.query('select template_code from pto_workflow_list where id=$1',[(await docRow(incoming)).workflow_id])).rows[0].template_code,'sub_claim');
+ await pass(incoming);
  await assert.rejects(run('allocate',{outgoing_document:doc,incoming_document:incoming,amount:'NaN',note:'Проверка'}));
  // Субподряд больше выполнения допустим: собственные силы отрицательны и только подсвечиваются (Паркинг, дог. №265).
  await run('allocate',{outgoing_document:doc,incoming_document:incoming,amount:'200',note:'Проверка'});
  let neg=(await db.query('select * from pto_register')).rows[0];assert.equal(Number(neg.total)-Number(neg.subcontract),-70);
  await run('allocate',{outgoing_document:doc,incoming_document:incoming,amount:'50',note:'Стоимость сопоставленных работ на заказчика'});
  let r=(await db.query('select * from pto_register')).rows[0];assert.equal(Number(r.total),130);assert.equal(Number(r.subcontract),50);
- for(const d of [summary,materials]){await run('revise',{document_id:d,amount:d===summary?'130':'0',reason:'Обновлены основания'});await accept(d);}
+ await run('revise',{document_id:materials,reason:'Обновлены основания'});await pass(materials);
  await run('review');await run('close');
  await as(users.admin);await run('reopen',{reason:'Уточнение субподрядчика'});
- await as(users.head);await run('revise',{document_id:incoming,amount:'45',reason:'Корректировка'});await accept(incoming);
+ await as(users.head);await run('revise',{document_id:incoming,amount:'45',reason:'Корректировка'});await pass(incoming);
  await assert.rejects(run('review'),/распределение субподряда/);
  const before=(await db.query('select data from pto_snapshots order by created_at desc limit 1')).rows[0].data;
  assert.equal(Number(before.register[0].total),130);assert.equal(Number(before.register[0].subcontract),50);
@@ -120,12 +167,12 @@ test('register matrix: exact August figures, column per sub-contract, hidden emp
  const op=async(per,name,extra)=>command({op:name,period_id:per,expected_revision:await revOf(per),...extra});
  async function object(name){const pid=(await command({op:'create_project',name})).project_id;return {pid,per:(await command({op:'open_period',project_id:pid,month})).period_id};}
  async function contract(pid,number,party,direction){await command({op:'create_contract',project_id:pid,number,party,direction});return (await db.query('select id from pto_contracts where project_id=$1 and number=$2',[pid,number])).rows[0].id;}
+ // Принятый акт: исходящий — комплектом с С-3а, входящий — комплектом субподрядчика.
  async function act({pid,per},contractId,number,amount,accepted=true){
   const d=(await op(per,'create_document',{contract_id:contractId,kind:'c2a',number,amount})).document_id;if(!accepted)return d;
-  const v=(await db.query('select current_version from pto_documents where id=$1',[d])).rows[0].current_version,path=`${pid}/${d}/${v}/${randomUUID()}.pdf`;
-  await db.query("insert into storage.objects(bucket_id,name) values('pto-documents',$1)",[path]);await op(per,'attach',{document_id:d,path,name:'Акт.pdf'});
-  for(const name of ['send','receive','sign','accept'])await op(per,name,{document_id:d,person:'Ответственный',proof:'Подтверждение',method:'Лично'});
-  return d;
+  if((await db.query('select direction from pto_contracts where id=$1',[contractId])).rows[0].direction==='outgoing')
+   await op(per,'create_document',{contract_id:contractId,kind:'c3a',number:'С-3а '+number});
+  await pass(d);return d;
  }
  const allocate=(o,out,inc,amount)=>op(o.per,'allocate',{outgoing_document:out,incoming_document:inc,amount,note:'Работы на заказчика'});
  // Пружаны, дог. №21 (бриф, раздел 7) и ещё два договора объекта.
@@ -196,7 +243,7 @@ test('contracts: direction and counterparty name are derived, current price and 
  for(const a of ['update_contract','create_addendum','set_addendum_status','create_counterparty','update_counterparty'])assert.ok(actions.includes(a),a);
  await as(users.engineer);await assert.rejects(db.query('insert into pto_contract_addenda(contract_id,number,agreement_date) values($1,$2,$3)',[c.id,'9','2026-01-01']),/permission denied/);
 });
-test('C-3a: SMR comes from accepted acts, to-pay and cumulative columns are computed; C-29 has no sum; estimates kept apart',async()=>{
+test('C-3a: SMR comes from the kit acts, to-pay and cumulative columns are computed; C-29 has no sum; estimates kept apart',async()=>{
  await as(users.head);
  const revOf=async per=>(await db.query('select revision from pto_periods where id=$1',[per])).rows[0].revision;
  const op=async(per,name,extra)=>command({op:name,period_id:per,expected_revision:await revOf(per),...extra});
@@ -206,42 +253,37 @@ test('C-3a: SMR comes from accepted acts, to-pay and cumulative columns are comp
  await command({op:'create_contract',project_id:pid,number:'С-1',party:'Субподрядчик',direction:'incoming'});
  const cid=async n=>(await db.query('select id from pto_contracts where project_id=$1 and number=$2',[pid,n])).rows[0].id;
  const c21=await cid('21');
- async function doc(per,kind,number,extra,accepted=true){
-  const d=(await op(per,'create_document',{contract_id:c21,kind,number,...extra})).document_id;if(!accepted)return d;
-  const v=(await db.query('select current_version from pto_documents where id=$1',[d])).rows[0].current_version,path=`${pid}/${d}/${v}/${randomUUID()}.pdf`;
-  await db.query("insert into storage.objects(bucket_id,name) values('pto-documents',$1)",[path]);await op(per,'attach',{document_id:d,path,name:'Скан.pdf'});
-  for(const name of ['send','receive','sign','accept'])await op(per,name,{document_id:d,person:'Ответственный',proof:'Подтверждение',method:'Лично'});
-  return d;
- }
+ const doc=async(per,kind,number,extra)=>(await op(per,'create_document',{contract_id:c21,kind,number,...extra})).document_id;
  const report=async d=>(await db.query('select r.* from pto_c3a_report r join pto_documents d on d.current_version=r.version_id where d.id=$1',[d])).rows[0];
  // Июль: предыдущий месяц для накопления.
  const jul=(await command({op:'open_period',project_id:pid,month:'2026-07-01'})).period_id;
  await doc(jul,'c2a','7',{amount:'1000.00'});
- await doc(jul,'c3a','7',{smr_vat:'166.67'});
+ await pass(await doc(jul,'c3a','7',{smr_vat:'166.67'}));
  // Август: цифры приёмки из брифа (раздел 7).
  const aug=(await command({op:'open_period',project_id:pid,month:'2026-08-01'})).period_id;
  await doc(aug,'c2a','8',{amount:'1973259.89'});
- const c3a=await doc(aug,'c3a','8',{amount:'5',smr_vat:'328876.65',equipment_amount:'731538.30',equipment_vat:'121923.05',advance_target_offset:'1000000.00',advance_current_offset:'153974.13'},false);
+ const c3a=await doc(aug,'c3a','8',{amount:'5',smr_vat:'328876.65',equipment_amount:'731538.30',equipment_vat:'121923.05',advance_target_offset:'1000000.00',advance_current_offset:'153974.13'});
  let r=await report(c3a);
- assert.equal(r.smr,'1973259.89','СМР с НДС берётся из принятых актов, введённая сумма игнорируется');
+ assert.equal(r.smr,'1973259.89','СМР с НДС берётся из актов комплекта, введённая сумма игнорируется');
  assert.equal(r.to_pay,'1550824.06','к оплате = 1 973 259,89 + 731 538,30 − 1 153 974,13');
  assert.deepEqual([r.ytd_smr,r.total_smr,r.ytd_smr_vat,r.total_to_pay],['1974259.89','1974259.89','329043.32','1551824.06']);
  // В августе есть и другие объекты (тест «Пружаны»): строки берутся только этого объекта.
  const aug8=async()=>(await db.query("select pto_register_matrix('2026-08-01') m")).rows[0].m.rows.filter(x=>x.project_id===pid);
  const line=(rows,n)=>rows.find(x=>x.kind==='contract'&&x.number===n);
  let rows=await aug8();
- assert.equal(line(rows,'21').basis,'acts');
+ assert.equal(line(rows,'21'),undefined,'до подписания заказчиком в реестре нет суммы');
  // Новая версия без переданных полей сохраняет прежние значения, кроме изменённого.
  await op(aug,'revise',{document_id:c3a,advance_current_offset:'153974.14',reason:'Исправление зачёта'});
  r=await report(c3a);assert.deepEqual([r.equipment,r.current_offset,r.to_pay],['731538.30','153974.14','1550824.05']);
  await assert.rejects(op(aug,'revise',{document_id:c3a,smr_vat:'1.001',reason:'Проверка'}),/рублях и копейках/);
- const v=(await db.query('select current_version from pto_documents where id=$1',[c3a])).rows[0].current_version,path=`${pid}/${c3a}/${v}/${randomUUID()}.pdf`;
- await db.query("insert into storage.objects(bucket_id,name) values('pto-documents',$1)",[path]);await op(aug,'attach',{document_id:c3a,path,name:'С-3а.pdf'});
- for(const name of ['send','receive','sign','accept'])await op(aug,name,{document_id:c3a,person:'Ответственный',proof:'Подтверждение',method:'Лично'});
+ // Подписано заказчиком, но не принято бухгалтерией — сумма по актам с пометкой; после принятия — по С-3а.
+ await pass(c3a,'signed');
+ rows=await aug8();assert.deepEqual([line(rows,'21').basis,line(rows,'21').total],['signed','1973259.89']);
+ await pass(c3a);
  rows=await aug8();
  assert.equal(line(rows,'21').basis,'c3a');assert.equal(line(rows,'21').total,'1973259.89');
  // С-29 без суммы.
- const c29=await doc(aug,'c29','8',{amount:'999'},false);
+ const c29=await doc(aug,'c29','8',{amount:'999'});
  assert.equal((await db.query('select v.amount from pto_documents d join pto_versions v on v.id=d.current_version where d.id=$1',[c29])).rows[0].amount,'0.00');
  // Оценка: отдельно от принятого, последняя действует, история не изменяется.
  await command({op:'set_estimate',period_id:aug,contract_id:c21,amount:'2000000.00'});
@@ -264,6 +306,9 @@ test('audit log, process events and snapshots are append-only even for the datab
  await assert.rejects(db.query('delete from pto_events'),/только на добавление/);
  await assert.rejects(db.query('delete from pto_snapshots'),/только на добавление/);
  await assert.rejects(db.query('truncate pto_process_events'),/только на добавление/);
+ assert.ok((await db.query('select count(*)::int n from pto_workflow_events')).rows[0].n>0);
+ await assert.rejects(db.query('delete from pto_workflow_events'),/только на добавление/);
+ await assert.rejects(db.query("update pto_workflow_events set note=''"),/только на добавление/);
  const cascades=await db.query("select conrelid::regclass::text tbl,conname from pg_constraint where contype='f' and connamespace='public'::regnamespace and confdeltype='c'");
  assert.deepEqual(cascades.rows,[]);
 });

@@ -1,6 +1,6 @@
 import {renderWorkspace} from './views.js';
 import {createClient} from '@supabase/supabase-js';
-import {escapeHtml as e,money,stateNames,kindNames,roleNames,actionNames,emptyMatrix,registerSheetRows,ourRoleNames,addendumStateNames} from './domain.js';
+import {escapeHtml as e,money,isDone,canActOn,kindNames,roleNames,actionNames,emptyMatrix,registerSheetRows,ourRoleNames,addendumStateNames} from './domain.js';
 import './style.css';
 const $=s=>document.querySelector(s),app=$('#app'),dialog=$('#dialog');
 const url=import.meta.env.VITE_SUPABASE_URL,key=import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -32,20 +32,21 @@ async function load(){
  profile=await query(client.from('pto_profiles').select('*').eq('id',session.user.id).maybeSingle());
  if(generation!==loadId)return;
  if(!profile?.active){app.innerHTML=`<section class="login"><div class="mark">П</div><h1>Доступ ещё не назначен</h1><p>Администратор должен активировать вашу учётную запись и назначить объекты.</p><p class="muted">${e(session.user.email)}</p>${btn('Проверить доступ','refresh')}${btn('Выйти','logout')}</section>`;return;}
- const [projects,contracts,periods,profiles,memberships]=await Promise.all([all('pto_projects'),all('pto_contract_list'),all('pto_periods',q=>q.eq('month',ui.month+'-01')),all('pto_profiles'),query(client.from('pto_memberships').select('*'))]);
+ const [projects,contracts,periods,profiles,memberships,templates,steps]=await Promise.all([all('pto_projects'),all('pto_contract_list'),all('pto_periods',q=>q.eq('month',ui.month+'-01')),all('pto_profiles'),query(client.from('pto_memberships').select('*')),query(client.from('pto_workflow_templates').select('*')),query(client.from('pto_workflow_steps').select('*'))]);
  if(generation!==loadId)return;
  const ids=periods.map(p=>p.id);
- const [documents,allocations,register,matrix]=ids.length?await Promise.all([all('pto_documents',q=>q.in('period_id',ids)),all('pto_allocations',q=>q.in('period_id',ids)),query(client.from('pto_register').select('*').eq('month',ui.month+'-01')),query(client.rpc('pto_register_matrix',{p_month:ui.month+'-01'}))]):[[],[],[],emptyMatrix];
+ // Состояние документа и задачи — из комплектов маршрутов (pto_document_list, pto_workflow_list).
+ const [documents,allocations,register,matrix,workflows]=ids.length?await Promise.all([all('pto_document_list',q=>q.in('period_id',ids)),all('pto_allocations',q=>q.in('period_id',ids)),query(client.from('pto_register').select('*').eq('month',ui.month+'-01')),query(client.rpc('pto_register_matrix',{p_month:ui.month+'-01'})),all('pto_workflow_list',q=>q.in('period_id',ids))]):[[],[],[],emptyMatrix,[]];
  const dids=documents.map(d=>d.id);
  const versions=dids.length?await all('pto_versions',q=>q.in('document_id',dids)):[];
  const events=await query(client.from('pto_events').select('*').order('id',{ascending:false}).limit(150));
  if(generation!==loadId)return;
- data={projects,contracts,periods,profiles,memberships,documents,allocations,register,matrix,versions,events};
+ data={projects,contracts,periods,profiles,memberships,documents,allocations,register,matrix,versions,events,workflows,templates,steps};
  if(ui.project&&!projects.some(p=>p.id===ui.project))ui.project=null;
  render();
 }
 function render(){app.innerHTML=renderWorkspace({ui,data,profile});}
-function modal(title,html,drawer=false){dialog.classList.toggle('document-drawer',drawer);dialog.innerHTML=`<div class="row"><h2>${e(title)}</h2>${btn('Закрыть','dismiss')}</div>${html}`;if(!dialog.open)dialog.showModal();}
+function modal(title,html,drawer=false){dialog.classList.remove('proc-drawer');dialog.classList.toggle('document-drawer',drawer);dialog.innerHTML=`<div class="row"><h2>${e(title)}</h2>${btn('Закрыть','dismiss')}</div>${html}`;if(!dialog.open)dialog.showModal();}
 function form(title,fields,submit){modal(title,`<form id="modal-form">${fields}<p id="form-error" class="error" role="alert"></p><div class="actions"><button class="primary" type="submit">Сохранить</button></div></form>`);$('#modal-form').onsubmit=async ev=>{ev.preventDefault();const button=ev.submitter;button.disabled=true;try{await submit(Object.fromEntries(new FormData(ev.target)));dialog.close();}catch(err){$('#form-error').textContent=errorMessage(err);}finally{button.disabled=false;}};}
 async function mutate(payload){const result=await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload}));await load();toast('Сохранено');return result;}
 function periodPayload(op,extra={}){const p=currentPeriod();if(!p)throw Error('Откройте месяц');return {op,period_id:p.id,expected_revision:p.revision,...extra};}
@@ -55,17 +56,53 @@ async function docModal(id){
  const v=ver(d),p=currentPeriod();
  const report=d.kind==='c3a'?(await query(client.from('pto_c3a_report').select('*').eq('version_id',v.id)))[0]:null;
  const amountBlock=d.kind==='c29'?`<p class="muted">Версия ${v.version} · материальный отчёт, денежной суммы нет.</p>`:d.kind==='c3a'?`<p class="muted">Версия ${v.version}</p>${c3aTable(report)}`:`<div class="stats"><article><small>Версия ${v.version}</small><strong>${money(v.amount)} <small>руб.</small></strong></article></div>`;
- const next={draft:['send','Передать'],sent:['receive','Подтвердить получение'],received:['sign','Зафиксировать подпись'],signed:['accept','Принять бухгалтерией']}[d.status];
- const editable=p?.status==='open';const canNext=editable&&next&&(next[0]==='accept'?['head','accountant'].includes(profile.role):editor());
- modal(`${kindNames[d.kind]} № ${d.number}`,`<p>${badge(stateNames[d.status],d.status==='accepted')} · ${e(projectName(d.project_id))}</p>${amountBlock}<p>${e(v.note)}</p><p class="muted">Фиксация подписи в системе — запись о подтверждении, не электронная подпись.</p><div class="actions">${canNext?btn(next[1],'transition',next[0],true):''}${editable&&editor()?btn('Новая версия','revise',id):''}</div><h3>Движение документа</h3><div class="timeline">${Object.entries(stateNames).map(([state,label],i)=>`<div class="step ${i<Object.keys(stateNames).indexOf(d.status)?'done':state===d.status?'cur':''}"><i></i><span>${e(label)}</span></div>`).join('')}</div><h3>Файлы текущей версии</h3>${files.filter(f=>f.version_id===v.id).map(f=>`<p>${btn(f.name,'download',f.path)}</p>`).join('')||'<p class="muted">Файлы не прикреплены.</p>'}${editable&&editor()&&d.status==='draft'?`<label class="file">Прикрепить файл (до 20 МБ)<input id="upload" type="file"></label>`:''}<h3>История версий</h3>${data.versions.filter(x=>x.document_id===id).sort((a,b)=>b.version-a.version).map(x=>`<div class="version"><b>Версия ${x.version} · ${money(x.amount)} руб.</b> ${x.id===d.accepted_version?badge('Принята',true):''}<small>${e(fmtDate(x.created_at))}</small><p>${e(x.note)}</p>${files.filter(f=>f.version_id===x.id).map(f=>btn(f.name,'download',f.path)).join('')}</div>`).join('')}`,true);
+ // Документ не переходит сам по себе: передача, подпись и принятие — шаги его комплекта.
+ const editable=p?.status==='open',done=isDone(d);
+ modal(`${kindNames[d.kind]} № ${d.number}`,`<p>${badge(d.step_label||'Без комплекта',done)} · ${e(projectName(d.project_id))}</p>${amountBlock}<p>${e(v.note)}</p><div class="actions">${d.workflow_id?btn('Открыть комплект','workflow',d.workflow_id,true):''}${editable&&editor()?btn('Новая версия','revise',id):''}</div>${editable&&editor()&&done?'<p class="muted">Комплект принят бухгалтерией. Новая версия вернёт его на первый шаг; принятая сумма сохранится до повторного принятия.</p>':''}<h3>Файлы текущей версии</h3>${files.filter(f=>f.version_id===v.id).map(f=>`<p>${btn(f.name,'download',f.path)}</p>`).join('')||'<p class="muted">Файлы не прикреплены.</p>'}${editable&&editor()&&!done?`<label class="file">Прикрепить файл (до 20 МБ)<input id="upload" type="file"></label>`:''}<h3>История версий</h3>${data.versions.filter(x=>x.document_id===id).sort((a,b)=>b.version-a.version).map(x=>`<div class="version"><b>Версия ${x.version} · ${money(x.amount)} руб.</b> ${x.id===d.accepted_version?badge('Принята',true):''}<small>${e(fmtDate(x.created_at))}</small><p>${e(x.note)}</p>${files.filter(f=>f.version_id===x.id).map(f=>btn(f.name,'download',f.path)).join('')}</div>`).join('')}`,true);
  if($('#upload'))$('#upload').onchange=async ev=>{const file=ev.target.files[0];if(!file)return;if(file.size>20971520)return toast('Максимальный размер файла — 20 МБ');ev.target.disabled=true;try{
  const ext=file.name.split('.').pop().replace(/[^a-zA-Z0-9]/g,'').slice(0,10);const path=`${d.project_id}/${d.id}/${v.id}/${crypto.randomUUID()}.${ext||'bin'}`;
  await query(client.storage.from('pto-documents').upload(path,file,{upsert:false,contentType:file.type||'application/octet-stream'}));
  await mutate(periodPayload('attach',{document_id:id,path,name:file.name}));await docModal(id);
  }catch(err){toast(errorMessage(err));ev.target.disabled=false;}};
 }
-// Справка С-3а: СМР с НДС = сумма принятых актов (считает база); вводятся только выделенный НДС, оборудование и зачёт авансов.
-const c3aHint='<p class="muted">СМР с НДС за период не вводится: это сумма принятых актов С-2 договора за месяц. «К оплате» и накопительные колонки считаются автоматически.</p>';
+// Справка С-3а: СМР с НДС = сумма актов комплекта (считает база); вводятся только выделенный НДС, оборудование и зачёт авансов.
+const c3aHint='<p class="muted">СМР с НДС за период не вводится: это сумма актов С-2 договора за месяц (текущие версии). После изменения акта создайте новую версию справки. «К оплате» и накопительные колонки считаются автоматически.</p>';
+// Комплект: шаги маршрута из базы, состав, история; переход и возврат — одной командой.
+const wfOf=id=>data.workflows.find(w=>w.id===id);
+const stepsOf=w=>data.steps.filter(s=>s.template_code===w.template_code).sort((a,b)=>a.ordinal-b.ordinal);
+const periodOf=w=>data.periods.find(p=>p.id===w.period_id);
+const canMove=w=>canActOn(w,profile.role)&&periodOf(w)?.status==='open';
+async function workflowModal(id){
+ const w=wfOf(id);if(!w)throw Error('Комплект не найден');
+ const events=(await all('pto_workflow_events',q=>q.eq('workflow_id',id))).sort((a,b)=>b.id-a.id),steps=stepsOf(w),next=steps.find(s=>s.ordinal===w.step_ordinal+1);
+ const kit=data.documents.filter(d=>d.workflow_id===id),label=code=>steps.find(s=>s.code===code)?.label||code||'';
+ const who=a=>data.profiles.find(p=>p.id===a)?.display_name||'';
+ dialog.className='proc-drawer';
+ dialog.innerHTML=`<div class="proc-drawer-body"><button class="proc-drawer-close" data-action="dismiss">Закрыть ×</button>
+  <div class="proc-drawer-title">${e(w.template_name)}</div><div class="proc-drawer-sub">${e(w.project)} · договор № ${e(w.contract_number)} · ${e(w.party||'')}${w.money?` · ${money(w.acts_amount)} руб.`:''}</div>
+  <div class="proc-timeline">${steps.map(s=>`<div class="proc-step ${s.ordinal<w.step_ordinal?'done':s.code===w.step_code?'current':''}"><span class="proc-step-dot"></span><div>${e(s.label)}${s.code===w.step_code&&s.actor!=='none'?`<small>действует: ${s.actor==='accounting'?'бухгалтерия':'ПТО'}</small>`:''}</div></div>`).join('')}</div>
+  ${next&&canMove(w)?`<button class="proc-primary-action" data-action="wf-advance" data-id="${e(id)}">→ ${e(next.label)}</button>`:''}
+  ${w.hint?`<section class="proc-help"><h3>Что делать на этом шаге</h3><p>${e(w.hint)}</p></section>`:''}
+  <div class="proc-history-title">Состав комплекта</div><div class="wf-docs">${kit.map(d=>`<button class="link" data-action="doc" data-id="${e(d.id)}">${e(kindNames[d.kind])} № ${e(d.number)}${d.id===w.attention_document_id?' <span class="wf-attention">· замечание</span>':''}</button>`).join('')||'<span class="muted">Документов нет.</span>'}</div>
+  ${w.step_ordinal>1&&canMove(w)?`<section class="proc-return">${btn('Вернуть на исправление','wf-return',id)}</section>`:''}
+  <div class="proc-history-title">История</div><div class="proc-history">${events.map(x=>`<div class="proc-event"><b>${x.kind==='created'?'Создан':x.kind==='reset'?'Возврат на первый шаг':x.kind==='return'?'Возврат':'Переход'}: ${e(x.from_step?label(x.from_step)+' → ':'')}${e(label(x.to_step))}</b><small>${e(fmtDate(x.created_at))}${x.actor?` · ${e(who(x.actor))}`:''}${x.person?` · ${e(x.person)}`:''}${x.method?` · ${e(x.method)}`:''}</small>${x.proof?`<small>Подтверждение: ${e(x.proof)}</small>`:''}${x.note?`<small>${e(x.note)}</small>`:''}</div>`).join('')}</div></div>`;
+ if(!dialog.open)dialog.showModal();
+}
+function workflowAdvance(id){
+ const w=wfOf(id),next=stepsOf(w).find(s=>s.ordinal===w.step_ordinal+1),req=next?.requires||[];
+ if(!next)return toast('Маршрут завершён');
+ const fields=(req.includes('person')?field('person',next.code==='accounting'?'Кому передан оригинал':'Кому передан комплект'):'')+(req.includes('method')?field('method','Способ передачи'):'')
+  +(req.includes('proof')?note('proof','Подтверждение: номер письма, описи, отметка о подписи'):'')+note('note','Комментарий').replace(' required','');
+ const warn=req.includes('accept')?'<p>Все документы комплекта будут приняты одновременно; принятые версии зафиксируются.</p>':req.includes('files')?'<p class="muted">У каждого документа комплекта должен быть файл текущей версии.</p>':'';
+ dialogReset();return form(`→ ${next.label}`,warn+fields,x=>mutate({op:'workflow_advance',workflow_id:id,expected_revision:periodOf(w)?.revision,...x}));
+}
+function workflowReturn(id){
+ const w=wfOf(id),earlier=stepsOf(w).filter(s=>s.ordinal<w.step_ordinal).reverse(),kit=data.documents.filter(d=>d.workflow_id===id);
+ dialogReset();return form('Вернуть комплект на исправление',select('to_step','Вернуть на шаг',earlier.map(s=>[s.code,s.label]))
+  +`<label>Документ с замечанием<select name="document_id"><option value="">Весь комплект</option>${kit.map(d=>`<option value="${e(d.id)}">${e(kindNames[d.kind])} № ${e(d.number)}</option>`).join('')}</select></label>`
+  +note('note','Причина возврата'),x=>mutate({op:'workflow_return',workflow_id:id,expected_revision:periodOf(w)?.revision,...x}));
+}
+function dialogReset(){dialog.className='';}
 const c3aFields=(v={})=>[['smr_vat','в т.ч. НДС в СМР, руб.'],['equipment_amount','Оборудование с НДС, руб.'],['equipment_vat','в т.ч. НДС на оборудование, руб.'],['advance_target_offset','Зачёт целевого аванса, руб.'],['advance_current_offset','Зачёт текущего аванса, руб.']].map(([k,label])=>field(k,label,'number',v[k]??'',false)).join('');
 const c3aRows=[['smr','СМР с НДС'],['smr_vat','в т.ч. НДС'],['equipment','Оборудование с НДС'],['equipment_vat','в т.ч. НДС'],['target_offset','Зачёт целевого аванса'],['current_offset','Зачёт текущего аванса'],['to_pay','К оплате']];
 function c3aTable(r){if(!r)return '';const cell=(prefix,k)=>money(r[(prefix?prefix+'_':'')+k]);return `<div class="table-wrap"><table><thead><tr><th>Справка С-3а</th><th class="num">С начала работ</th><th class="num">С начала года</th><th class="num">За период</th></tr></thead><tbody>${c3aRows.map(([k,label])=>`<tr class="${k==='to_pay'?'total':''}"><td>${e(label)}</td><td class="num">${cell('total',k)}</td><td class="num">${cell('ytd',k)}</td><td class="num">${cell('',k)}</td></tr>`).join('')}</tbody></table></div><p class="muted">К оплате = СМР + оборудование − зачёт авансов. Накопление — по принятым справкам предыдущих месяцев.</p>`;}
@@ -117,6 +154,8 @@ async function action(name,id){
  if(name==='portfolio-view'){ui.portfolioView=id;return render();}
  if(name==='project-tab'){ui.projectTab=id;return render();}
  if(name==='flow-filter'){ui.flowProject=id;return render();}
+ if(name==='flow-template'){ui.flowTemplate=id;return render();}
+ if(name==='view-as'){ui.viewAs=id;return render();}
  if(name==='theme'){if(!['light','dark','system'].includes(id))return;ui.theme=id;try{localStorage.setItem('pto-theme',id);}catch{}applyTheme();return render();}
  if(name==='project'){ui.project=id;ui.route='project';ui.projectTab='summary';ui.more=false;return render();}
  if(name==='new-project')return form('Новый объект',field('name','Короткое название')+field('full_name','Полное наименование объекта')+field('address','Адрес','text','',false),async x=>{const r=await mutate({op:'create_project',...x});ui.project=r.project_id;ui.route='project';render();});
@@ -142,7 +181,9 @@ async function action(name,id){
  if(name==='revise'){const d=data.documents.find(d=>d.id===id),v=ver(d);
  const body=d.kind==='c3a'?c3aHint+c3aFields(v):d.kind==='c29'?'':field('amount','Сумма акта с НДС, руб.','number',v.amount);
  return form('Новая версия документа',body+note('note','Содержание / основание',v.note).replace(' required','')+note('reason','Причина изменения'),x=>mutate(periodPayload('revise',{document_id:id,...x})));}
- if(name==='transition')return form(actionNames[id],field('person',id==='send'?'Кому передано':'Кто подтвердил')+(id==='send'?field('method','Способ передачи'):'')+note('proof','Подтверждение: номер письма, описи, скана'),x=>mutate(periodPayload(id,{document_id:ui.doc,...x})));
+ if(name==='workflow')return workflowModal(id);
+ if(name==='wf-advance')return workflowAdvance(id);
+ if(name==='wf-return')return workflowReturn(id);
  if(name==='review')return mutate(periodPayload('review'));
  if(name==='close')return form('Закрыть отчётный период',`<p>Все документы будут заблокированы. Сохранится неизменяемый снимок выполнения. Повторно открыть период сможет администратор с указанием причины.</p>`,()=>mutate(periodPayload('close')));
  if(name==='reopen')return form('Повторное открытие',note('reason','Причина открытия'),x=>mutate(periodPayload('reopen',x)));
@@ -160,6 +201,8 @@ async function action(name,id){
 async function exportXlsx(){const {default:ExcelJS}=await import('exceljs');const book=new ExcelJS.Workbook();book.creator='СУ-22 · ПТО';const sheet=book.addWorksheet('Реестр',{views:[{state:'frozen',xSplit:1,ySplit:2}]});const lines=registerSheetRows(data.matrix,ui.month);for(const line of lines){const row=sheet.addRow(line.values);if(line.bold)row.font={bold:true};}const width=lines[1].values.length;sheet.columns.forEach((c,i)=>{c.width=i?22:58;if(i)c.numFmt='#,##0.00;[Red]-#,##0.00';});sheet.autoFilter={from:{row:2,column:1},to:{row:2,column:width}};const buffer=await book.xlsx.writeBuffer();const link=document.createElement('a');link.href=URL.createObjectURL(new Blob([buffer],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));link.download=`Реестр_ПТО_${ui.month}.xlsx`;link.click();setTimeout(()=>URL.revokeObjectURL(link.href),10000);}
 function login(){app.innerHTML=`<section class="login"><div class="mark">П</div><div class="eyebrow">СУ-22 · единая система ПТО</div><h1>${ui.recovery?'Новый пароль':'Вход в рабочее пространство'}</h1><p class="muted">Объекты, документы и выполнение за месяц.</p><form id="login-form">${ui.recovery?'':field('email','Электронная почта','email')}${field('password','Пароль','password')}<p class="error" id="login-error" role="alert"></p><button class="primary">${ui.recovery?'Сохранить пароль':'Войти'}</button></form><p class="muted">Доступ выдаёт администратор системы.</p></section>`;$('#login-form').onsubmit=async ev=>{ev.preventDefault();const button=ev.submitter;button.disabled=true;try{const f=Object.fromEntries(new FormData(ev.target));if(ui.recovery){await query(client.auth.updateUser({password:f.password}));ui.recovery=false;toast('Пароль сохранён');await load();}else{const result=await query(client.auth.signInWithPassword(f));session=result.session;await load();}}catch(err){$('#login-error')&&($('#login-error').textContent=errorMessage(err));}finally{button.disabled=false;}};}
 document.addEventListener('click',async ev=>{const b=ev.target.closest('[data-action]');if(!b||b.disabled||ui.busy)return;ui.busy=true;try{await action(b.dataset.action,b.dataset.id);}catch(err){toast(errorMessage(err));}finally{ui.busy=false;}});
+// Карточки конвейера — не кнопки: открываются клавишами Enter и пробел.
+document.addEventListener('keydown',ev=>{const card=ev.target.closest?.('[role="button"][data-action]');if(card&&ev.target===card&&(ev.key==='Enter'||ev.key===' ')){ev.preventDefault();card.click();}});
 document.addEventListener('change',async ev=>{if(ev.target.id==='jump'&&ev.target.value){const value=ev.target.value;return action(value.startsWith('project:')?'project':'nav',value.split(':')[1]);}if(ev.target.id==='month'&&ev.target.value){const previous=ui.month;ui.month=ev.target.value;try{await load();}catch(err){ui.month=previous;ev.target.value=previous;toast(errorMessage(err));}}});
 if(!url||!key||!key.startsWith('sb_publishable_'))app.innerHTML=`<section class="login"><div class="mark">П</div><h1>Подключение ещё не настроено</h1><p>Для запуска администратор должен подключить базу системы ПТО и опубликовать сборку.</p></section>`;
 else{
