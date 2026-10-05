@@ -87,7 +87,7 @@ if(url&&key&&key.startsWith('sb_publishable_')){
      ${field('tax_office_name','Инспекция МНС',c?.tax_office_name||'')}
      ${field('status_code','Код состояния',c?.status_code||'')}
      ${field('status_name','Статус',c?.status_name||'')}
-     ${field('liquidation_date','Дата ликвидации',c?.liquidation_date||'','date')}
+     ${field('status_change_date','Дата изменения состояния',c?.status_change_date||'','date')}
      ${area('liquidation_info','Сведения о ликвидации',c?.liquidation_info||'','wide')}
      ${field('phone','Телефон',c?.phone||'','tel')}
      ${field('email','Электронная почта',c?.email||'','email')}
