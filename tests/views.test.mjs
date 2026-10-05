@@ -60,6 +60,17 @@ test('register renders the database matrix: sub-contract columns, object subtota
  assert.match(html,/<td>Итого<\/td><td class="num">999,99</);
 });
 
+test('register shows the operative estimate separately and marks the basis of accepted sums',()=>{
+ const ctx=fixture();ctx.ui.route='register';let html=renderWorkspace(ctx);
+ assert.doesNotMatch(html,/Оценка, предв\./,'без оценок колонки нет');
+ Object.assign(ctx.data.matrix.rows[0],{estimate:'150.00',basis:'acts'});ctx.data.matrix.total.estimate='150.00';
+ html=renderWorkspace(ctx);
+ assert.match(html,/Оценка, предв\./);assert.match(html,/<td class="num muted">150,00</);
+ assert.match(html,/по актам, С-3а не принята/);
+ ctx.data.matrix.rows[0].basis='c3a';assert.match(renderWorkspace(ctx),/Итого по договору · по С-3а/);
+ ctx.ui.route='project';ctx.ui.projectTab='month';assert.match(renderWorkspace(ctx),/Оперативная оценка · предварительно/);
+});
+
 test('contracts tab shows computed current price and term and opens the contract card',()=>{
  const ctx=fixture();ctx.ui.route='project';ctx.ui.projectTab='contracts';
  Object.assign(ctx.data.contracts[0],{current_amount:'159559.72',amount_addendum_number:'1',current_end_date:'2000-01-31'});
