@@ -1,0 +1,7 @@
+.proc-head{display:block!important;margin-bottom:18px!important}
+.proc-head>label{display:none!important}
+.proc-board{display:grid!important;grid-template-columns:repeat(6,minmax(0,1fr))!important;gap:10px!important;overflow-x:visible!important;padding-bottom:0!important;width:100%!important}
+.proc-lane{min-width:0!important;width:auto!important}
+.proc-card{min-width:0!important}
+@media(max-width:1350px){.proc-board{grid-template-columns:repeat(3,minmax(0,1fr))!important}}
+@media(max-width:850px){.proc-board{grid-template-columns:1fr!important}}
