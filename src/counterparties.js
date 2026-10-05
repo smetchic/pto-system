@@ -31,8 +31,9 @@ if(url&&key&&key.startsWith('sb_publishable_')){
   #dialog.cp-drawer{margin:0 0 0 auto!important;inset:0 0 0 auto!important;width:640px;max-width:calc(100vw - 56px);height:100vh;max-height:100vh;border:0;border-left:1px solid var(--ln);border-radius:0;padding:0;background:var(--sf);color:var(--ink);box-shadow:-10px 0 28px rgba(0,0,0,.08);overflow:hidden}
   #dialog.cp-drawer::backdrop{background:rgba(15,17,21,.08)}
   .cp-drawer-shell{height:100%;overflow:auto;padding:0 26px 28px}
-  .cp-drawer-head{position:sticky;top:0;z-index:3;display:flex;align-items:center;justify-content:space-between;gap:16px;background:var(--sf);border-bottom:1px solid var(--ln);padding:18px 0 14px;margin-bottom:16px}
-  .cp-drawer-head h2{margin:0;color:var(--ink);font-size:18px;text-transform:none;letter-spacing:0}.cp-drawer-head button{flex:none}
+  .cp-drawer-head{position:sticky;top:0;z-index:3;background:var(--sf);border-bottom:1px solid var(--ln);padding:14px 0 14px;margin-bottom:16px}
+  .cp-drawer-close{display:inline-flex;align-items:center;min-height:40px;border:0!important;background:transparent!important;padding:8px 10px 8px 0!important;color:var(--mu);font-size:13px;font-weight:500;margin:0 0 8px;cursor:pointer}.cp-drawer-close:hover{color:var(--ink);background:transparent!important}
+  .cp-drawer-head h2{margin:0;color:var(--ink);font-size:18px;text-transform:none;letter-spacing:0}
   .cp-drawer .actions{padding-bottom:8px}
   @media(max-width:760px){.cp-grid{grid-template-columns:1fr}.cp-grid .wide{grid-column:auto}#dialog.cp-drawer{width:100%;max-width:100%}.cp-drawer-shell{padding:0 18px 24px}}
  `;
@@ -97,7 +98,7 @@ if(url&&key&&key.startsWith('sb_publishable_')){
   const edit=!!c;
   dialog.classList.remove('document-drawer','proc-drawer');
   dialog.classList.add('cp-drawer');
-  dialog.innerHTML=`<div class="cp-drawer-shell"><div class="cp-drawer-head"><h2>${edit?'Контрагент':'Новый контрагент'}</h2><button data-cp-action="close">Закрыть</button></div>
+  dialog.innerHTML=`<div class="cp-drawer-shell"><div class="cp-drawer-head"><button class="cp-drawer-close" data-cp-action="close">Закрыть ×</button><h2>${edit?'Контрагент':'Новый контрагент'}</h2></div>
    ${edit?`<div class="cp-card-meta"><span class="pill">УНП ${esc(c.unp)}</span>${c.status_name?`<span class="pill ${c.status_name==='Действующий'?'g':''}">${esc(c.status_name)}</span>`:''}<span class="muted">Источник: ${esc(c.source||'manual')}</span></div>`:''}
    <form id="cp-form" autocomplete="off">
     <div class="cp-grid">
