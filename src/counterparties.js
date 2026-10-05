@@ -5,6 +5,14 @@ const url=import.meta.env.VITE_SUPABASE_URL;
 const key=import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const dialog=document.querySelector('#dialog');
 const esc=v=>e(v??'');
+const roleNames={
+ customer:'Заказчик',
+ general_contractor:'Генподрядчик / подрядчик',
+ subcontractor:'Субподрядчик',
+ supplier:'Поставщик',
+ service_provider:'Исполнитель услуг'
+};
+const roleOrder=Object.keys(roleNames);
 
 if(url&&key&&key.startsWith('sb_publishable_')){
  const client=createClient(url,key);
@@ -18,6 +26,8 @@ if(url&&key&&key.startsWith('sb_publishable_')){
   .cp-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.cp-grid .wide{grid-column:1/-1}
   .cp-card-meta{display:flex;gap:10px;flex-wrap:wrap;margin:-4px 0 16px}.cp-card-meta .pill{white-space:nowrap}
   .cp-empty{padding:30px 0}.cp-table button.link{text-align:left}.cp-table td{vertical-align:top}
+  .cp-role-list{display:flex;gap:6px;flex-wrap:wrap}.cp-role-checks{display:flex;gap:8px 16px;flex-wrap:wrap;padding:10px 0 2px}
+  .cp-role-checks label{display:flex;align-items:center;gap:7px;margin:0}.cp-role-checks input{width:auto;margin:0}
   @media(max-width:760px){.cp-grid{grid-template-columns:1fr}.cp-grid .wide{grid-column:auto}}
  `;
  document.head.appendChild(css);
@@ -32,21 +42,25 @@ if(url&&key&&key.startsWith('sb_publishable_')){
  }
  async function load(force=false){
   if(cache&&!force)return cache;
-  const [counterparties,contracts]=await Promise.all([
+  const [counterparties,contracts,roles]=await Promise.all([
    q(client.from('pto_counterparties').select('*').order('short_name')),
-   q(client.from('pto_contracts').select('id,counterparty_id'))
+   q(client.from('pto_contracts').select('id,counterparty_id')),
+   q(client.from('pto_counterparty_roles').select('counterparty_id,role'))
   ]);
-  cache={counterparties,contracts};
+  cache={counterparties,contracts,roles};
   return cache;
  }
  const canEdit=()=>['head','engineer','admin'].includes(role);
  const countContracts=id=>cache?.contracts?.filter(c=>c.counterparty_id===id).length||0;
+ const rolesFor=id=>cache?.roles?.filter(r=>r.counterparty_id===id).map(r=>r.role).filter(r=>roleNames[r])||[];
+ const rolePills=id=>{const roles=rolesFor(id);return roles.length?`<div class="cp-role-list">${roles.map(r=>`<span class="pill">${esc(roleNames[r])}</span>`).join('')}</div>`:'<span class="muted">Не назначены</span>';};
 
  function rowsHtml(rows){
-  if(!rows.length)return `<tr><td colspan="5"><div class="empty cp-empty">Контрагенты не найдены.</div></td></tr>`;
+  if(!rows.length)return `<tr><td colspan="6"><div class="empty cp-empty">Контрагенты не найдены.</div></td></tr>`;
   return rows.map(c=>`<tr>
    <td><button class="link" data-cp-action="open" data-id="${esc(c.id)}"><b>${esc(c.short_name)}</b></button><small>${esc(c.full_name)}</small></td>
    <td>${esc(c.unp)}</td>
+   <td>${rolePills(c.id)}</td>
    <td>${c.status_name?`<span class="pill ${c.status_name==='Действующий'?'g':''}">${esc(c.status_name)}</span>`:'—'}</td>
    <td>${esc(c.address||'')}</td>
    <td class="num">${countContracts(c.id)||''}</td>
@@ -62,15 +76,16 @@ if(url&&key&&key.startsWith('sb_publishable_')){
   try{
    await Promise.all([load(),getRole()]);
    pg.innerHTML=`<div data-cp-page>
-    <div class="heading"><div><h1>Контрагенты</h1><div class="muted">Единый справочник организаций. Договоры используют выбранного контрагента.</div></div><div class="actions">${canEdit()?'<button class="primary" data-cp-action="new">Добавить контрагента</button>':''}</div></div>
-    <div class="cp-toolbar"><input id="cp-search" class="cp-search" type="search" autocomplete="off" placeholder="Поиск по названию или УНП"></div>
-    <section class="table-wrap"><table class="cp-table"><thead><tr><th>Контрагент</th><th>УНП</th><th>Статус</th><th>Адрес</th><th class="num">Договоров</th></tr></thead><tbody id="cp-body">${rowsHtml(cache.counterparties)}</tbody></table></section>
+    <div class="heading"><div><h1>Контрагенты</h1><div class="muted">Единый справочник организаций. Одна организация может иметь несколько ролей.</div></div><div class="actions">${canEdit()?'<button class="primary" data-cp-action="new">Добавить контрагента</button>':''}</div></div>
+    <div class="cp-toolbar"><input id="cp-search" class="cp-search" type="search" autocomplete="off" placeholder="Поиск по названию, УНП или роли"></div>
+    <section class="table-wrap"><table class="cp-table"><thead><tr><th>Контрагент</th><th>УНП</th><th>Роли</th><th>Статус</th><th>Адрес</th><th class="num">Договоров</th></tr></thead><tbody id="cp-body">${rowsHtml(cache.counterparties)}</tbody></table></section>
    </div>`;
   }catch(err){pg.innerHTML=`<div data-cp-page><div class="heading"><div><h1>Контрагенты</h1><div class="muted">Не удалось загрузить справочник.</div></div></div><p class="error">${esc(err.message||err)}</p></div>`;}
  }
 
  function field(name,label,value='',type='text',required=false){return `<label>${esc(label)}<input name="${esc(name)}" type="${esc(type)}" value="${esc(value)}" autocomplete="off" ${required?'required':''}></label>`;}
  function area(name,label,value='',cls=''){return `<label class="${cls}">${esc(label)}<textarea name="${esc(name)}" autocomplete="off">${esc(value)}</textarea></label>`;}
+ function roleChecks(c){const selected=new Set(c?rolesFor(c.id):[]);return `<div class="wide"><b>Роли контрагента</b><div class="cp-role-checks">${roleOrder.map(r=>`<label><input type="checkbox" data-cp-role value="${esc(r)}" ${selected.has(r)?'checked':''}>${esc(roleNames[r])}</label>`).join('')}</div></div>`;}
  function openCard(c=null){
   const edit=!!c;
   dialog.classList.remove('document-drawer');
@@ -82,13 +97,14 @@ if(url&&key&&key.startsWith('sb_publishable_')){
      ${field('short_name','Краткое наименование',c?.short_name||'','text',true)}
      ${area('full_name','Полное наименование',c?.full_name||'','wide')}
      ${area('address','Адрес',c?.address||'','wide')}
+     ${roleChecks(c)}
      ${field('registration_date','Дата регистрации',c?.registration_date||'','date')}
      ${field('tax_office_code','Код инспекции МНС',c?.tax_office_code||'')}
      ${field('tax_office_name','Инспекция МНС',c?.tax_office_name||'')}
      ${field('status_code','Код состояния',c?.status_code||'')}
      ${field('status_name','Статус',c?.status_name||'')}
      ${field('status_change_date','Дата изменения состояния',c?.status_change_date||'','date')}
-     ${area('liquidation_info','Сведения о ликвидации',c?.liquidation_info||'','wide')}
+     ${area('liquidation_info','Сведения МНС',c?.liquidation_info||'','wide')}
      ${field('phone','Телефон',c?.phone||'','tel')}
      ${field('email','Электронная почта',c?.email||'','email')}
      ${area('note','Примечание',c?.note||'','wide')}
@@ -102,6 +118,7 @@ if(url&&key&&key.startsWith('sb_publishable_')){
   form.onsubmit=async ev=>{
    ev.preventDefault();const button=ev.submitter;button.disabled=true;
    const payload=Object.fromEntries(new FormData(form));
+   payload.roles=[...form.querySelectorAll('[data-cp-role]:checked')].map(x=>x.value);
    payload.op=edit?'update_counterparty':'create_counterparty';
    if(edit)payload.counterparty_id=c.id;
    try{
@@ -114,27 +131,11 @@ if(url&&key&&key.startsWith('sb_publishable_')){
   };
  }
 
- async function enhanceContractDialog(){
-  if(!dialog?.open)return;
-  const title=dialog.querySelector('h2')?.textContent?.trim();
-  if(title!=='Новый договор')return;
-  const input=dialog.querySelector('input[name="party"]');
-  if(!input)return;
-  try{
-   await load();
-   if(!input.isConnected||!cache.counterparties.length)return;
-   const select=document.createElement('select');
-   select.name='counterparty_id';select.required=true;
-   select.innerHTML='<option value="">Выберите контрагента</option>'+cache.counterparties.map(c=>`<option value="${esc(c.id)}">${esc(c.short_name)} · УНП ${esc(c.unp)}</option>`).join('');
-   input.replaceWith(select);
-  }catch{}
- }
-
  document.addEventListener('click',async ev=>{
   const b=ev.target.closest('[data-cp-action]');if(!b)return;
   ev.preventDefault();ev.stopPropagation();
   if(b.dataset.cpAction==='close'){dialog.close();return;}
-  if(b.dataset.cpAction==='new'){await getRole();if(canEdit())openCard();return;}
+  if(b.dataset.cpAction==='new'){await Promise.all([load(),getRole()]);if(canEdit())openCard();return;}
   if(b.dataset.cpAction==='open'){
    await Promise.all([load(),getRole()]);
    const c=cache.counterparties.find(x=>x.id===b.dataset.id);if(c)openCard(c);
@@ -144,13 +145,16 @@ if(url&&key&&key.startsWith('sb_publishable_')){
  document.addEventListener('input',ev=>{
   if(ev.target.id!=='cp-search'||!cache)return;
   const s=ev.target.value.trim().toLowerCase();
-  const rows=!s?cache.counterparties:cache.counterparties.filter(c=>[c.short_name,c.full_name,c.unp,c.address].some(v=>(v||'').toLowerCase().includes(s)));
+  const rows=!s?cache.counterparties:cache.counterparties.filter(c=>{
+   const roleText=rolesFor(c.id).map(r=>roleNames[r]).join(' ');
+   return [c.short_name,c.full_name,c.unp,c.address,roleText].some(v=>(v||'').toLowerCase().includes(s));
+  });
   const body=document.querySelector('#cp-body');if(body)body.innerHTML=rowsHtml(rows);
  });
 
  function schedule(){
   if(scheduled)return;scheduled=true;
-  queueMicrotask(async()=>{scheduled=false;await renderPage();await enhanceContractDialog();});
+  queueMicrotask(async()=>{scheduled=false;await renderPage();});
  }
  const observer=new MutationObserver(schedule);
  observer.observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['open']});
