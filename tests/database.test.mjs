@@ -100,3 +100,25 @@ test('all public tables have RLS, definer functions are private, and anonymous e
  const exposed=await db.query("select proname from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and prosecdef");assert.equal(exposed.rows.length,0);
  const granted=await db.query("select has_function_privilege('anon','public.pto_command(uuid,jsonb)','execute') allowed");assert.equal(granted.rows[0].allowed,false);
 });
+test('clients cannot write tables directly; new tables get no client grants',async()=>{
+ await db.exec('reset role');
+ const writable=await db.query(`select c.relname,r.role from pg_class c join pg_namespace n on n.oid=c.relnamespace cross join (values('anon'),('authenticated')) r(role)
+  where n.nspname='public' and c.relkind in ('r','v') and (has_table_privilege(r.role,c.oid,'insert') or has_table_privilege(r.role,c.oid,'update') or has_table_privilege(r.role,c.oid,'delete') or has_table_privilege(r.role,c.oid,'truncate'))`);
+ assert.deepEqual(writable.rows,[]);
+ const anonRead=await db.query("select relname from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind in ('r','v') and has_table_privilege('anon',c.oid,'select')");
+ assert.deepEqual(anonRead.rows,[]);
+ await db.exec('create table public.tmp_default_grants(id int)');
+ const fresh=await db.query("select has_table_privilege('anon','public.tmp_default_grants','select') a,has_table_privilege('authenticated','public.tmp_default_grants','insert') b");
+ assert.deepEqual(fresh.rows[0],{a:false,b:false});await db.exec('drop table public.tmp_default_grants');
+ await as(users.head);await assert.rejects(db.query('insert into pto_contract_addenda(contract_id,number,agreement_date) values($1,$2,$3)',[contract,'ДС-1','2026-10-01']),/permission denied/);
+});
+test('audit log, process events and snapshots are append-only even for the database owner',async()=>{
+ await db.exec('reset role');
+ assert.ok((await db.query('select count(*)::int n from pto_events')).rows[0].n>0);
+ await assert.rejects(db.query("update pto_events set action='x'"),/только на добавление/);
+ await assert.rejects(db.query('delete from pto_events'),/только на добавление/);
+ await assert.rejects(db.query('delete from pto_snapshots'),/только на добавление/);
+ await assert.rejects(db.query('truncate pto_process_events'),/только на добавление/);
+ const cascades=await db.query("select conrelid::regclass::text tbl,conname from pg_constraint where contype='f' and connamespace='public'::regnamespace and confdeltype='c'");
+ assert.deepEqual(cascades.rows,[]);
+});
