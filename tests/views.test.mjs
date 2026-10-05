@@ -9,7 +9,13 @@ function fixture(role='head') {
   contracts:[{id:'contract',project_id:'object',number:'Д-1',party:'Контрагент',direction:'outgoing'}],
   periods:[{id:'period',project_id:'object',status:'open',revision:2,reviewed_revision:1}],
   profiles:[profile],memberships:[],allocations:[],events:[],
-  documents:[{id:'act',project_id:'object',period_id:'period',contract_id:'contract',kind:'c2a',number:'1',status:'draft',current_version:'new',accepted_version:'old',due_date:'2026-10-10'}],
+  documents:[{id:'act',project_id:'object',period_id:'period',contract_id:'contract',kind:'c2a',number:'1',current_version:'new',accepted_version:'old',due_date:'2026-10-10',workflow_id:'kit',step_code:'site',step_label:'У прораба'}],
+  templates:[{code:'claim',name:'Процентовка заказчику',money:true,ordinal:1},{code:'c29',name:'С-29',money:false,ordinal:3}],
+  steps:[{template_code:'claim',code:'prepared',ordinal:1,label:'Подготовлена ПТО',actor:'pto',requires:[]},{template_code:'claim',code:'site',ordinal:2,label:'У прораба',actor:'pto',requires:['kit','person']},
+   {template_code:'claim',code:'accounting',ordinal:3,label:'Оригинал в бухгалтерии',actor:'accounting',requires:['kit']},{template_code:'claim',code:'accepted',ordinal:4,label:'Принято бухгалтерией',actor:'accounting',requires:['accept']},
+   {template_code:'c29',code:'formation',ordinal:1,label:'Формирование ПТО',actor:'pto',requires:[]}],
+  workflows:[{id:'kit',template_code:'claim',template_name:'Процентовка заказчику',money:true,project_id:'object',project:'Объект <script>alert(1)</script>',period_id:'period',contract_id:'contract',contract_number:'Д-1',party:'Контрагент',
+   step_code:'site',step_label:'У прораба',step_ordinal:2,actor:'pto',documents:1,acts_amount:'9999.00',last_event_kind:'return',last_note:'Нет подписи <i>',last_event_at:new Date(Date.now()-3*86400000).toISOString()}],
   versions:[{id:'new',document_id:'act',amount:9999,version:2},{id:'old',document_id:'act',amount:100,version:1}],
   register:[{period_id:'period',project_id:'object',contract_id:'contract',number:'Д-1',total:100,subcontract:25}],
   matrix:{columns:[{id:'sub',label:'Субподрядчик <b>',total:'25.00'}],
@@ -36,7 +42,26 @@ test('dashboard financial bars retain accepted values while the new draft is in 
  assert.match(html,/Своими силами 75,00, субподряд 25,00/);
  assert.doesNotMatch(html,/9[\s\u00a0]999,00/);
  ctx.ui.route='flow';html=renderWorkspace(ctx);assert.match(html,/9[\s\u00a0]999,00/);
- ctx.ui.flowProject='another-object';assert.doesNotMatch(renderWorkspace(ctx),/data-id="act"/);
+ ctx.ui.flowProject='another-object';assert.doesNotMatch(renderWorkspace(ctx),/data-id="kit"/);
+});
+
+test('conveyor shows one board per route with stages from the template; quick step only for the acting role',()=>{
+ const ctx=fixture();ctx.ui.route='flow';let html=renderWorkspace(ctx);
+ assert.match(html,/\u041f\u0440\u043e\u0446\u0435\u043d\u0442\u043e\u0432\u043a\u0430 \u0437\u0430\u043a\u0430\u0437\u0447\u0438\u043a\u0443/);assert.match(html,/data-action="flow-template" data-id="c29"/);
+ for(const label of ['\u041f\u043e\u0434\u0433\u043e\u0442\u043e\u0432\u043b\u0435\u043d\u0430 \u041f\u0422\u041e','\u0423 \u043f\u0440\u043e\u0440\u0430\u0431\u0430','\u041e\u0440\u0438\u0433\u0438\u043d\u0430\u043b \u0432 \u0431\u0443\u0445\u0433\u0430\u043b\u0442\u0435\u0440\u0438\u0438','\u041f\u0440\u0438\u043d\u044f\u0442\u043e \u0431\u0443\u0445\u0433\u0430\u043b\u0442\u0435\u0440\u0438\u0435\u0439'])assert.match(html,new RegExp(label));
+ assert.match(html,/data-action="wf-advance" data-id="kit">\u2192 \u041e\u0440\u0438\u0433\u0438\u043d\u0430\u043b \u0432 \u0431\u0443\u0445\u0433\u0430\u043b\u0442\u0435\u0440\u0438\u0438/);
+ assert.match(html,/\u0412\u043e\u0437\u0432\u0440\u0430\u0442: \u041d\u0435\u0442 \u043f\u043e\u0434\u043f\u0438\u0441\u0438 &lt;i&gt;/);assert.match(html,/proc-corner red/);
+ assert.doesNotMatch(renderWorkspace(fixture('accountant')),/data-action="wf-advance"/,'\u0431\u0443\u0445\u0433\u0430\u043b\u0442\u0435\u0440\u0438\u044f \u043d\u0435 \u0434\u0432\u0438\u0433\u0430\u0435\u0442 \u0448\u0430\u0433 \u041f\u0422\u041e');
+ ctx.ui.flowTemplate='c29';html=renderWorkspace(ctx);assert.match(html,/\u0424\u043e\u0440\u043c\u0438\u0440\u043e\u0432\u0430\u043d\u0438\u0435 \u041f\u0422\u041e/);assert.doesNotMatch(html,/\u0440\u0443\u0431\. \u00b7 \u0441\u0440\./,'\u0443 \u0421-29 \u043d\u0435\u0442 \u0441\u0443\u043c\u043c');
+});
+
+test('Today lists kits awaiting the selected role; head can look as another role',()=>{
+ const ctx=fixture();let html=renderWorkspace(ctx);
+ assert.match(html,/\u0441\u043c\u043e\u0442\u0440\u044e \u043a\u0430\u043a \u041d\u0430\u0447\u0430\u043b\u044c\u043d\u0438\u043a \u041f\u0422\u041e/);assert.match(html,/\u041f\u0440\u043e\u0446\u0435\u043d\u0442\u043e\u0432\u043a\u0430 \u0437\u0430\u043a\u0430\u0437\u0447\u0438\u043a\u0443 \u00b7 \u0423 \u043f\u0440\u043e\u0440\u0430\u0431\u0430/);assert.match(html,/3 \u0434\u043d\./);
+ ctx.ui.viewAs='accountant';html=renderWorkspace(ctx);
+ assert.match(html,/\u0441\u043c\u043e\u0442\u0440\u044e \u043a\u0430\u043a \u0411\u0443\u0445\u0433\u0430\u043b\u0442\u0435\u0440\u0438\u044f/);assert.match(html,/\u041d\u0435\u0442 \u043a\u043e\u043c\u043f\u043b\u0435\u043a\u0442\u043e\u0432, \u043e\u0436\u0438\u0434\u0430\u044e\u0449\u0438\u0445 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0439 \u044d\u0442\u043e\u0439 \u0440\u043e\u043b\u0438/);
+ ctx.data.workflows[0].actor='accounting';assert.match(renderWorkspace(ctx),/\u041f\u0440\u043e\u0446\u0435\u043d\u0442\u043e\u0432\u043a\u0430 \u0437\u0430\u043a\u0430\u0437\u0447\u0438\u043a\u0443 \u00b7 \u0423 \u043f\u0440\u043e\u0440\u0430\u0431\u0430/);
+ assert.doesNotMatch(renderWorkspace(fixture('engineer')),/data-action="view-as"/);
 });
 
 test('negative own forces are shown and highlighted, not hidden',()=>{
