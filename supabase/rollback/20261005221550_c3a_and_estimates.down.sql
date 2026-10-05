@@ -1,7 +1,7 @@
--- Откат миграции 20261005220826_c3a_and_estimates.sql.
+-- Откат миграции 20261005221550_c3a_and_estimates.sql.
 -- ВНИМАНИЕ: удаляет оперативные оценки (pto_estimates) и поля С-3а в версиях документов.
 -- Определения функций взяты из миграций 20261005213930 (pto_private.command) и 20261005220232 (матрица, диспетчер).
--- После выполнения удалить запись версии 20261005220826 из supabase_migrations.schema_migrations.
+-- После выполнения удалить запись версии 20261005221550 из supabase_migrations.schema_migrations.
 
 create or replace function public.pto_command(request_id uuid, payload jsonb) returns jsonb
 language plpgsql set search_path='' as $$
