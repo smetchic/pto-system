@@ -299,16 +299,19 @@ test('C-3a: SMR comes from the kit acts, to-pay and cumulative columns are compu
  await as(users.outsider);await assert.rejects(command({op:'set_estimate',period_id:aug,contract_id:c21,amount:'1.00'}),/Нет доступа/);
  await db.exec('reset role');await assert.rejects(db.query('update pto_estimates set amount=0'),/только на добавление/);
 });
-test('audit log, process events and snapshots are append-only even for the database owner',async()=>{
+test('audit log, workflow events and snapshots are append-only even for the database owner',async()=>{
  await db.exec('reset role');
  assert.ok((await db.query('select count(*)::int n from pto_events')).rows[0].n>0);
  await assert.rejects(db.query("update pto_events set action='x'"),/только на добавление/);
  await assert.rejects(db.query('delete from pto_events'),/только на добавление/);
  await assert.rejects(db.query('delete from pto_snapshots'),/только на добавление/);
- await assert.rejects(db.query('truncate pto_process_events'),/только на добавление/);
+ await assert.rejects(db.query('truncate pto_estimates'),/только на добавление/);
  assert.ok((await db.query('select count(*)::int n from pto_workflow_events')).rows[0].n>0);
  await assert.rejects(db.query('delete from pto_workflow_events'),/только на добавление/);
  await assert.rejects(db.query("update pto_workflow_events set note=''"),/только на добавление/);
+ await assert.rejects(db.query('truncate pto_workflow_events'),/только на добавление/);
  const cascades=await db.query("select conrelid::regclass::text tbl,conname from pg_constraint where contype='f' and connamespace='public'::regnamespace and confdeltype='c'");
  assert.deepEqual(cascades.rows,[]);
+ // Прежний конвейер удалён (шаг 6б): маршруты — единственный механизм состояний.
+ assert.deepEqual((await db.query("select relname from pg_class where relname like 'pto_process%' and relkind='r'")).rows,[]);
 });
