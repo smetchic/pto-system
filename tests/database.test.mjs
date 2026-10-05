@@ -157,6 +157,45 @@ test('register matrix: exact August figures, column per sub-contract, hidden emp
  await as(users.outsider);assert.deepEqual((await db.query('select public.pto_register_matrix($1) m',[month])).rows[0].m.rows,[]);
  await db.exec('reset role; set role anon');await assert.rejects(db.query('select public.pto_register_matrix($1)',[month]),/permission denied/);
 });
+test('contracts: direction and counterparty name are derived, current price and term follow signed addenda',async()=>{
+ await as(users.head);
+ const pid=(await command({op:'create_project',name:'Договоры'})).project_id;
+ await command({op:'member',project_id:pid,user_id:users.engineer});
+ const cp=(await command({op:'create_counterparty',unp:'191426884',short_name:'Трест',full_name:'Трест полностью',roles:['general_contractor']})).counterparty_id;
+ await command({op:'create_contract',project_id:pid,number:'21',counterparty_id:cp,our_role:'subcontractor',counterparty_role:'general_contractor'});
+ const contract=async number=>(await db.query('select * from pto_contract_list where project_id=$1 and number=$2',[pid,number])).rows[0];
+ let c=await contract('21');
+ assert.equal(c.direction,'outgoing');assert.equal(c.party,'Трест');
+ assert.equal((await db.query('select party_text from pto_contracts where id=$1',[c.id])).rows[0].party_text,null,'имя контрагента не копируется');
+ await command({op:'update_counterparty',counterparty_id:cp,unp:'191426884',short_name:'Трест №1',full_name:'Трест полностью'});
+ assert.equal((await contract('21')).party,'Трест №1');
+ await db.exec('reset role');await assert.rejects(db.query("update pto_contracts set direction='incoming'"),/generated|direction/);await as(users.head);
+ // Условия вводятся командой; суммы — рубли и копейки.
+ await as(users.engineer);
+ const terms={op:'update_contract',contract_id:c.id,number:'21',contract_date:'2026-02-12',subject:'СМР',initial_amount:'1000.00',vat_rate:'20',vat_amount:'166.67',work_start_date:'2026-03-01',work_end_date:'2026-12-31'};
+ await command(terms);
+ await assert.rejects(command({...terms,initial_amount:'10.001'}),/рублях и копейках/);
+ await assert.rejects(command({...terms,initial_amount:'-1'}),/Некорректная сумма/);
+ c=await contract('21');assert.equal(c.current_amount,'1000.00');assert.equal(String(c.current_end_date.toISOString?.().slice(0,10)??c.current_end_date),'2026-12-31');
+ // Проект ДС не учитывается; подписанные ДС меняют цену и срок независимо; отменённый ДС перестаёт действовать.
+ const ds1=(await command({op:'create_addendum',contract_id:c.id,number:'1',agreement_date:'2026-05-15',amount_after:'1200.00',vat_amount:'200.00'})).addendum_id;
+ assert.equal((await contract('21')).current_amount,'1000.00');
+ await command({op:'set_addendum_status',addendum_id:ds1,status:'signed'});
+ await command({op:'create_addendum',contract_id:c.id,number:'2',agreement_date:'2026-06-01',work_end_date:'2027-03-31',status:'signed'});
+ c=await contract('21');
+ assert.deepEqual([c.current_amount,c.current_vat_amount,c.amount_addendum_number,c.term_addendum_number,c.signed_addenda],['1200.00','200.00','1','2',2]);
+ await assert.rejects(command({op:'set_addendum_status',addendum_id:ds1,status:'cancelled',reason:''}),/причину/);
+ await command({op:'set_addendum_status',addendum_id:ds1,status:'cancelled',reason:'Заменено ДС №3'});
+ assert.equal((await contract('21')).current_amount,'1000.00');
+ await assert.rejects(command({op:'set_addendum_status',addendum_id:ds1,status:'signed'}),/Недопустимый переход/);
+ // Права и журнал.
+ await as(users.outsider);await assert.rejects(command({...terms}),/Нет доступа/);
+ await as(users.accountant);await assert.rejects(command({...terms}),/Недостаточно прав/);
+ await as(users.head);
+ const actions=(await db.query("select action from pto_events where action in ('update_contract','create_addendum','set_addendum_status','create_counterparty','update_counterparty')")).rows.map(r=>r.action);
+ for(const a of ['update_contract','create_addendum','set_addendum_status','create_counterparty','update_counterparty'])assert.ok(actions.includes(a),a);
+ await as(users.engineer);await assert.rejects(db.query('insert into pto_contract_addenda(contract_id,number,agreement_date) values($1,$2,$3)',[c.id,'9','2026-01-01']),/permission denied/);
+});
 test('audit log, process events and snapshots are append-only even for the database owner',async()=>{
  await db.exec('reset role');
  assert.ok((await db.query('select count(*)::int n from pto_events')).rows[0].n>0);

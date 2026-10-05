@@ -48,15 +48,14 @@ if(url&&key&&key.startsWith('sb_publishable_')){
  }
  async function load(force=false){
   if(cache&&!force)return cache;
-  const [counterparties,contracts,addenda,roles,participants,projects]=await Promise.all([
+  const [counterparties,contracts,roles,participants,projects]=await Promise.all([
    q(client.from('pto_counterparties').select('*').order('short_name')),
-   q(client.from('pto_contracts').select('*')),
-   q(client.from('pto_contract_addenda').select('*')),
+   q(client.from('pto_contract_list').select('*')),
    q(client.from('pto_counterparty_roles').select('counterparty_id,role')),
    q(client.from('pto_project_participants').select('*')),
    q(client.from('pto_projects').select('id,name,full_name'))
   ]);
-  cache={counterparties,contracts,addenda,roles,participants,projects};
+  cache={counterparties,contracts,roles,participants,projects};
   return cache;
  }
  const canEdit=()=>['head','engineer','admin'].includes(role);
@@ -66,7 +65,6 @@ if(url&&key&&key.startsWith('sb_publishable_')){
  const rolePills=id=>{const roles=rolesFor(id);return roles.length?`<div class="cp-role-list">${roles.map(r=>`<span class="pill">${esc(roleNames[r])}</span>`).join('')}</div>`:'<span class="muted">Не назначены</span>';};
  const fmtDate=v=>v?new Date(v+'T12:00:00').toLocaleDateString('ru-RU'):'';
  const fmtMoney=v=>v===null||v===undefined||v===''?'':Number(v).toLocaleString('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2});
- const latestAddendum=contractId=>(cache?.addenda||[]).filter(a=>a.contract_id===contractId&&a.status==='signed').sort((a,b)=>String(b.agreement_date||'').localeCompare(String(a.agreement_date||'')))[0]||null;
 
  function rowsHtml(rows){
   if(!rows.length)return `<tr><td colspan="6"><div class="empty cp-empty">Контрагенты не найдены.</div></td></tr>`;
@@ -92,8 +90,9 @@ if(url&&key&&key.startsWith('sb_publishable_')){
   const rows=[];
   participants.forEach(x=>{const p=projectById(x.project_id);rows.push(`<div class="cp-system-row"><div><span class="pill">${esc(roleNames[x.role]||x.role)}</span></div><div><b>${esc(p?.name||'Объект')}</b>${p?.full_name&&p.full_name!==p.name?`<small>${esc(p.full_name)}</small>`:''}</div></div>`);});
   contracts.forEach(x=>{
-   const p=projectById(x.project_id),a=latestAddendum(x.id),amount=a?.amount_after??x.initial_amount;
-   const money=amount!==null&&amount!==undefined&&amount!==''?`<small class="cp-contract-money"><b>${esc(fmtMoney(amount))} руб.</b>${a?` · ДС №${esc(a.number)} от ${esc(fmtDate(a.agreement_date))}`:''}</small>`:'';
+   // Текущая стоимость вычисляется в базе (pto_contract_list) по последнему подписанному допсоглашению.
+   const p=projectById(x.project_id),amount=x.current_amount;
+   const money=amount!==null&&amount!==undefined&&amount!==''?`<small class="cp-contract-money"><b>${esc(fmtMoney(amount))} руб.</b>${x.amount_addendum_number?` · ДС №${esc(x.amount_addendum_number)} от ${esc(fmtDate(x.amount_addendum_date))}`:''}</small>`:'';
    rows.push(`<div class="cp-system-row"><div><span class="pill g">Договор</span></div><div><b>№${esc(x.number||'—')}${x.contract_date?` от ${esc(fmtDate(x.contract_date))}`:''}</b><small>${esc(p?.name||'')} · наша роль: ${esc(ourRoleNames[x.our_role]||x.our_role||'')}</small>${money}${x.subject?`<small>${esc(x.subject)}</small>`:''}</div></div>`);
   });
   return rows.length?`<div class="cp-system-list">${rows.join('')}</div>`:'<div class="cp-no-data">Пока не используется в объектах и договорах.</div>';
