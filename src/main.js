@@ -1,6 +1,6 @@
 import {renderWorkspace} from './views.js';
 import {createClient} from '@supabase/supabase-js';
-import {escapeHtml as e,money,stateNames,kindNames,roleNames,actionNames,emptyMatrix,registerSheetRows} from './domain.js';
+import {escapeHtml as e,money,stateNames,kindNames,roleNames,actionNames,emptyMatrix,registerSheetRows,ourRoleNames,addendumStateNames} from './domain.js';
 import './style.css';
 const $=s=>document.querySelector(s),app=$('#app'),dialog=$('#dialog');
 const url=import.meta.env.VITE_SUPABASE_URL,key=import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -32,7 +32,7 @@ async function load(){
  profile=await query(client.from('pto_profiles').select('*').eq('id',session.user.id).maybeSingle());
  if(generation!==loadId)return;
  if(!profile?.active){app.innerHTML=`<section class="login"><div class="mark">П</div><h1>Доступ ещё не назначен</h1><p>Администратор должен активировать вашу учётную запись и назначить объекты.</p><p class="muted">${e(session.user.email)}</p>${btn('Проверить доступ','refresh')}${btn('Выйти','logout')}</section>`;return;}
- const [projects,contracts,periods,profiles,memberships]=await Promise.all([all('pto_projects'),all('pto_contracts'),all('pto_periods',q=>q.eq('month',ui.month+'-01')),all('pto_profiles'),query(client.from('pto_memberships').select('*'))]);
+ const [projects,contracts,periods,profiles,memberships]=await Promise.all([all('pto_projects'),all('pto_contract_list'),all('pto_periods',q=>q.eq('month',ui.month+'-01')),all('pto_profiles'),query(client.from('pto_memberships').select('*'))]);
  if(generation!==loadId)return;
  const ids=periods.map(p=>p.id);
  const [documents,allocations,register,matrix]=ids.length?await Promise.all([all('pto_documents',q=>q.in('period_id',ids)),all('pto_allocations',q=>q.in('period_id',ids)),query(client.from('pto_register').select('*').eq('month',ui.month+'-01')),query(client.rpc('pto_register_matrix',{p_month:ui.month+'-01'}))]):[[],[],[],emptyMatrix];
@@ -61,6 +61,44 @@ async function docModal(id){
  await mutate(periodPayload('attach',{document_id:id,path,name:file.name}));await docModal(id);
  }catch(err){toast(errorMessage(err));ev.target.disabled=false;}};
 }
+// Карточка договора: введённые условия и вычисленные базой текущая стоимость и срок (pto_contract_list).
+const day=x=>x?new Date(x+'T12:00:00Z').toLocaleDateString('ru-RU',{timeZone:'Europe/Minsk'}):'—';
+const sum=x=>x===null||x===undefined||x===''?'—':money(x)+' руб.';
+async function contractModal(id){
+ const c=data.contracts.find(x=>x.id===id);if(!c)throw Error('Договор не найден');
+ const addenda=(await all('pto_contract_addenda',q=>q.eq('contract_id',id))).sort((a,b)=>String(b.agreement_date).localeCompare(String(a.agreement_date))||String(b.created_at).localeCompare(String(a.created_at)));
+ const parent=data.contracts.find(x=>x.id===c.parent_contract_id),edit=editor();
+ const terms=[['Договорная цена',c.initial_amount],['НДС',c.vat_amount],['СМР',c.smr_amount],['НДС СМР',c.smr_vat_amount],['ПНР',c.pnr_amount],['НДС ПНР',c.pnr_vat_amount],['Оборудование',c.equipment_amount],['НДС оборудования',c.equipment_vat_amount]].filter(([,v])=>v!==null&&v!==undefined);
+ const addendumActions=a=>!edit?'':a.status==='draft'?btn('Подписано','sign-addendum',a.id)+btn('Отменить','cancel-addendum',a.id):a.status==='signed'?btn('Отменить','cancel-addendum',a.id):'';
+ modal(`Договор № ${c.number}`,`<p>${badge(c.direction==='incoming'?'Входящий':'Исходящий')} · ${e(c.party)} · наша роль: ${e(ourRoleNames[c.our_role]||c.our_role)}</p>
+  <p class="muted">${c.contract_date?'от '+e(day(c.contract_date)):''}${parent?` · к договору № ${e(parent.number)}`:''}${c.subject?`<br>${e(c.subject)}`:''}</p>
+  <div class="stats"><article><small>Текущая стоимость</small><strong>${sum(c.current_amount)}</strong><small>${c.amount_addendum_number?`по ДС № ${e(c.amount_addendum_number)} от ${e(day(c.amount_addendum_date))}`:'по договору'}</small></article>
+  <article><small>Срок выполнения</small><strong>${e(day(c.work_start_date))} — ${e(day(c.current_end_date))}</strong><small>${c.term_addendum_number?`по ДС № ${e(c.term_addendum_number)}`:'по договору'}</small></article></div>
+  <div class="actions">${edit?btn('Изменить условия','edit-contract',id,true)+btn('Добавить допсоглашение','new-addendum',id):''}</div>
+  <h3>Условия договора</h3>${terms.length?`<table>${terms.map(([label,v])=>`<tr><td>${e(label)}</td><td class="num">${sum(v)}</td></tr>`).join('')}</table>`:'<p class="muted">Суммы договора не заполнены.</p>'}
+  <h3>Допсоглашения</h3>${addenda.length?addenda.map(a=>`<div class="version"><b>ДС № ${e(a.number)} от ${e(day(a.agreement_date))}</b> ${badge(addendumStateNames[a.status]||a.status,a.status==='signed')}<small>${a.amount_after!==null?'Цена: '+sum(a.amount_after):''}${a.amount_after!==null&&a.work_end_date?' · ':''}${a.work_end_date?'Срок: до '+e(day(a.work_end_date)):''}</small><p>${e(a.note)}</p><div class="actions">${addendumActions(a)}</div></div>`).join(''):'<p class="muted">Допсоглашений нет.</p>'}
+  <p class="muted">Текущие стоимость и срок считаются по последнему подписанному допсоглашению. Проекты и отменённые допсоглашения не учитываются.</p>`,true);
+}
+function editContract(id){
+ const c=data.contracts.find(x=>x.id===id),v=k=>c[k]??'';
+ const parents=data.contracts.filter(x=>x.project_id===c.project_id&&x.id!==c.id&&x.direction==='outgoing');
+ const amount=(k,label)=>field(k,label,'number',v(k),false);
+ form(`Условия договора № ${c.number}`,field('number','Номер договора','text',c.number)+field('contract_date','Дата договора','date',v('contract_date'),false)+note('subject','Предмет договора',v('subject')).replace(' required','')
+  +`<label>Основной договор<select name="parent_contract_id"><option value="">—</option>${parents.map(p=>`<option value="${e(p.id)}" ${p.id===c.parent_contract_id?'selected':''}>${e(p.number+' · '+p.party)}</option>`).join('')}</select></label>`
+  +amount('initial_amount','Договорная цена, руб.')+field('vat_rate','Ставка НДС, %','number',v('vat_rate'),false)+amount('vat_amount','НДС, руб.')
+  +amount('smr_amount','СМР, руб.')+amount('smr_vat_amount','НДС СМР, руб.')+amount('pnr_amount','ПНР, руб.')+amount('pnr_vat_amount','НДС ПНР, руб.')
+  +amount('equipment_amount','Оборудование, руб.')+amount('equipment_vat_amount','НДС оборудования, руб.')
+  +field('work_start_date','Начало работ','date',v('work_start_date'),false)+field('work_end_date','Окончание работ по договору','date',v('work_end_date'),false),
+  x=>mutate({op:'update_contract',contract_id:id,...x}));
+}
+function newAddendum(id){
+ const c=data.contracts.find(x=>x.id===id);
+ form(`Допсоглашение к договору № ${c.number}`,field('number','Номер ДС')+field('agreement_date','Дата ДС','date')
+  +select('status','Состояние',[['draft','Проект (не учитывается)'],['signed','Подписано']])
+  +field('amount_after','Цена договора после ДС, руб.','number','',false)+field('vat_rate','Ставка НДС, %','number','',false)+field('vat_amount','НДС, руб.','number','',false)
+  +field('work_end_date','Новый срок окончания','date','',false)+note('note','Содержание изменений').replace(' required',''),
+  x=>mutate({op:'create_addendum',contract_id:id,...x}));
+}
 async function action(name,id){
  if(name==='dismiss')return dialog.close();
  if(name==='logout'){++loadId;data={};profile=null;await client.auth.signOut();session=null;return login();}
@@ -81,6 +119,11 @@ async function action(name,id){
  return form('Новый документ',select('contract_id','Договор',contracts.map(c=>[c.id,c.number+' · '+c.party]))+select('kind','Форма',Object.entries(kindNames))+field('number','Номер')+field('amount','Контрольная сумма, руб.','number','0')+field('due_date','Срок','date','',false)+note('note','Содержание / основание'),x=>mutate(periodPayload('create_document',x)));
  }
  if(name==='doc')return docModal(id);
+ if(name==='contract')return contractModal(id);
+ if(name==='edit-contract')return editContract(id);
+ if(name==='new-addendum')return newAddendum(id);
+ if(name==='sign-addendum')return form('Допсоглашение подписано',`<p>После подписания цена и срок договора пересчитываются автоматически.</p>`,()=>mutate({op:'set_addendum_status',addendum_id:id,status:'signed'}));
+ if(name==='cancel-addendum')return form('Отменить допсоглашение',note('reason','Причина отмены'),x=>mutate({op:'set_addendum_status',addendum_id:id,status:'cancelled',...x}));
  if(name==='revise'){const d=data.documents.find(d=>d.id===id),v=ver(d);return form('Новая версия документа',field('amount','Контрольная сумма, руб.','number',v.amount)+note('note','Содержание / основание',v.note)+note('reason','Причина изменения'),x=>mutate(periodPayload('revise',{document_id:id,...x})));}
  if(name==='transition')return form(actionNames[id],field('person',id==='send'?'Кому передано':'Кто подтвердил')+(id==='send'?field('method','Способ передачи'):'')+note('proof','Подтверждение: номер письма, описи, скана'),x=>mutate(periodPayload(id,{document_id:ui.doc,...x})));
  if(name==='review')return mutate(periodPayload('review'));

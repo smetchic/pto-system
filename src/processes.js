@@ -50,7 +50,7 @@ if(url&&key&&key.startsWith('sb_publishable_')){
   const periodIds=periodRows.map(x=>x.id);
   const [projects,contracts,profiles,processes]=await Promise.all([
    q(client.from('pto_projects').select('id,name,full_name')),
-   q(client.from('pto_contracts').select('*')),
+   q(client.from('pto_contract_list').select('*')),
    q(client.from('pto_profiles').select('id,display_name,role,active')),
    periodIds.length?q(client.from('pto_processes').select('*').in('period_id',periodIds).order('updated_at',{ascending:false})):Promise.resolve([])
   ]);

@@ -60,6 +60,16 @@ test('register renders the database matrix: sub-contract columns, object subtota
  assert.match(html,/<td>Итого<\/td><td class="num">999,99</);
 });
 
+test('contracts tab shows computed current price and term and opens the contract card',()=>{
+ const ctx=fixture();ctx.ui.route='project';ctx.ui.projectTab='contracts';
+ Object.assign(ctx.data.contracts[0],{current_amount:'159559.72',amount_addendum_number:'1',current_end_date:'2000-01-31'});
+ const html=renderWorkspace(ctx);
+ assert.match(html,/data-action="contract" data-id="contract"/);
+ assert.match(html,/159[\s ]559,72<small>по ДС №1/);
+ assert.match(html,/Истёк · 31\.01\.2000/);
+ ctx.data.contracts[0].current_amount=null;assert.match(renderWorkspace(ctx),/<td class="num"><span class="muted">—<\/span>/);
+});
+
 test('object tabs preserve role and period gates for work actions',()=>{
  for(const role of ['head','engineer','accountant','admin']){
   const ctx=fixture(role);ctx.ui.route='project';

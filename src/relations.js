@@ -45,7 +45,7 @@ if(url&&key&&key.startsWith('sb_publishable_')){
    q(client.from('pto_counterparties').select('*').order('short_name')),
    q(client.from('pto_counterparty_roles').select('counterparty_id,role')),
    q(client.from('pto_project_participants').select('*')),
-   q(client.from('pto_contracts').select('*').order('id')),
+   q(client.from('pto_contract_list').select('*').order('id')),
    q(client.from('pto_projects').select('id,name,full_name')),
    q(client.from('pto_organization').select('*').limit(1).maybeSingle())
   ]);
@@ -142,7 +142,7 @@ if(url&&key&&key.startsWith('sb_publishable_')){
   [...table.querySelectorAll('tbody tr')].forEach((tr,i)=>{
    const c=contracts[i];if(!c)return;
    const cells=tr.querySelectorAll('td');
-   if(cells[0])cells[0].innerHTML=`${esc(c.number)}${c.contract_date?`<small>${esc(new Date(c.contract_date+'T12:00:00Z').toLocaleDateString('ru-RU'))}</small>`:''}${c.subject?`<small class="rel-subject">${esc(c.subject)}</small>`:''}`;
+   if(cells[0])cells[0].innerHTML=`<button class="link" data-action="contract" data-id="${esc(c.id)}">${esc(c.number)}</button>${c.contract_date?`<small>${esc(new Date(c.contract_date+'T12:00:00Z').toLocaleDateString('ru-RU'))}</small>`:''}${c.subject?`<small class="rel-subject">${esc(c.subject)}</small>`:''}`;
    if(cells[1])cells[1].textContent=contractModes[c.our_role]?.label||c.our_role||'';
    if(cells[2])cells[2].innerHTML=`${esc(c.party)}<small class="rel-role-note">${esc(counterpartyRoleNames[c.counterparty_role]||c.counterparty_role||'')}</small>`;
   });
