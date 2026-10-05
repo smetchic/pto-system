@@ -1,6 +1,6 @@
 -- Шаг 2 плана: отрицательные собственные силы и отрицательная разница не блокируются, а подсвечиваются (бриф, раздел 1).
 -- Убраны проверки «Субподряд превышает исходящий акт» (allocate) и «Новая сумма меньше распределённого субподряда» (accept).
--- Остальной текст функции не изменён. Откат: supabase/rollback/20261005213543_allow_negative_own_forces.down.sql
+-- Остальной текст функции не изменён. Откат: supabase/rollback/20261005213930_allow_negative_own_forces.down.sql
 create or replace function pto_private.command(req uuid, body jsonb) returns jsonb
 language plpgsql security definer set search_path='' as $$
 declare

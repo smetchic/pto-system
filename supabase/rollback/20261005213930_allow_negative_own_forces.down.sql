@@ -1,5 +1,5 @@
--- Откат миграции 20261005213543_allow_negative_own_forces.sql: возвращает проверки, блокирующие превышение субподряда.
--- После выполнения удалить запись версии 20261005213543 из supabase_migrations.schema_migrations.
+-- Откат миграции 20261005213930_allow_negative_own_forces.sql: возвращает проверки, блокирующие превышение субподряда.
+-- После выполнения удалить запись версии 20261005213930 из supabase_migrations.schema_migrations.
 create or replace function pto_private.command(req uuid, body jsonb) returns jsonb
 language plpgsql security definer set search_path='' as $$
 declare
