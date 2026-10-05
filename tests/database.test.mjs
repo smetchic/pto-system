@@ -114,6 +114,49 @@ test('clients cannot write tables directly; new tables get no client grants',asy
  assert.deepEqual(fresh.rows[0],{a:false,b:false});await db.exec('drop table public.tmp_default_grants');
  await as(users.head);await assert.rejects(db.query('insert into pto_contract_addenda(contract_id,number,agreement_date) values($1,$2,$3)',[contract,'ДС-1','2026-10-01']),/permission denied/);
 });
+test('register matrix: exact August figures, column per sub-contract, hidden empties, object subtotals, RLS',async()=>{
+ await as(users.head);const month='2026-08-01';
+ const revOf=async per=>(await db.query('select revision from pto_periods where id=$1',[per])).rows[0].revision;
+ const op=async(per,name,extra)=>command({op:name,period_id:per,expected_revision:await revOf(per),...extra});
+ async function object(name){const pid=(await command({op:'create_project',name})).project_id;return {pid,per:(await command({op:'open_period',project_id:pid,month})).period_id};}
+ async function contract(pid,number,party,direction){await command({op:'create_contract',project_id:pid,number,party,direction});return (await db.query('select id from pto_contracts where project_id=$1 and number=$2',[pid,number])).rows[0].id;}
+ async function act({pid,per},contractId,number,amount,accepted=true){
+  const d=(await op(per,'create_document',{contract_id:contractId,kind:'c2a',number,amount})).document_id;if(!accepted)return d;
+  const v=(await db.query('select current_version from pto_documents where id=$1',[d])).rows[0].current_version,path=`${pid}/${d}/${v}/${randomUUID()}.pdf`;
+  await db.query("insert into storage.objects(bucket_id,name) values('pto-documents',$1)",[path]);await op(per,'attach',{document_id:d,path,name:'Акт.pdf'});
+  for(const name of ['send','receive','sign','accept'])await op(per,name,{document_id:d,person:'Ответственный',proof:'Подтверждение',method:'Лично'});
+  return d;
+ }
+ const allocate=(o,out,inc,amount)=>op(o.per,'allocate',{outgoing_document:out,incoming_document:inc,amount,note:'Работы на заказчика'});
+ // Пружаны, дог. №21 (бриф, раздел 7) и ещё два договора объекта.
+ const pr=await object('Пружаны');
+ const d21=await act(pr,await contract(pr.pid,'21','Заказчик','outgoing'),'1','1973259.89');
+ await act(pr,await contract(pr.pid,'21-В','Заказчик','outgoing'),'2','100.00');
+ await act(pr,await contract(pr.pid,'21-Г','Заказчик','outgoing'),'3','500.00',false);
+ const m1=await act(pr,await contract(pr.pid,'М-1','Мегалит','incoming'),'с1','400000.00');
+ const m2=await act(pr,await contract(pr.pid,'М-2','Мегалит','incoming'),'с2','69709.47');
+ await act(pr,await contract(pr.pid,'Н-1','Нулевой','incoming'),'с3','10.00');
+ await allocate(pr,d21,m1,'400000.00');await allocate(pr,d21,m2,'69709.47');
+ // Паркинг, дог. №265: собственные силы отрицательны.
+ const pk=await object('Паркинг');
+ const d265=await act(pk,await contract(pk.pid,'265','Заказчик','outgoing'),'1','100000.00');
+ const p1=await act(pk,await contract(pk.pid,'П-1','Субподрядчик П','incoming'),'с1','324583.85');
+ await allocate(pk,d265,p1,'324583.85');
+ const m=(await db.query('select public.pto_register_matrix($1) m',[month])).rows[0].m;
+ const contractRow=number=>m.rows.find(r=>r.kind==='contract'&&r.number===number);
+ assert.deepEqual([contractRow('21').total,contractRow('21').own,contractRow('21').subcontract],['1973259.89','1503550.42','469709.47']);
+ assert.equal(contractRow('265').own,'-224583.85');
+ assert.equal(contractRow('21-Г'),undefined,'договор без принятых сумм скрыт');
+ assert.deepEqual(m.columns.map(c=>c.label),['Мегалит · №М-1','Мегалит · №М-2','Субподрядчик П']);
+ const col=label=>m.columns.find(c=>c.label===label).id;
+ assert.equal(contractRow('21').cells[col('Мегалит · №М-2')],'69709.47');
+ const subtotals=m.rows.filter(r=>r.kind==='project');
+ assert.deepEqual(subtotals.map(r=>[r.project,r.total,r.own]),[['Пружаны','1973359.89','1503650.42']]);
+ assert.deepEqual([m.total.total,m.total.own,m.total.subcontract],['2073359.89','1279066.57','794293.32']);
+ assert.equal(m.total.cells[col('Субподрядчик П')],'324583.85');
+ await as(users.outsider);assert.deepEqual((await db.query('select public.pto_register_matrix($1) m',[month])).rows[0].m.rows,[]);
+ await db.exec('reset role; set role anon');await assert.rejects(db.query('select public.pto_register_matrix($1)',[month]),/permission denied/);
+});
 test('audit log, process events and snapshots are append-only even for the database owner',async()=>{
  await db.exec('reset role');
  assert.ok((await db.query('select count(*)::int n from pto_events')).rows[0].n>0);
