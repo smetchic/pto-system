@@ -1,8 +1,8 @@
--- Откат миграции 20261005225124_drop_legacy_conveyor.sql: восстанавливает пустую структуру прежнего конвейера
+-- Откат миграции 20261005225326_drop_legacy_conveyor.sql: восстанавливает пустую структуру прежнего конвейера
 -- (определения из 20261004174232, 20261005135043, 20261005135320, 20261005140541, 20261005213054) и заполняет её
 -- комплектами процентовок по текущим документам. События прежнего конвейера не восстанавливаются (их не было).
 -- Таблицы не используются кодом: откат нужен только вместе с откатом шага 6 (20261005224629).
--- После выполнения удалить запись версии 20261005225124 из supabase_migrations.schema_migrations.
+-- После выполнения удалить запись версии 20261005225326 из supabase_migrations.schema_migrations.
 
 create function pto_private.sources_for(pid uuid) returns text language sql stable set search_path='' as $$
  select coalesce(string_agg(d.accepted_version::text,',' order by d.id),'') from public.pto_documents d
