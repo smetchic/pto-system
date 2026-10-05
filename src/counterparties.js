@@ -18,7 +18,7 @@ if(url&&key&&key.startsWith('sb_publishable_')){
   .cp-toolbar{display:flex;gap:10px;align-items:center;margin:16px 0}.cp-search{max-width:420px;width:100%}
   .cp-empty{padding:30px 0}.cp-table button.link{text-align:left}.cp-table td{vertical-align:top}
   .cp-role-list,.cp-card-meta{display:flex;gap:6px;flex-wrap:wrap}.cp-card-meta{margin:8px 0 0}.cp-card-meta .pill{white-space:nowrap}
-  #dialog.cp-drawer{margin:0 0 0 auto!important;inset:0 0 0 auto!important;width:600px;max-width:calc(100vw - 56px);height:100vh;max-height:100vh;border:0;border-left:1px solid var(--ln);border-radius:0;padding:0;background:var(--sf);color:var(--ink);box-shadow:-10px 0 28px rgba(0,0,0,.08);overflow:hidden}
+  #dialog.cp-drawer{margin:0 0 0 auto!important;inset:0 0 0 auto!important;width:720px;max-width:calc(100vw - 56px);height:100vh;max-height:100vh;border:0;border-left:1px solid var(--ln);border-radius:0;padding:0;background:var(--sf);color:var(--ink);box-shadow:-10px 0 28px rgba(0,0,0,.08);overflow:hidden}
   #dialog.cp-drawer::backdrop{background:rgba(15,17,21,.08)}
   .cp-drawer-shell{height:100%;display:flex;flex-direction:column;overflow:hidden}
   .cp-drawer-head{flex:none;background:var(--sf);border-bottom:1px solid var(--ln);padding:14px 24px 16px}
@@ -30,11 +30,11 @@ if(url&&key&&key.startsWith('sb_publishable_')){
   .cp-section-title{font-size:11px;line-height:1.3;text-transform:uppercase;letter-spacing:.05em;color:var(--mu);font-weight:600;margin:0 0 10px}
   .cp-full-name{font-size:14px;line-height:1.5;font-weight:500;margin:0 0 8px}.cp-address{color:var(--mu);line-height:1.5;margin:0}
   .cp-role-checks{display:flex;gap:9px 18px;flex-wrap:wrap}.cp-role-checks label{display:flex;align-items:center;gap:7px;margin:0}.cp-role-checks input{width:auto;margin:0}
-  .cp-system-list{display:grid;gap:8px}.cp-system-row{display:grid;grid-template-columns:120px 1fr;gap:12px;padding:8px 0;border-bottom:1px solid color-mix(in srgb,var(--ln) 70%,transparent)}.cp-system-row:last-child{border-bottom:0}.cp-system-row small{display:block;margin-top:2px}
+  .cp-system-list{display:grid;gap:8px}.cp-system-row{display:grid;grid-template-columns:128px 1fr;gap:12px;padding:8px 0;border-bottom:1px solid color-mix(in srgb,var(--ln) 70%,transparent)}.cp-system-row:last-child{border-bottom:0}.cp-system-row small{display:block;margin-top:2px}.cp-contract-money{margin-top:4px;font-variant-numeric:tabular-nums}
   .cp-facts{display:grid;grid-template-columns:1fr 1fr;gap:12px 18px}.cp-fact{min-width:0}.cp-fact.wide{grid-column:1/-1}.cp-fact span{display:block;color:var(--mu);font-size:11px;margin-bottom:3px}.cp-fact b,.cp-fact div{font-weight:400;overflow-wrap:anywhere}
   .cp-work-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 14px}.cp-work-grid .wide{grid-column:1/-1}.cp-work-grid label{display:grid;gap:4px}.cp-work-grid input,.cp-work-grid textarea{width:100%}.cp-work-grid textarea{min-height:72px;resize:vertical}
   .cp-hidden{display:none!important}.cp-no-data{color:var(--mu);font-size:12px;padding:3px 0}
-  @media(max-width:760px){#dialog.cp-drawer{width:100%;max-width:100%}.cp-drawer-head,.cp-drawer-content,.cp-drawer-foot{padding-left:18px;padding-right:18px}.cp-facts,.cp-work-grid{grid-template-columns:1fr}.cp-fact.wide,.cp-work-grid .wide{grid-column:auto}.cp-system-row{grid-template-columns:1fr}}
+  @media(max-width:820px){#dialog.cp-drawer{width:100%;max-width:100%}.cp-drawer-head,.cp-drawer-content,.cp-drawer-foot{padding-left:18px;padding-right:18px}.cp-facts,.cp-work-grid{grid-template-columns:1fr}.cp-fact.wide,.cp-work-grid .wide{grid-column:auto}.cp-system-row{grid-template-columns:1fr}}
  `;
  document.head.appendChild(css);
 
@@ -48,14 +48,15 @@ if(url&&key&&key.startsWith('sb_publishable_')){
  }
  async function load(force=false){
   if(cache&&!force)return cache;
-  const [counterparties,contracts,roles,participants,projects]=await Promise.all([
+  const [counterparties,contracts,addenda,roles,participants,projects]=await Promise.all([
    q(client.from('pto_counterparties').select('*').order('short_name')),
    q(client.from('pto_contracts').select('*')),
+   q(client.from('pto_contract_addenda').select('*')),
    q(client.from('pto_counterparty_roles').select('counterparty_id,role')),
    q(client.from('pto_project_participants').select('*')),
    q(client.from('pto_projects').select('id,name,full_name'))
   ]);
-  cache={counterparties,contracts,roles,participants,projects};
+  cache={counterparties,contracts,addenda,roles,participants,projects};
   return cache;
  }
  const canEdit=()=>['head','engineer','admin'].includes(role);
@@ -64,6 +65,8 @@ if(url&&key&&key.startsWith('sb_publishable_')){
  const projectById=id=>cache?.projects?.find(p=>p.id===id);
  const rolePills=id=>{const roles=rolesFor(id);return roles.length?`<div class="cp-role-list">${roles.map(r=>`<span class="pill">${esc(roleNames[r])}</span>`).join('')}</div>`:'<span class="muted">Не назначены</span>';};
  const fmtDate=v=>v?new Date(v+'T12:00:00').toLocaleDateString('ru-RU'):'';
+ const fmtMoney=v=>v===null||v===undefined||v===''?'':Number(v).toLocaleString('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2});
+ const latestAddendum=contractId=>(cache?.addenda||[]).filter(a=>a.contract_id===contractId&&a.status==='signed').sort((a,b)=>String(b.agreement_date||'').localeCompare(String(a.agreement_date||'')))[0]||null;
 
  function rowsHtml(rows){
   if(!rows.length)return `<tr><td colspan="6"><div class="empty cp-empty">Контрагенты не найдены.</div></td></tr>`;
@@ -88,7 +91,11 @@ if(url&&key&&key.startsWith('sb_publishable_')){
   const contracts=cache.contracts.filter(x=>x.counterparty_id===c.id);
   const rows=[];
   participants.forEach(x=>{const p=projectById(x.project_id);rows.push(`<div class="cp-system-row"><div><span class="pill">${esc(roleNames[x.role]||x.role)}</span></div><div><b>${esc(p?.name||'Объект')}</b>${p?.full_name&&p.full_name!==p.name?`<small>${esc(p.full_name)}</small>`:''}</div></div>`);});
-  contracts.forEach(x=>{const p=projectById(x.project_id);rows.push(`<div class="cp-system-row"><div><span class="pill g">Договор</span></div><div><b>№${esc(x.number||'—')}${x.contract_date?` от ${esc(fmtDate(x.contract_date))}`:''}</b><small>${esc(p?.name||'')} · наша роль: ${esc(ourRoleNames[x.our_role]||x.our_role||'')}</small>${x.subject?`<small>${esc(x.subject)}</small>`:''}</div></div>`);});
+  contracts.forEach(x=>{
+   const p=projectById(x.project_id),a=latestAddendum(x.id),amount=a?.amount_after??x.initial_amount;
+   const money=amount!==null&&amount!==undefined&&amount!==''?`<small class="cp-contract-money"><b>${esc(fmtMoney(amount))} руб.</b>${a?` · ДС №${esc(a.number)} от ${esc(fmtDate(a.agreement_date))}`:''}</small>`:'';
+   rows.push(`<div class="cp-system-row"><div><span class="pill g">Договор</span></div><div><b>№${esc(x.number||'—')}${x.contract_date?` от ${esc(fmtDate(x.contract_date))}`:''}</b><small>${esc(p?.name||'')} · наша роль: ${esc(ourRoleNames[x.our_role]||x.our_role||'')}</small>${money}${x.subject?`<small>${esc(x.subject)}</small>`:''}</div></div>`);
+  });
   return rows.length?`<div class="cp-system-list">${rows.join('')}</div>`:'<div class="cp-no-data">Пока не используется в объектах и договорах.</div>';
  }
  function hidden(name,value=''){return `<input type="hidden" name="${esc(name)}" value="${esc(value)}">`;}
@@ -120,7 +127,10 @@ if(url&&key&&key.startsWith('sb_publishable_')){
     ${edit?`<section class="cp-section"><div class="cp-section-title">В нашей системе</div>${systemUsage(c)}</section>`:''}
     <section class="cp-section"><div class="cp-section-title">Роли контрагента</div>${roleChecks(c)}</section>
     <section class="cp-section"><div class="cp-section-title">${edit?'Официальные данные МНС':'Основные реквизиты'}</div>${edit?officialFields(c):newFormFields()}</section>
-    <section class="cp-section"><div class="cp-section-title">Рабочие данные</div><div class="cp-work-grid">${workField('phone','Телефон',c?.phone||'','tel')}${workField('email','Электронная почта',c?.email||'','email')}${workArea('note','Примечание',c?.note||'')}</div></section>
+    <section class="cp-section"><div class="cp-section-title">Руководитель и право подписи</div><div class="cp-work-grid">${workField('director_title','Должность',c?.director_title||'')}${workField('director_name','ФИО руководителя',c?.director_name||'')}${workField('authority_basis','Действует на основании',c?.authority_basis||'')}</div></section>
+    <section class="cp-section"><div class="cp-section-title">Контакты</div><div class="cp-work-grid">${workArea('phone','Телефоны',c?.phone||'')}${workField('email','Электронная почта',c?.email||'','email')}</div></section>
+    <section class="cp-section"><div class="cp-section-title">Банковские реквизиты</div><div class="cp-work-grid">${workField('okpo','ОКПО',c?.okpo||'')}${workField('bank_bic','БИК',c?.bank_bic||'')}${workArea('bank_account','Расчётный счёт / IBAN',c?.bank_account||'')}${workArea('bank_name','Банк',c?.bank_name||'')}</div></section>
+    <section class="cp-section"><div class="cp-section-title">Примечание</div><div class="cp-work-grid">${workArea('note','Внутреннее примечание',c?.note||'')}</div></section>
     ${officialHidden}${hidden('source',c?.source||'manual')}<p id="cp-error" class="error" role="alert"></p>
    </div>
    <div class="cp-drawer-foot"><button type="button" data-cp-action="close">Отмена</button>${canEdit()?'<button class="primary" type="submit">Сохранить</button>':''}</div>
@@ -146,7 +156,7 @@ if(url&&key&&key.startsWith('sb_publishable_')){
  },true);
  document.addEventListener('input',ev=>{
   if(ev.target.id!=='cp-search'||!cache)return;const s=ev.target.value.trim().toLowerCase();
-  const rows=!s?cache.counterparties:cache.counterparties.filter(c=>{const rt=rolesFor(c.id).map(r=>roleNames[r]).join(' ');return[c.short_name,c.full_name,c.unp,c.address,rt].some(v=>(v||'').toLowerCase().includes(s));});const body=document.querySelector('#cp-body');if(body)body.innerHTML=rowsHtml(rows);
+  const rows=!s?cache.counterparties:cache.counterparties.filter(c=>{const rt=rolesFor(c.id).map(r=>roleNames[r]).join(' ');return[c.short_name,c.full_name,c.unp,c.address,c.director_name,c.okpo,rt].some(v=>(v||'').toLowerCase().includes(s));});const body=document.querySelector('#cp-body');if(body)body.innerHTML=rowsHtml(rows);
  });
  dialog?.addEventListener('close',()=>{if(dialog.classList.contains('cp-drawer'))resetDrawer();});
  function schedule(){if(scheduled)return;scheduled=true;queueMicrotask(async()=>{scheduled=false;await renderPage();});}
