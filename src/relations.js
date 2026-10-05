@@ -158,16 +158,27 @@ if(url&&key&&key.startsWith('sb_publishable_')){
   }).join('');
  }
 
+ function participantSignature(projectId){
+  const rows=cache.participants
+   .filter(p=>p.project_id===projectId)
+   .map(p=>[p.id,p.counterparty_id,p.role])
+   .sort((a,b)=>String(a[0]).localeCompare(String(b[0])));
+  return JSON.stringify({projectId,editable:canEdit(),org:[cache.organization?.unp||'',cache.organization?.short_name||''],rows});
+ }
+
  function renderParticipants(projectId){
   const title=[...document.querySelectorAll('#shell main .pg h2')].find(x=>x.textContent.trim()==='Договоры объекта');
   if(!title)return;
   const anchor=title.parentElement;
   let box=document.querySelector('[data-rel-participants]');
+  const signature=participantSignature(projectId);
+  if(box?.dataset.relSignature===signature)return;
   const org=cache.organization;
   const html=`<div class="section-title"><h2>Участники объекта</h2>${canEdit()?'<button data-rel-action="add-participant">Добавить участника</button>':''}</div>
    <div class="rel-org"><span class="pill g">Наша организация</span><b>${esc(org?.short_name||'Государственное предприятие "СУ № 22"')}</b><span class="muted">УНП ${esc(org?.unp||'191426884')}</span></div>
    <div class="table-wrap"><table class="rel-table"><thead><tr><th>Роль на объекте</th><th>Организация</th><th>УНП</th><th></th></tr></thead><tbody>${participantRows(projectId)}</tbody></table></div>`;
   if(!box){box=document.createElement('section');box.dataset.relParticipants='1';box.className='rel-participants';anchor.before(box);}
+  box.dataset.relSignature=signature;
   box.innerHTML=html;
  }
 
