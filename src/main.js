@@ -1,6 +1,6 @@
 import {renderWorkspace} from './views.js';
 import {createClient} from '@supabase/supabase-js';
-import {escapeHtml as e,money,isDone,canActOn,kindNames,roleNames,actionNames,emptyMatrix,registerSheetRows,ourRoleNames,addendumStateNames} from './domain.js';
+import {escapeHtml as e,money,isDone,canActOn,canWrite,kindNames,roleNames,actionNames,emptyMatrix,registerSheetRows,ourRoleNames,addendumStateNames} from './domain.js';
 import './style.css';
 const $=s=>document.querySelector(s),app=$('#app'),dialog=$('#dialog');
 const url=import.meta.env.VITE_SUPABASE_URL,key=import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -18,7 +18,7 @@ const select=(name,label,options)=>`<label>${e(label)}<select name="${name}" req
 const note=(name,label,value='')=>`<label>${e(label)}<textarea name="${name}" required>${e(value)}</textarea></label>`;
 const fmtDate=x=>x?new Date(x).toLocaleString('ru-RU',{timeZone:'Europe/Minsk'}):'';
 const currentPeriod=()=>data.periods?.find(p=>p.project_id===ui.project);
-const editor=()=>['head','engineer'].includes(profile?.role);
+const editor=(pid=ui.project)=>canWrite(profile,data.memberships,pid);
 const canEdit=()=>editor()&&currentPeriod()?.status==='open';
 const docs=()=>data.documents.filter(d=>d.project_id===ui.project);
 const ver=d=>data.versions.find(v=>v.id===d.current_version);
@@ -32,7 +32,7 @@ async function load(){
  profile=await query(client.from('pto_profiles').select('*').eq('id',session.user.id).maybeSingle());
  if(generation!==loadId)return;
  if(profile?.theme&&profile.theme!==ui.theme){ui.theme=profile.theme;try{localStorage.setItem('pto-theme',ui.theme);}catch{}applyTheme();}
- if(!profile?.active){app.innerHTML=`<section class="login"><div class="mark">П</div><h1>Доступ ещё не назначен</h1><p>Администратор должен активировать вашу учётную запись и назначить объекты.</p><p class="muted">${e(session.user.email)}</p>${btn('Проверить доступ','refresh')}${btn('Выйти','logout')}</section>`;return;}
+ if(!profile?.active){app.innerHTML=`<section class="login"><div class="mark">П</div><h1>Доступ ещё не назначен</h1><p>Начальник ПТО должен активировать вашу учётную запись и назначить объекты.</p><p class="muted">${e(session.user.email)}</p>${btn('Проверить доступ','refresh')}${btn('Выйти','logout')}</section>`;return;}
  const [projects,contracts,periods,profiles,memberships,templates,steps]=await Promise.all([all('pto_projects'),all('pto_contract_list'),all('pto_periods',q=>q.eq('month',ui.month+'-01')),all('pto_profiles'),query(client.from('pto_memberships').select('*')),query(client.from('pto_workflow_templates').select('*')),query(client.from('pto_workflow_steps').select('*'))]);
  if(generation!==loadId)return;
  const ids=periods.map(p=>p.id);
@@ -59,7 +59,7 @@ async function docModal(id){
  const amountBlock=d.kind==='c29'?`<p class="muted">Версия ${v.version} · материальный отчёт, денежной суммы нет.</p>`:d.kind==='c3a'?`<p class="muted">Версия ${v.version}</p>${c3aTable(report)}`:`<div class="stats"><article><small>Версия ${v.version}</small><strong>${money(v.amount)} <small>руб.</small></strong></article></div>`;
  // Документ не переходит сам по себе: передача, подпись и принятие — шаги его комплекта.
  const editable=p?.status==='open',done=isDone(d);
- modal(`${kindNames[d.kind]} № ${d.number}`,`<p>${badge(d.step_label||'Без комплекта',done)} · ${e(projectName(d.project_id))}</p>${amountBlock}<p>${e(v.note)}</p><div class="actions">${d.workflow_id?btn('Открыть комплект','workflow',d.workflow_id,true):''}${editable&&editor()?btn('Новая версия','revise',id):''}</div>${editable&&editor()&&done?'<p class="muted">Комплект принят бухгалтерией. Новая версия вернёт его на первый шаг; принятая сумма сохранится до повторного принятия.</p>':''}<h3>Файлы текущей версии</h3>${files.filter(f=>f.version_id===v.id).map(f=>`<p>${btn(f.name,'download',f.path)}</p>`).join('')||'<p class="muted">Файлы не прикреплены.</p>'}${editable&&editor()&&!done?`<label class="file">Прикрепить файл (до 20 МБ)<input id="upload" type="file"></label>`:''}<h3>История версий</h3>${data.versions.filter(x=>x.document_id===id).sort((a,b)=>b.version-a.version).map(x=>`<div class="version"><b>Версия ${x.version} · ${money(x.amount)} руб.</b> ${x.id===d.accepted_version?badge('Принята',true):''}<small>${e(fmtDate(x.created_at))}</small><p>${e(x.note)}</p>${files.filter(f=>f.version_id===x.id).map(f=>btn(f.name,'download',f.path)).join('')}</div>`).join('')}`,true);
+ modal(`${kindNames[d.kind]} № ${d.number}`,`<p>${badge(d.step_label||'Без комплекта',done)} · ${e(projectName(d.project_id))}</p>${amountBlock}<p>${e(v.note)}</p><div class="actions">${d.workflow_id?btn('Открыть комплект','workflow',d.workflow_id,true):''}${editable&&editor(d.project_id)?btn('Новая версия','revise',id):''}</div>${editable&&editor(d.project_id)&&done?'<p class="muted">Комплект принят бухгалтерией. Новая версия вернёт его на первый шаг; принятая сумма сохранится до повторного принятия.</p>':''}<h3>Файлы текущей версии</h3>${files.filter(f=>f.version_id===v.id).map(f=>`<p>${btn(f.name,'download',f.path)}</p>`).join('')||'<p class="muted">Файлы не прикреплены.</p>'}${editable&&editor(d.project_id)&&!done?`<label class="file">Прикрепить файл (до 20 МБ)<input id="upload" type="file"></label>`:''}<h3>История версий</h3>${data.versions.filter(x=>x.document_id===id).sort((a,b)=>b.version-a.version).map(x=>`<div class="version"><b>Версия ${x.version} · ${money(x.amount)} руб.</b> ${x.id===d.accepted_version?badge('Принята',true):''}<small>${e(fmtDate(x.created_at))}</small><p>${e(x.note)}</p>${files.filter(f=>f.version_id===x.id).map(f=>btn(f.name,'download',f.path)).join('')}</div>`).join('')}`,true);
  if($('#upload'))$('#upload').onchange=async ev=>{const file=ev.target.files[0];if(!file)return;if(file.size>20971520)return toast('Максимальный размер файла — 20 МБ');ev.target.disabled=true;try{
  const ext=file.name.split('.').pop().replace(/[^a-zA-Z0-9]/g,'').slice(0,10);const path=`${d.project_id}/${d.id}/${v.id}/${crypto.randomUUID()}.${ext||'bin'}`;
  await query(client.storage.from('pto-documents').upload(path,file,{upsert:false,contentType:file.type||'application/octet-stream'}));
@@ -72,7 +72,7 @@ const c3aHint='<p class="muted">СМР с НДС за период не ввод
 const wfOf=id=>data.workflows.find(w=>w.id===id);
 const stepsOf=w=>data.steps.filter(s=>s.template_code===w.template_code).sort((a,b)=>a.ordinal-b.ordinal);
 const periodOf=w=>data.periods.find(p=>p.id===w.period_id);
-const canMove=w=>canActOn(w,profile.role)&&periodOf(w)?.status==='open';
+const canMove=w=>canActOn(w,profile.role)&&editor(w.project_id)&&periodOf(w)?.status==='open';
 async function workflowModal(id){
  const w=wfOf(id);if(!w)throw Error('Комплект не найден');
  const events=(await all('pto_workflow_events',q=>q.eq('workflow_id',id))).sort((a,b)=>b.id-a.id),steps=stepsOf(w),next=steps.find(s=>s.ordinal===w.step_ordinal+1);
@@ -115,7 +115,7 @@ const sum=x=>x===null||x===undefined||x===''?'—':money(x)+' руб.';
 async function contractModal(id){
  const c=data.contracts.find(x=>x.id===id);if(!c)throw Error('Договор не найден');
  const addenda=(await all('pto_contract_addenda',q=>q.eq('contract_id',id))).sort((a,b)=>String(b.agreement_date).localeCompare(String(a.agreement_date))||String(b.created_at).localeCompare(String(a.created_at)));
- const parent=data.contracts.find(x=>x.id===c.parent_contract_id),edit=editor();
+ const parent=data.contracts.find(x=>x.id===c.parent_contract_id),edit=editor(c.project_id);
  const terms=[['Договорная цена',c.initial_amount],['НДС',c.vat_amount],['СМР',c.smr_amount],['НДС СМР',c.smr_vat_amount],['ПНР',c.pnr_amount],['НДС ПНР',c.pnr_vat_amount],['Оборудование',c.equipment_amount],['НДС оборудования',c.equipment_vat_amount]].filter(([,v])=>v!==null&&v!==undefined);
  const addendumActions=a=>!edit?'':a.status==='draft'?btn('Подписано','sign-addendum',a.id)+btn('Отменить','cancel-addendum',a.id):a.status==='signed'?btn('Отменить','cancel-addendum',a.id):'';
  modal(`Договор № ${c.number}`,`<p>${badge(c.direction==='incoming'?'Входящий':'Исходящий')} · ${e(c.party)} · наша роль: ${e(ourRoleNames[c.our_role]||c.our_role)}</p>

@@ -5,8 +5,11 @@ export const isDone=x=>['accepted','closed'].includes(x?.step_code);
 // Кто отмечает шаг маршрута. Бухгалтерия системой не пользуется: её шаги (accounting) тоже отмечает ПТО.
 export const actorRoles={pto:['head','engineer'],accounting:['head','engineer'],none:[]};
 export const canActOn=(w,role)=>(actorRoles[w?.actor]||[]).includes(role);
+// Вносить данные и двигать комплекты: начальник ПТО — по любому объекту, инженер — по закреплённому, руководитель — никогда.
+// Это подсказка интерфейсу; решает база (pto_private.can_access).
+export const canWrite=(profile,memberships,projectId)=>profile?.role==='head'||(profile?.role==='engineer'&&(memberships||[]).some(m=>m.user_id===profile.id&&m.project_id===projectId));
 export const kindNames={c2a:'С-2а',c2b:'С-2б',c3a:'С-3а',c29:'С-29'};
-export const roleNames={head:'Начальник ПТО',engineer:'Инженер ПТО',admin:'Администратор'};
+export const roleNames={head:'Начальник ПТО',engineer:'Инженер ПТО',director:'Руководитель'};
 export const ourRoleNames={contractor:'Подрядчик',subcontractor:'Субподрядчик',customer:'Заказчик субподрядных работ',buyer:'Покупатель',service_customer:'Заказчик услуг'};
 export const addendumStateNames={draft:'Проект',signed:'Подписано',cancelled:'Отменено'};
 export const actionNames={workflow_advance:'Комплект передан на следующий шаг',workflow_return:'Комплект возвращён',set_estimate:'Внесена оценка выполнения',update_contract:'Изменены условия договора',create_addendum:'Добавлено допсоглашение',set_addendum_status:'Изменён статус допсоглашения',create_counterparty:'Добавлен контрагент',update_counterparty:'Изменён контрагент',create_project:'Создан объект',member:'Изменён доступ к объекту',profile:'Изменена учётная запись',create_contract:'Создан договор',open_period:'Открыт период',create_document:'Создан документ',revise:'Создана новая версия',attach:'Прикреплён файл',send:'Передан документ',receive:'Подтверждено получение',sign:'Зафиксирована подпись',accept:'Принято бухгалтерией',allocate:'Сопоставлен субподряд',process_transition:'Перемещён комплект процентовки',review:'Проверен период',close:'Закрыт период',reopen:'Повторно открыт период'};

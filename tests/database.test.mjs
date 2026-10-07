@@ -4,7 +4,7 @@ import { readFile, readdir } from 'node:fs/promises';
 import { PGlite } from '@electric-sql/pglite';
 import { randomUUID } from 'node:crypto';
 let db, project, otherProject, period, contract, doc, summary, materials;
-const users={head:randomUUID(),engineer:randomUUID(),outsider:randomUUID(),admin:randomUUID(),second:randomUUID()};
+const users={head:randomUUID(),engineer:randomUUID(),outsider:randomUUID(),director:randomUUID(),second:randomUUID(),inactive:randomUUID()};
 async function as(user) { await db.exec('reset role'); await db.query("select set_config('request.jwt.claim.sub',$1,false)",[user]); await db.exec('set role authenticated'); }
 async function command(payload,request=randomUUID()){const r=await db.query('select public.pto_command($1,$2::jsonb) result',[request,JSON.stringify(payload)]);return r.rows[0].result;}
 async function rev(){return (await db.query('select revision from pto_periods where id=$1',[period])).rows[0].revision;}
@@ -33,7 +33,7 @@ before(async()=>{
  create table storage.objects(id uuid default gen_random_uuid(),bucket_id text,name text,unique(bucket_id,name));
  alter table storage.objects enable row level security;grant usage on schema storage to authenticated;grant select,insert on storage.objects to authenticated;`);
  for(const migration of (await readdir(new URL('../supabase/migrations/',import.meta.url))).sort()) await db.exec(await readFile(new URL('../supabase/migrations/'+migration,import.meta.url),'utf8'));
- for(const [name,id] of Object.entries(users)){await db.query('insert into auth.users values($1,$2)',[id,`${name}@test.invalid`]);await db.query('update pto_profiles set active=true,role=$2 where id=$1',[id,['engineer','outsider','second'].includes(name)?'engineer':name]);}
+ for(const [name,id] of Object.entries(users)){await db.query('insert into auth.users values($1,$2)',[id,`${name}@test.invalid`]);if(name!=='inactive')await db.query('update pto_profiles set active=true,role=$2 where id=$1',[id,['engineer','outsider','second'].includes(name)?'engineer':name]);}
 });
 after(async()=>db?.close());
 test('create workspace, object scope, memberships and idempotent commands',async()=>{
@@ -42,7 +42,8 @@ test('create workspace, object scope, memberships and idempotent commands',async
  await assert.rejects(command({...payload,name:'Подмена'},req),/уже использован/);
  otherProject=(await command({op:'create_project',name:'Другой объект'})).project_id;
  await command({op:'member',project_id:project,user_id:users.engineer});
- await as(users.engineer);assert.equal((await db.query('select * from pto_projects')).rows.length,1);
+ // Инженер видит все объекты организации, а вносит данные только по закреплённым.
+ await as(users.engineer);assert.equal((await db.query('select * from pto_projects')).rows.length,2);
  await assert.rejects(command({op:'open_period',project_id:otherProject,month:'2026-10-01'}),/Нет доступа/);
  await assert.rejects(db.query("update pto_profiles set role='admin' where id=$1",[users.engineer]),/permission denied/);
  await command({op:'create_contract',project_id:project,number:'Д-1',party:'Заказчик',direction:'outgoing'});
@@ -69,7 +70,8 @@ test('kit route: steps from the template, PTO marks accounting steps, returns wi
  await command({op:'workflow_return',workflow_id:w,to_step:'signed',document_id:summary,note:'Нет подписи заказчика на С-3а'});
  const last=(await db.query('select * from pto_workflow_list where id=$1',[w])).rows[0];
  assert.deepEqual([last.step_code,last.attention_document_id,last.last_note],['signed',summary,'Нет подписи заказчика на С-3а']);
- await as(users.admin);await assert.rejects(advance(w),/отмечает ПТО/);
+ await as(users.director);await assert.rejects(advance(w),/Нет доступа/,'руководитель не двигает комплекты');
+ await as(users.outsider);await assert.rejects(advance(w),/Нет доступа/,'инженер не двигает комплекты чужого объекта');
  await as(users.engineer);await advance(w);await advance(w);
  await assert.rejects(advance(w,{proof:''}),/подтверждение/,'принятие бухгалтерией — с подтверждением');
  await advance(w,{person:'Главный бухгалтер',proof:'Отметка на описи № 15'});assert.equal(await stepOf(w),'accepted');
@@ -107,18 +109,41 @@ test('required package blocks review; review needs accepted kits; close and reop
  await assert.rejects(advance((await docRow(doc)).workflow_id),/Период закрыт/);
  assert.equal((await db.query('select * from pto_snapshots')).rows.length,1);
  assert.equal((await db.query('select data from pto_snapshots')).rows[0].data.workflows.length,2);
- await as(users.admin);await assert.rejects(run('reopen',{reason:''}),/причину/);await run('reopen',{reason:'Уточнение по письму заказчика'});
+ await as(users.engineer);await assert.rejects(run('reopen',{reason:'Уточнение по письму'}),/начальнику ПТО/);
+ await as(users.director);await assert.rejects(run('reopen',{reason:'Уточнение по письму'}),/Нет доступа/);
+ await as(users.head);await assert.rejects(run('reopen',{reason:''}),/причину/);await run('reopen',{reason:'Уточнение по письму заказчика'});
  assert.equal((await db.query('select * from pto_snapshots')).rows.length,1);
  await as(users.head);await run('revise',{document_id:doc,amount:'130',reason:'Уточнение'});
  await assert.rejects(run('review'),/не принятые бухгалтерией/);
  await run('revise',{document_id:summary,reason:'По новой версии акта'});await pass(doc);
  await assert.rejects(run('review'),/Обновите справку и С-29/);
 });
-test('anonymous and unrelated users cannot read files or documents',async()=>{
- await as(users.head);assert.ok((await db.query('select * from storage.objects')).rows.length>0);
- await as(users.outsider);assert.equal((await db.query('select * from pto_documents')).rows.length,0);
+test('engineers read the whole organization but write only on assigned objects; inactive and anonymous users read nothing',async()=>{
+ await as(users.head);const docs=(await db.query('select count(*)::int n from pto_documents')).rows[0].n,files=(await db.query('select count(*)::int n from storage.objects')).rows[0].n;
+ assert.ok(files>0);
+ for(const who of [users.outsider,users.director]){
+  await as(who);
+  assert.equal((await db.query('select count(*)::int n from pto_documents')).rows[0].n,docs);
+  assert.equal((await db.query('select count(*)::int n from storage.objects')).rows[0].n,files);
+  assert.ok((await db.query('select * from pto_workflow_list')).rows.length>0,'конвейер организации виден');
+  assert.ok((await db.query('select * from pto_profiles')).rows.length>1,'имена сотрудников видны в конвейере и журнале');
+  await assert.rejects(command({op:'create_project',name:'Чужой'}),/Недостаточно прав/);
+  await assert.rejects(run('revise',{document_id:doc,amount:'1',reason:'Чужой объект'}),/Нет доступа/);
+  await assert.rejects(run('create_document',{contract_id:contract,kind:'c2a',number:'Ч-1',amount:'1'}),/Нет доступа/);
+  await assert.rejects(command({op:'member',project_id:project,user_id:who}),/начальник ПТО/);
+  await assert.rejects(command({op:'profile',user_id:users.engineer,role:'head',active:'true',display_name:'Захват'}),/начальник ПТО/);
+  const r=await docRow(doc);
+  await assert.rejects(db.query("insert into storage.objects(bucket_id,name) values('pto-documents',$1)",[`${r.project_id}/${doc}/${r.current_version}/${randomUUID()}.pdf`]),/row-level security/);
+ }
+ await as(users.director);
+ await assert.rejects(command({op:'open_period',project_id:project,month:'2026-11-01'}),/Нет доступа/);
+ await assert.rejects(command({op:'create_counterparty',unp:'190000000',short_name:'Р',full_name:'Р'}),/Недостаточно прав/);
+ await assert.rejects(command({op:'set_estimate',period_id:period,contract_id:contract,amount:'1.00'}),/Недостаточно прав|Нет доступа/);
+ await as(users.inactive);
+ assert.equal((await db.query('select * from pto_documents')).rows.length,0);
  assert.equal((await db.query('select * from storage.objects')).rows.length,0);
- await assert.rejects(command({op:'create_project',name:'Чужой'}),/Недостаточно прав/);
+ assert.equal((await db.query('select * from pto_projects')).rows.length,0);
+ await assert.rejects(command({op:'create_project',name:'Неактивный'}),/не активирована/);
  await db.exec('reset role; set role anon');await assert.rejects(db.query('select * from pto_documents'),/permission denied/);
  await assert.rejects(db.query('select pto_command($1,$2)',[randomUUID(),'{}']),/permission denied/);
 });
@@ -137,7 +162,7 @@ test('subcontract prices, allocation limits, NaN, and stale source version guard
  let r=(await db.query('select * from pto_register')).rows[0];assert.equal(Number(r.total),130);assert.equal(Number(r.subcontract),50);
  await run('revise',{document_id:materials,reason:'Обновлены основания'});await pass(materials);
  await run('review');await run('close');
- await as(users.admin);await run('reopen',{reason:'Уточнение субподрядчика'});
+ await run('reopen',{reason:'Уточнение субподрядчика'});
  await as(users.head);await run('revise',{document_id:incoming,amount:'45',reason:'Корректировка'});await pass(incoming);
  await assert.rejects(run('review'),/распределение субподряда/);
  const before=(await db.query('select data from pto_snapshots order by created_at desc limit 1')).rows[0].data;
@@ -201,7 +226,8 @@ test('register matrix: exact August figures, column per sub-contract, hidden emp
  assert.deepEqual(subtotals.map(r=>[r.project,r.total,r.own]),[['Пружаны','1973359.89','1503650.42']]);
  assert.deepEqual([m.total.total,m.total.own,m.total.subcontract],['2073359.89','1279066.57','794293.32']);
  assert.equal(m.total.cells[col('Субподрядчик П')],'324583.85');
- await as(users.outsider);assert.deepEqual((await db.query('select public.pto_register_matrix($1) m',[month])).rows[0].m.rows,[]);
+ await as(users.director);assert.equal((await db.query('select public.pto_register_matrix($1) m',[month])).rows[0].m.total.total,m.total.total,'руководитель видит реестр организации');
+ await as(users.inactive);assert.deepEqual((await db.query('select public.pto_register_matrix($1) m',[month])).rows[0].m.rows,[]);
  await db.exec('reset role; set role anon');await assert.rejects(db.query('select public.pto_register_matrix($1)',[month]),/permission denied/);
 });
 test('contracts: direction and counterparty name are derived, current price and term follow signed addenda',async()=>{
@@ -237,7 +263,7 @@ test('contracts: direction and counterparty name are derived, current price and 
  await assert.rejects(command({op:'set_addendum_status',addendum_id:ds1,status:'signed'}),/Недопустимый переход/);
  // Права и журнал.
  await as(users.outsider);await assert.rejects(command({...terms}),/Нет доступа/);
- await as(users.admin);await assert.rejects(command({...terms}),/Недостаточно прав/);
+ await as(users.director);await assert.rejects(command({...terms}),/Недостаточно прав/);
  await as(users.head);
  const actions=(await db.query("select action from pto_events where action in ('update_contract','create_addendum','set_addendum_status','create_counterparty','update_counterparty')")).rows.map(r=>r.action);
  for(const a of ['update_contract','create_addendum','set_addendum_status','create_counterparty','update_counterparty'])assert.ok(actions.includes(a),a);
@@ -299,9 +325,13 @@ test('C-3a: SMR comes from the kit acts, to-pay and cumulative columns are compu
  await as(users.outsider);await assert.rejects(command({op:'set_estimate',period_id:aug,contract_id:c21,amount:'1.00'}),/Нет доступа/);
  await db.exec('reset role');await assert.rejects(db.query('update pto_estimates set amount=0'),/только на добавление/);
 });
-test('roles are PTO only; the theme is kept in the profile and only by its owner',async()=>{
- await as(users.admin);
+test('roles: head is the administrator, director is read-only; the theme is kept in the profile and only by its owner',async()=>{
+ await as(users.head);
  await assert.rejects(command({op:'profile',user_id:users.second,role:'accountant',active:'true',display_name:'Бухгалтер'}),/pto_profiles_role_check/);
+ await assert.rejects(command({op:'profile',user_id:users.second,role:'admin',active:'true',display_name:'Администратор'}),/pto_profiles_role_check/);
+ await assert.rejects(command({op:'profile',user_id:users.head,role:'engineer',active:'true',display_name:'Сам'}),/Свою роль/);
+ await as(users.director);await command({op:'set_theme',theme:'light'});
+ await as(users.head);
  await command({op:'profile',user_id:users.second,role:'head',active:'true',display_name:'Второй'});
  await as(users.engineer);
  await command({op:'set_theme',theme:'dark'});
