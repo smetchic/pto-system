@@ -59,7 +59,7 @@ if(url&&key&&key.startsWith('sb_publishable_')){
   const p=await q(client.from('pto_profiles').select('role,active').eq('id',session.user.id).maybeSingle());
   return userRole=p?.active?p.role:'';
  }
- const canEdit=()=>['head','engineer','admin'].includes(userRole);
+ const canEdit=()=>['head','engineer'].includes(userRole);
  const rolesFor=id=>cache?.roles?.filter(r=>r.counterparty_id===id).map(r=>r.role)||[];
  const cpById=id=>cache?.counterparties?.find(c=>c.id===id);
 

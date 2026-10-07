@@ -58,7 +58,7 @@ if(url&&key&&key.startsWith('sb_publishable_')){
   cache={counterparties,contracts,roles,participants,projects};
   return cache;
  }
- const canEdit=()=>['head','engineer','admin'].includes(role);
+ const canEdit=()=>['head','engineer'].includes(role);
  const countContracts=id=>cache?.contracts?.filter(c=>c.counterparty_id===id).length||0;
  const rolesFor=id=>cache?.roles?.filter(r=>r.counterparty_id===id).map(r=>r.role).filter(r=>roleNames[r])||[];
  const projectById=id=>cache?.projects?.find(p=>p.id===id);

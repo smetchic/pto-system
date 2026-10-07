@@ -8,7 +8,7 @@ function fixture(role='head') {
   projects:[{id:'object',name:'Объект <script>alert(1)</script>',address:'Адрес & корпус'}],
   contracts:[{id:'contract',project_id:'object',number:'Д-1',party:'Контрагент',direction:'outgoing'}],
   periods:[{id:'period',project_id:'object',status:'open',revision:2,reviewed_revision:1}],
-  profiles:[profile],memberships:[],allocations:[],events:[],
+  profiles:[profile],memberships:[{project_id:'object',user_id:'user'}],allocations:[],events:[],
   documents:[{id:'act',project_id:'object',period_id:'period',contract_id:'contract',kind:'c2a',number:'1',current_version:'new',accepted_version:'old',due_date:'2026-10-10',workflow_id:'kit',step_code:'site',step_label:'У прораба'}],
   templates:[{code:'claim',name:'Процентовка заказчику',money:true,ordinal:1},{code:'c29',name:'С-29',money:false,ordinal:3}],
   steps:[{template_code:'claim',code:'prepared',ordinal:1,label:'Подготовлена ПТО',actor:'pto',requires:[]},{template_code:'claim',code:'site',ordinal:2,label:'У прораба',actor:'pto',requires:['kit','person']},
@@ -51,7 +51,9 @@ test('conveyor shows one board per route with stages from the template; quick st
  for(const label of ['\u041f\u043e\u0434\u0433\u043e\u0442\u043e\u0432\u043b\u0435\u043d\u0430 \u041f\u0422\u041e','\u0423 \u043f\u0440\u043e\u0440\u0430\u0431\u0430','\u041e\u0440\u0438\u0433\u0438\u043d\u0430\u043b \u0432 \u0431\u0443\u0445\u0433\u0430\u043b\u0442\u0435\u0440\u0438\u0438','\u041f\u0440\u0438\u043d\u044f\u0442\u043e \u0431\u0443\u0445\u0433\u0430\u043b\u0442\u0435\u0440\u0438\u0435\u0439'])assert.match(html,new RegExp(label));
  assert.match(html,/data-action="wf-advance" data-id="kit">\u2192 \u041e\u0440\u0438\u0433\u0438\u043d\u0430\u043b \u0432 \u0431\u0443\u0445\u0433\u0430\u043b\u0442\u0435\u0440\u0438\u0438/);
  assert.match(html,/\u0412\u043e\u0437\u0432\u0440\u0430\u0442: \u041d\u0435\u0442 \u043f\u043e\u0434\u043f\u0438\u0441\u0438 &lt;i&gt;/);assert.match(html,/proc-corner red/);
- assert.doesNotMatch(renderWorkspace(fixture('admin')),/data-action="wf-advance"/,'\u0430\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440 \u0448\u0430\u0433\u0438 \u043d\u0435 \u043e\u0442\u043c\u0435\u0447\u0430\u0435\u0442');
+ assert.doesNotMatch(renderWorkspace(fixture('director')),/data-action="wf-advance"/,'руководитель шаги не отмечает');
+ {const other=fixture('engineer');other.data.memberships=[];other.ui.route='flow';assert.doesNotMatch(renderWorkspace(other),/data-action="wf-advance"/,'инженер видит конвейер чужого объекта, но шаги не отмечает');}
+ assert.doesNotMatch(renderWorkspace(fixture('director')),/data-action="wf-advance"/,'\u0430\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440 \u0448\u0430\u0433\u0438 \u043d\u0435 \u043e\u0442\u043c\u0435\u0447\u0430\u0435\u0442');
  ctx.ui.flowTemplate='c29';html=renderWorkspace(ctx);assert.match(html,/\u0424\u043e\u0440\u043c\u0438\u0440\u043e\u0432\u0430\u043d\u0438\u0435 \u041f\u0422\u041e/);assert.doesNotMatch(html,/\u0440\u0443\u0431\. \u00b7 \u0441\u0440\./,'\u0443 \u0421-29 \u043d\u0435\u0442 \u0441\u0443\u043c\u043c');
 });
 
@@ -108,15 +110,16 @@ test('contracts tab shows computed current price and term and opens the contract
 });
 
 test('object tabs preserve role and period gates for work actions',()=>{
- for(const role of ['head','engineer','accountant','admin']){
-  const ctx=fixture(role);ctx.ui.route='project';
+ for(const [role,assigned] of [['head',false],['engineer',true],['engineer',false],['director',true]]){
+  const ctx=fixture(role);ctx.ui.route='project';if(!assigned)ctx.data.memberships=[];
+  const writer=role==='head'||(role==='engineer'&&assigned);
   for(const tab of ['summary','contracts','subcontract','month','acts','documents','history']){
    ctx.ui.projectTab=tab;const html=renderWorkspace(ctx);
-   assert.equal(html.includes('data-action="new-doc"'),['head','engineer'].includes(role));
+   assert.equal(html.includes('data-action="new-doc"'),writer);
    assert.equal(html.includes('data-action="close"'),role==='head');
   }
   ctx.data.periods[0].status='closed';const html=renderWorkspace(ctx);
   assert.doesNotMatch(html,/data-action="new-doc"|data-action="close"/);
-  assert.equal(html.includes('data-action="reopen"'),role==='admin');
+  assert.equal(html.includes('data-action="reopen"'),role==='head');
  }
 });
