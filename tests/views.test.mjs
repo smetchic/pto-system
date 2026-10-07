@@ -144,3 +144,22 @@ test('counterparties: list with roles and contract count, search text, read-only
  assert.deepEqual(partyPayload(form,party),{unp:'190000001',note:'x',roles:['customer','supplier'],op:'update_counterparty',counterparty_id:'cp1'});
  assert.equal(partyPayload(new FormData()).op,'create_counterparty');
 });
+
+test('MNS XML: parsed without DOM, compared by UNP, manual fields are not part of the diff',async()=>{
+ const {parseMnsXml,mnsPreview,mnsPreviewHtml}=await import('../src/parties.js');
+ const xml='<ROWSET><ROW><VUNP>693340482</VUNP><VNAIMP>Общество с ограниченной ответственностью &quot;КИПМОНТАЖ&quot;</VNAIMP><VNAIMK>ООО "КИПМОНТАЖ"</VNAIMK><VPADRES>Минский район</VPADRES><DREG>2024-11-04</DREG><NMNS>613</NMNS><VMNS>Инспекция МНС РБ по Минскому району</VMNS><CKODSOST>1</CKODSOST><VKODS>Действующий</VKODS><DLIKV/><VLIKV/></ROW><ROW><VUNP>190000001</VUNP><VNAIMP>ООО «Новый &amp; Ко»</VNAIMP><VNAIMK/><VPADRES>Минск</VPADRES><DREG>01.02.2020</DREG><NMNS>104</NMNS><VMNS>ИМНС</VMNS><CKODSOST>3</CKODSOST><VKODS>Ликвидирован</VKODS><DLIKV>2026-09-30</DLIKV><VLIKV>Решение</VLIKV></ROW></ROWSET>';
+ const rows=parseMnsXml(xml);
+ assert.equal(rows.length,2);
+ assert.deepEqual([rows[0].unp,rows[0].full_name,rows[0].status_change_date,rows[1].full_name,rows[1].short_name,rows[1].registration_date],['693340482','Общество с ограниченной ответственностью "КИПМОНТАЖ"','','ООО «Новый & Ко»','','2020-02-01']);
+ assert.throws(()=>parseMnsXml('<html></html>'),/ROWSET/);
+ const existing={id:'k',...rows[0],director_name:'Петров',status_name:'Действующий'};
+ const data={parties:[existing]};
+ let p=mnsPreview(data,rows);
+ assert.deepEqual(p.map(x=>x.status),['same','new']);
+ p=mnsPreview(data,[{...rows[0],status_name:'Ликвидирован',status_code:'3'},rows[0]]);
+ assert.equal(p.length,1,'повтор УНП — одна строка, последняя выписка');
+ p=mnsPreview(data,[{...rows[0],status_name:'Ликвидирован',status_code:'3'}]);
+ assert.deepEqual(p[0].changes.map(c=>c.field),['status_code','status_name']);
+ const html=mnsPreviewHtml(mnsPreview(data,[{...rows[0],status_name:'Ликвидирован'},rows[1]]));
+ assert.match(html,/Новых: <b>1<\/b> · с изменениями: <b>1<\/b>/);assert.match(html,/Действующий → <b>Ликвидирован<\/b>/);assert.match(html,/Новый &amp; Ко/);
+});
