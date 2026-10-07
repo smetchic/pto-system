@@ -24,18 +24,9 @@ export function partiesList({data,canEdit}){
 
 const hidden=(name,value='')=>`<input type="hidden" name="${e(name)}" value="${e(value)}">`;
 const input=(name,label,value='',type='text',ro=false)=>`<label>${e(label)}<input name="${e(name)}" type="${e(type)}" value="${e(value)}" autocomplete="off" ${ro?'readonly':''}></label>`;
-const area=(name,label,value='',ro=false)=>`<label class="wide">${e(label)}<textarea name="${e(name)}" autocomplete="off" ${ro?'readonly':''}>${e(value)}</textarea></label>`;
 
-// Сведения МНС одной компактной группой: адрес, инспекция, дата постановки. Коды МНС хранятся, но не показываются.
-function facts(c){
- return `<dl class="cp-facts">
-  <div class="wide"><dt>Юридический адрес</dt><dd>${e(c.address||'—')}</dd></div>
-  <div><dt>Инспекция МНС</dt><dd>${e(c.tax_office_name||'—')}</dd></div>
-  <div><dt>На учёте с</dt><dd>${e(day(c.registration_date)||'—')}</dd></div>
- </dl>`;
-}
 // Ручное добавление — запасной путь (основной — XML МНС): только то, без чего контрагента не сохранить.
-const newFields=()=>`<p class="cp-hint">Быстрее и точнее — «Загрузить XML МНС» в списке контрагентов.</p><div class="cp-work-grid">${input('unp','УНП')}${input('short_name','Краткое наименование')}${area('full_name','Полное наименование')}${area('address','Юридический адрес')}</div>${['registration_date','tax_office_code','tax_office_name','status_code','status_name','status_change_date','liquidation_info'].map(k=>hidden(k)).join('')}`;
+const newFields=()=>`<p class="cp-hint">Быстрее и точнее — «Загрузить XML МНС» в списке контрагентов.</p><div class="cp-work-grid">${input('unp','УНП')}${input('short_name','Краткое наименование')}<div class="wide">${input('full_name','Полное наименование')}</div><div class="wide">${input('address','Юридический адрес')}</div></div>${['registration_date','tax_office_code','tax_office_name','status_code','status_name','status_change_date','liquidation_info'].map(k=>hidden(k)).join('')}`;
 
 // Недействующий контрагент заметен сразу: дата и сведения МНС в красной плашке под заголовком.
 function statusAlert(c){
@@ -43,44 +34,59 @@ function statusAlert(c){
  return `<div class="cp-alert"><b>${e(c.status_name)}${c.status_change_date?` с ${e(day(c.status_change_date))}`:''}.</b> ${e(c.liquidation_info||'Проверьте договоры и платежи с этим контрагентом.')}</div>`;
 }
 
-// Итоги по контрагенту: объекты, договоры и их текущая стоимость (из pto_contract_list).
-function totals(data,c){
- const list=contractsOf(data,c.id),objects=new Set([...list.map(x=>x.project_id),...(data.participants||[]).filter(x=>x.counterparty_id===c.id).map(x=>x.project_id)]);
- const sum=list.reduce((t,x)=>t+(Number(x.current_amount)||0),0);
- return `<div class="cp-kpis"><div><span>Объектов</span><b>${objects.size}</b></div><div><span>Договоров</span><b>${list.length}</b></div><div><span>Стоимость договоров</span><b>${list.length?`${money(sum)} руб.`:'—'}</b></div></div>`;
-}
-
+const plural=(n,one,few,many)=>{const m10=n%10,m100=n%100;return `${n} ${m10===1&&m100!==11?one:m10>=2&&m10<=4&&(m100<12||m100>14)?few:many}`;};
+// Договоры одной строкой каждый: номер, объект, текущая стоимость (из pto_contract_list, по последнему подписанному ДС).
 function usage(data,c){
- const rows=[],withContract=new Set(contractsOf(data,c.id).map(x=>x.project_id));
- contractsOf(data,c.id).forEach(x=>{
-  // Текущая стоимость вычисляется в базе (pto_contract_list) по последнему подписанному допсоглашению.
-  const p=projectOf(data,x.project_id),amount=x.current_amount,has=amount!==null&&amount!==undefined&&amount!=='';
-  rows.push(`<div class="cp-use"><div><b>Договор №${e(x.number||'—')}${x.contract_date?` от ${e(day(x.contract_date))}`:''}</b><small>${e(p?.name||'')} · наша роль: ${e(ourRoleNames[x.our_role]||x.our_role||'')}${x.amount_addendum_number?` · ДС №${e(x.amount_addendum_number)} от ${e(day(x.amount_addendum_date))}`:''}</small></div><div class="cp-use-sum">${has?`${money(amount)} руб.`:''}</div></div>`);
- });
- (data.participants||[]).filter(x=>x.counterparty_id===c.id&&!withContract.has(x.project_id)).forEach(x=>{const p=projectOf(data,x.project_id);rows.push(`<div class="cp-use"><div><b>${e(p?.name||'Объект')}</b><small>${e(partyRoleNames[x.role]||x.role)} · без договора</small></div><div></div></div>`);});
- return rows.length?`<div class="cp-use-list">${rows.join('')}</div>`:'<div class="cp-no-data">Пока не используется в объектах и договорах.</div>';
+ const list=contractsOf(data,c.id),withContract=new Set(list.map(x=>x.project_id));
+ const objects=new Set([...withContract,...(data.participants||[]).filter(x=>x.counterparty_id===c.id).map(x=>x.project_id)]);
+ const sum=list.reduce((t,x)=>t+(Number(x.current_amount)||0),0);
+ const rows=list.map(x=>{const p=projectOf(data,x.project_id),has=x.current_amount!==null&&x.current_amount!==undefined&&x.current_amount!=='';
+  return `<div class="cp-use" title="Наша роль: ${e(ourRoleNames[x.our_role]||x.our_role||'')}${x.amount_addendum_number?` · стоимость по ДС №${e(x.amount_addendum_number)} от ${e(day(x.amount_addendum_date))}`:''}"><span><b>№${e(x.number||'—')}</b>${x.contract_date?` от ${e(day(x.contract_date))}`:''} · ${e(p?.name||'')}</span><span class="cp-use-sum">${has?money(x.current_amount):''}</span></div>`;});
+ (data.participants||[]).filter(x=>x.counterparty_id===c.id&&!withContract.has(x.project_id)).forEach(x=>{const p=projectOf(data,x.project_id);rows.push(`<div class="cp-use"><span><b>${e(p?.name||'Объект')}</b> · ${e(partyRoleNames[x.role]||x.role)}, без договора</span><span></span></div>`);});
+ if(!rows.length)return '<div class="cp-no-data">Пока не используется в объектах и договорах.</div>';
+ return `<div class="cp-use-total"><span>${plural(objects.size,'объект','объекта','объектов')} · ${plural(list.length,'договор','договора','договоров')}</span>${list.length?`<b>${money(sum)} руб.</b>`:''}</div><div class="cp-use-list">${rows.join('')}</div>`;
 }
 
-const section=(title,body,cls='')=>`<section class="cp-section ${cls}"><div class="cp-section-title">${title}</div>${body}</section>`;
+const section=(title,body)=>`<section class="cp-section"><div class="cp-section-title">${title}</div>${body}</section>`;
+const dash='<span class="muted">—</span>';
+const row=(label,value)=>`<dt>${e(label)}</dt><dd>${value||dash}</dd>`;
+const join=(...parts)=>parts.filter(Boolean).join(' · ');
 
-// Карточка: новый контрагент (c=null) или существующий. Без права записи все поля только для чтения.
-// Раскладка под монитор 24″ (окно ≈1920×950): две колонки без прокрутки. Слева — кто это и где он у нас,
-// справа — реквизиты для документов. На узком экране колонки встают друг под друга.
-export function partyCard({data,party:c=null,canEdit}){
- const ro=!canEdit,selected=new Set(c?partyRoles(data,c.id):[]);
- const roles=`<div class="cp-role-checks">${roleOrder.map(r=>`<label class="cp-chip"><input type="checkbox" name="roles" value="${e(r)}" ${selected.has(r)?'checked':''} ${ro?'disabled':''}>${e(partyRoleNames[r])}</label>`).join('')}</div>`;
- const left=c?`${totals(data,c)}${section('Объекты и договоры',usage(data,c))}${section('Роли',roles)}${section(`Сведения МНС${c.mns_checked_at?` <span class="cp-muted-title">на ${e(day(c.mns_checked_at))}</span>`:''}`,facts(c))}`
-  :`${section('Основные реквизиты',newFields())}${section('Роли',roles)}`;
- const right=`${section('Руководитель и право подписи',`<div class="cp-work-grid">${input('director_title','Должность',c?.director_title,'text',ro)}${input('director_name','ФИО',c?.director_name,'text',ro)}<div class="wide">${input('authority_basis','Действует на основании',c?.authority_basis,'text',ro)}</div></div>`)}
-  ${section('Банк',`<div class="cp-work-grid"><div class="wide">${input('bank_account','Расчётный счёт (IBAN)',c?.bank_account,'text',ro)}</div>${input('bank_bic','БИК',c?.bank_bic,'text',ro)}${input('okpo','ОКПО',c?.okpo,'text',ro)}<div class="wide">${input('bank_name','Банк',c?.bank_name,'text',ro)}</div></div>`)}
-  ${section('Контакты',`<div class="cp-work-grid cp-contacts">${input('phone','Телефоны',(c?.phone||'').replace(/\s*\n\s*/g,', '),'text',ro)}${input('email','Электронная почта',c?.email,'email',ro)}</div>`)}
-  ${section('Примечание',`<div class="cp-work-grid">${area('note','Для своих: особенности, с кем говорить',c?.note,ro)}</div>`)}`;
+// Просмотр: всё нужное списком «подпись — значение», без полей ввода, поэтому помещается без прокрутки.
+function view(data,c){
+ const roles=partyRoles(data,c.id);
+ const director=join(e(join(c.director_title,c.director_name)),c.authority_basis?`на основании ${e(c.authority_basis)}`:'');
+ return `${section('Объекты и договоры',usage(data,c))}
+  ${section('Роли',roles.length?`<div class="cp-role-list">${roles.map(r=>`<span class="pill">${e(partyRoleNames[r])}</span>`).join('')}</div>`:'<span class="muted">Не назначены</span>')}
+  ${section('Реквизиты',`<dl class="cp-props">
+   ${row('Руководитель',director)}${row('Телефоны',e(String(c.phone||'').replace(/\s*\n\s*/g,', ')))}${row('Эл. почта',c.email?`<a href="mailto:${e(c.email)}">${e(c.email)}</a>`:'')}
+   ${row('Счёт',c.bank_account?`<span class="cp-mono">${e(c.bank_account)}</span>`:'')}${row('Банк',join(e(c.bank_name),c.bank_bic?`БИК ${e(c.bank_bic)}`:''))}${row('ОКПО',e(c.okpo))}
+   ${row('Адрес',e(c.address))}${row('Инспекция МНС',join(e(c.tax_office_name),c.registration_date?`на учёте с ${e(day(c.registration_date))}`:''))}
+   ${c.note?row('Примечание',e(c.note)):''}
+  </dl>${c.mns_checked_at?`<div class="cp-source">Сведения МНС на ${e(day(c.mns_checked_at))}</div>`:''}`)}`;
+}
+
+// Правка: те же данные полями ввода. Официальные поля МНС уходят скрытыми и не правятся.
+function edit(data,c){
+ const selected=new Set(c?partyRoles(data,c.id):[]);
+ return `${c?'':section('Основные реквизиты',newFields())}
+  ${section('Роли',`<div class="cp-role-checks">${roleOrder.map(r=>`<label class="cp-chip"><input type="checkbox" name="roles" value="${e(r)}" ${selected.has(r)?'checked':''}>${e(partyRoleNames[r])}</label>`).join('')}</div>`)}
+  ${section('Руководитель',`<div class="cp-work-grid">${input('director_title','Должность',c?.director_title)}${input('director_name','ФИО',c?.director_name)}<div class="wide">${input('authority_basis','Действует на основании',c?.authority_basis)}</div></div>`)}
+  ${section('Контакты и банк',`<div class="cp-work-grid">${input('phone','Телефоны',(c?.phone||'').replace(/\s*\n\s*/g,', '))}${input('email','Эл. почта',c?.email,'email')}<div class="wide">${input('bank_account','Расчётный счёт (IBAN)',c?.bank_account)}</div>${input('bank_bic','БИК',c?.bank_bic)}${input('okpo','ОКПО',c?.okpo)}<div class="wide">${input('bank_name','Банк',c?.bank_name)}</div><div class="wide">${input('note','Примечание',c?.note)}</div></div>`)}
+  ${c?officialFields.map(k=>hidden(k,c[k])).join(''):''}${hidden('source',c?.source||'manual')}`;
+}
+
+// Карточка контрагента — узкая панель справа (≈30 % окна 24″). Открывается на просмотр, правка — по кнопке «Изменить».
+// Новый контрагент (c=null) сразу открывается на правку.
+export function partyCard({data,party:c=null,canEdit,editing=false}){
+ const editMode=canEdit&&(editing||!c);
+ const foot=editMode?`<p id="party-error" class="error" role="alert"></p>${c?`<button type="button" data-action="party" data-id="${e(c.id)}">Отмена</button>`:'<button type="button" data-action="dismiss">Отмена</button>'}<button class="primary" type="submit">Сохранить</button>`
+  :canEdit?`<button class="primary" type="button" data-action="party-edit" data-id="${e(c.id)}">Изменить</button>`:'';
  return `<form id="party-form" class="cp-drawer-shell" autocomplete="off">
   <div class="cp-drawer-head"><div class="cp-title"><h2>${e(c?(c.short_name||'Контрагент'):'Новый контрагент')}</h2>${c&&c.full_name&&c.full_name!==c.short_name?`<div class="cp-full-name">${e(c.full_name)}</div>`:''}${c?`<div class="cp-card-meta"><span class="pill cp-unp">УНП ${e(c.unp)}</span>${statusPill(c)}</div>`:''}</div><button type="button" class="cp-drawer-close" data-action="dismiss" aria-label="Закрыть">×</button></div>
   ${statusAlert(c)}
-  <div class="cp-drawer-content"><div class="cp-col">${left}</div><div class="cp-col cp-col-edit">${right}</div>
-   ${c?officialFields.map(k=>hidden(k,c[k])).join(''):''}${hidden('source',c?.source||'manual')}</div>
-  <div class="cp-drawer-foot"><p id="party-error" class="error" role="alert"></p><button type="button" data-action="dismiss">${ro?'Закрыть':'Отмена'}</button>${ro?'':'<button class="primary" type="submit">Сохранить</button>'}</div>
+  <div class="cp-drawer-content">${editMode?edit(data,c):view(data,c)}</div>
+  ${foot?`<div class="cp-drawer-foot">${foot}</div>`:''}
  </form>`;
 }
 

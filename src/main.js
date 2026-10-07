@@ -69,13 +69,13 @@ async function docModal(id){
  }catch(err){toast(errorMessage(err));ev.target.disabled=false;}};
 }
 // Карточка контрагента — панель справа. Справочник общий: правят начальник ПТО и инженеры, руководитель только смотрит.
-function partyModal(id){
+function partyModal(id,editing=false){
  const party=id?data.parties.find(c=>c.id===id):null;if(id&&!party)throw Error('Контрагент не найден');
  const canEdit=['head','engineer'].includes(profile?.role);
- dialog.className='cp-drawer';dialog.innerHTML=partyCard({data,party,canEdit});if(!dialog.open)dialog.showModal();
- const form=$('#party-form');if(!canEdit)return;
+ dialog.className='cp-drawer';dialog.innerHTML=partyCard({data,party,canEdit,editing});if(!dialog.open)dialog.showModal();
+ const form=$('#party-form');if(!canEdit||(party&&!editing))return;
  form.onsubmit=async ev=>{ev.preventDefault();const button=ev.submitter;button.disabled=true;
-  try{await mutate(partyPayload(new FormData(form),party));dialog.close();}
+  try{await mutate(partyPayload(new FormData(form),party));if(party)partyModal(party.id);else dialog.close();}
   catch(err){$('#party-error').textContent=/duplicate key|pto_counterparties_unp_key/i.test(err?.message||'')?'Контрагент с таким УНП уже существует.':errorMessage(err);}
   finally{button.disabled=false;}};
 }
@@ -199,6 +199,7 @@ async function action(name,id){
  if(name==='mns-apply'){const r=await mutate({op:'import_counterparties',checked_at:new Date().toLocaleDateString('sv-SE',{timeZone:'Europe/Minsk'}),rows:ui.mnsRows||[]});ui.mnsRows=null;dialog.close();return toast(`Сведения МНС загружены: новых ${r.created}, обновлено ${r.updated}, без изменений ${r.unchanged}.`);}
  if(name==='mns-xml')return $('#mns-xml')?.click();
  if(name==='party'||name==='new-party')return partyModal(name==='party'?id:null);
+ if(name==='party-edit')return partyModal(id,true);
  if(name==='doc')return docModal(id);
  if(name==='contract')return contractModal(id);
  if(name==='edit-contract')return editContract(id);
