@@ -1,7 +1,9 @@
 import {renderWorkspace} from './views.js';
 import {createClient} from '@supabase/supabase-js';
 import {escapeHtml as e,money,isDone,canActOn,canWrite,kindNames,roleNames,actionNames,emptyMatrix,registerSheetRows,ourRoleNames,addendumStateNames} from './domain.js';
+import {partyCard,partyPayload,parseMnsXml,mnsPreview,mnsPreviewHtml} from './parties.js';
 import './style.css';
+import './parties.css';
 const $=s=>document.querySelector(s),app=$('#app'),dialog=$('#dialog');
 const url=import.meta.env.VITE_SUPABASE_URL,key=import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const monthNow=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Minsk',year:'numeric',month:'2-digit'}).format(new Date());
@@ -33,7 +35,7 @@ async function load(){
  if(generation!==loadId)return;
  if(profile?.theme&&profile.theme!==ui.theme){ui.theme=profile.theme;try{localStorage.setItem('pto-theme',ui.theme);}catch{}applyTheme();}
  if(!profile?.active){app.innerHTML=`<section class="login"><div class="mark">П</div><h1>Доступ ещё не назначен</h1><p>Начальник ПТО должен активировать вашу учётную запись и назначить объекты.</p><p class="muted">${e(session.user.email)}</p>${btn('Проверить доступ','refresh')}${btn('Выйти','logout')}</section>`;return;}
- const [projects,contracts,periods,profiles,memberships,templates,steps]=await Promise.all([all('pto_projects'),all('pto_contract_list'),all('pto_periods',q=>q.eq('month',ui.month+'-01')),all('pto_profiles'),query(client.from('pto_memberships').select('*')),query(client.from('pto_workflow_templates').select('*')),query(client.from('pto_workflow_steps').select('*'))]);
+ const [projects,contracts,periods,profiles,memberships,templates,steps,parties,partyRoles,participants]=await Promise.all([all('pto_projects'),all('pto_contract_list'),all('pto_periods',q=>q.eq('month',ui.month+'-01')),all('pto_profiles'),query(client.from('pto_memberships').select('*')),query(client.from('pto_workflow_templates').select('*')),query(client.from('pto_workflow_steps').select('*')),query(client.from('pto_counterparties').select('*').order('short_name')),query(client.from('pto_counterparty_roles').select('counterparty_id,role')),query(client.from('pto_project_participants').select('*'))]);
  if(generation!==loadId)return;
  const ids=periods.map(p=>p.id);
  // Состояние документа и задачи — из комплектов маршрутов (pto_document_list, pto_workflow_list).
@@ -42,12 +44,12 @@ async function load(){
  const versions=dids.length?await all('pto_versions',q=>q.in('document_id',dids)):[];
  const events=await query(client.from('pto_events').select('*').order('id',{ascending:false}).limit(150));
  if(generation!==loadId)return;
- data={projects,contracts,periods,profiles,memberships,documents,allocations,register,matrix,versions,events,workflows,templates,steps};
+ data={projects,contracts,periods,profiles,memberships,documents,allocations,register,matrix,versions,events,workflows,templates,steps,parties,partyRoles,participants};
  if(ui.project&&!projects.some(p=>p.id===ui.project))ui.project=null;
  render();
 }
 function render(){app.innerHTML=renderWorkspace({ui,data,profile});}
-function modal(title,html,drawer=false){dialog.classList.remove('proc-drawer');dialog.classList.toggle('document-drawer',drawer);dialog.innerHTML=`<div class="row"><h2>${e(title)}</h2>${btn('Закрыть','dismiss')}</div>${html}`;if(!dialog.open)dialog.showModal();}
+function modal(title,html,drawer=false){dialog.classList.remove('proc-drawer','cp-drawer');dialog.classList.toggle('document-drawer',drawer);dialog.innerHTML=`<div class="row"><h2>${e(title)}</h2>${btn('Закрыть','dismiss')}</div>${html}`;if(!dialog.open)dialog.showModal();}
 function form(title,fields,submit){modal(title,`<form id="modal-form">${fields}<p id="form-error" class="error" role="alert"></p><div class="actions"><button class="primary" type="submit">Сохранить</button></div></form>`);$('#modal-form').onsubmit=async ev=>{ev.preventDefault();const button=ev.submitter;button.disabled=true;try{await submit(Object.fromEntries(new FormData(ev.target)));dialog.close();}catch(err){$('#form-error').textContent=errorMessage(err);}finally{button.disabled=false;}};}
 async function mutate(payload){const result=await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload}));await load();toast('Сохранено');return result;}
 function periodPayload(op,extra={}){const p=currentPeriod();if(!p)throw Error('Откройте месяц');return {op,period_id:p.id,expected_revision:p.revision,...extra};}
@@ -65,6 +67,25 @@ async function docModal(id){
  await query(client.storage.from('pto-documents').upload(path,file,{upsert:false,contentType:file.type||'application/octet-stream'}));
  await mutate(periodPayload('attach',{document_id:id,path,name:file.name}));await docModal(id);
  }catch(err){toast(errorMessage(err));ev.target.disabled=false;}};
+}
+// Карточка контрагента — панель справа. Справочник общий: правят начальник ПТО и инженеры, руководитель только смотрит.
+function partyModal(id){
+ const party=id?data.parties.find(c=>c.id===id):null;if(id&&!party)throw Error('Контрагент не найден');
+ const canEdit=['head','engineer'].includes(profile?.role);
+ dialog.className='cp-drawer';dialog.innerHTML=partyCard({data,party,canEdit});if(!dialog.open)dialog.showModal();
+ const form=$('#party-form');if(!canEdit)return;
+ form.onsubmit=async ev=>{ev.preventDefault();const button=ev.submitter;button.disabled=true;
+  try{await mutate(partyPayload(new FormData(form),party));dialog.close();}
+  catch(err){$('#party-error').textContent=/duplicate key|pto_counterparties_unp_key/i.test(err?.message||'')?'Контрагент с таким УНП уже существует.':errorMessage(err);}
+  finally{button.disabled=false;}};
+}
+// Импорт выписок МНС: файлы разбираются в браузере, перед сохранением показываются изменения по каждому УНП.
+async function readXml(file){const bytes=await file.arrayBuffer(),head=new TextDecoder('ascii').decode(bytes.slice(0,200)),enc=/encoding=["']([\w-]+)["']/i.exec(head)?.[1]||'utf-8';return new TextDecoder(enc).decode(bytes);}
+async function importMns(files){
+ const rows=[];for(const f of files){try{rows.push(...parseMnsXml(await readXml(f)));}catch(err){throw Error(`${f.name}: ${err.message}`);}}
+ const preview=mnsPreview(data,rows),todo=preview.filter(p=>p.status!=='same');
+ modal('Загрузка сведений МНС',mnsPreviewHtml(preview)+`<p id="form-error" class="error" role="alert"></p><div class="actions">${todo.length?btn(`Сохранить (${todo.length})`,'mns-apply','',true):'<span class="muted">Изменений нет.</span>'}</div>`);
+ ui.mnsRows=preview.map(p=>p.row);
 }
 // Справка С-3а: СМР с НДС = сумма актов комплекта (считает база); вводятся только выделенный НДС, оборудование и зачёт авансов.
 const c3aHint='<p class="muted">СМР с НДС за период не вводится: это сумма актов С-2 договора за месяц (текущие версии). После изменения акта создайте новую версию справки. «К оплате» и накопительные колонки считаются автоматически.</p>';
@@ -175,6 +196,9 @@ async function action(name,id){
  const contracts=data.contracts.filter(c=>c.project_id===ui.project&&c.direction==='outgoing');if(!contracts.length)return toast('Сначала добавьте договор с заказчиком.');
  return form('Оперативная оценка выполнения',`<p class="muted">Предварительная сумма до подписания актов. Хранится отдельно от принятых сумм и показывается в реестре с пометкой «предварительно». Новая оценка заменяет прежнюю, история сохраняется.</p>`+select('contract_id','Договор',contracts.map(c=>[c.id,c.number+' · '+c.party]))+field('amount','Оценка выполнения за месяц с НДС, руб.','number')+note('note','Основание').replace(' required',''),x=>{const p=currentPeriod();if(!p)throw Error('Откройте месяц');return mutate({op:'set_estimate',period_id:p.id,...x});});
  }
+ if(name==='mns-apply'){const r=await mutate({op:'import_counterparties',checked_at:new Date().toLocaleDateString('sv-SE',{timeZone:'Europe/Minsk'}),rows:ui.mnsRows||[]});ui.mnsRows=null;dialog.close();return toast(`Сведения МНС загружены: новых ${r.created}, обновлено ${r.updated}, без изменений ${r.unchanged}.`);}
+ if(name==='mns-xml')return $('#mns-xml')?.click();
+ if(name==='party'||name==='new-party')return partyModal(name==='party'?id:null);
  if(name==='doc')return docModal(id);
  if(name==='contract')return contractModal(id);
  if(name==='edit-contract')return editContract(id);
@@ -203,6 +227,9 @@ async function action(name,id){
 }
 async function exportXlsx(){const {default:ExcelJS}=await import('exceljs');const book=new ExcelJS.Workbook();book.creator='СУ-22 · ПТО';const sheet=book.addWorksheet('Реестр',{views:[{state:'frozen',xSplit:1,ySplit:2}]});const lines=registerSheetRows(data.matrix,ui.month);for(const line of lines){const row=sheet.addRow(line.values);if(line.bold)row.font={bold:true};}const width=lines[1].values.length;sheet.columns.forEach((c,i)=>{c.width=i?22:58;if(i)c.numFmt='#,##0.00;[Red]-#,##0.00';});sheet.autoFilter={from:{row:2,column:1},to:{row:2,column:width}};const buffer=await book.xlsx.writeBuffer();const link=document.createElement('a');link.href=URL.createObjectURL(new Blob([buffer],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));link.download=`Реестр_ПТО_${ui.month}.xlsx`;link.click();setTimeout(()=>URL.revokeObjectURL(link.href),10000);}
 function login(){app.innerHTML=`<section class="login"><div class="mark">П</div><div class="eyebrow">СУ-22 · единая система ПТО</div><h1>${ui.recovery?'Новый пароль':'Вход в рабочее пространство'}</h1><p class="muted">Объекты, документы и выполнение за месяц.</p><form id="login-form">${ui.recovery?'':field('email','Электронная почта','email')}${field('password','Пароль','password')}<p class="error" id="login-error" role="alert"></p><button class="primary">${ui.recovery?'Сохранить пароль':'Войти'}</button></form><p class="muted">Доступ выдаёт администратор системы.</p></section>`;$('#login-form').onsubmit=async ev=>{ev.preventDefault();const button=ev.submitter;button.disabled=true;try{const f=Object.fromEntries(new FormData(ev.target));if(ui.recovery){await query(client.auth.updateUser({password:f.password}));ui.recovery=false;toast('Пароль сохранён');await load();}else{const result=await query(client.auth.signInWithPassword(f));session=result.session;await load();}}catch(err){$('#login-error')&&($('#login-error').textContent=errorMessage(err));}finally{button.disabled=false;}};}
+// Поиск по справочнику контрагентов: строки скрываются на месте, без перерисовки страницы.
+document.addEventListener('change',async ev=>{if(ev.target.id!=='mns-xml'||!ev.target.files.length)return;try{await importMns([...ev.target.files]);}catch(err){toast(errorMessage(err));}finally{ev.target.value='';}});
+document.addEventListener('input',ev=>{if(ev.target.id!=='party-search')return;const s=ev.target.value.trim().toLowerCase();let shown=0;for(const tr of document.querySelectorAll('tr[data-search]')){tr.hidden=!!s&&!tr.dataset.search.includes(s);if(!tr.hidden)shown++;}const none=$('#party-empty');if(none)none.hidden=shown>0;});
 document.addEventListener('click',async ev=>{const b=ev.target.closest('[data-action]');if(!b||b.disabled||ui.busy)return;ui.busy=true;try{await action(b.dataset.action,b.dataset.id);}catch(err){toast(errorMessage(err));}finally{ui.busy=false;}});
 // Карточки конвейера — не кнопки: открываются клавишами Enter и пробел.
 document.addEventListener('keydown',ev=>{const card=ev.target.closest?.('[role="button"][data-action]');if(card&&ev.target===card&&(ev.key==='Enter'||ev.key===' ')){ev.preventDefault();card.click();}});

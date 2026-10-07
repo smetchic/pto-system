@@ -356,3 +356,23 @@ test('audit log, workflow events and snapshots are append-only even for the data
  // Прежний конвейер удалён (шаг 6б): маршруты — единственный механизм состояний.
  assert.deepEqual((await db.query("select relname from pg_class where relname like 'pto_process%' and relkind='r'")).rows,[]);
 });
+test('counterparties: MNS XML import creates or updates by UNP and keeps manual fields; director reads only',async()=>{
+ await as(users.engineer);
+ const row={unp:'693340482',full_name:'Общество с ограниченной ответственностью "КИПМОНТАЖ"',short_name:'ООО "КИПМОНТАЖ"',address:'Минский район',registration_date:'2024-11-04',tax_office_code:'613',tax_office_name:'Инспекция МНС РБ по Минскому району',status_code:'1',status_name:'Действующий',status_change_date:'',liquidation_info:''};
+ assert.deepEqual(await command({op:'import_counterparties',checked_at:'2026-10-07',rows:[row]}),{created:1,updated:0,unchanged:0});
+ const cp=(await db.query("select * from pto_counterparties where unp='693340482'")).rows[0];
+ assert.equal(cp.source,'МНС XML');assert.equal(cp.mns_checked_at.toISOString().slice(0,10),'2026-10-07');
+ // Карточка отправляет официальные поля скрытыми, как есть.
+ await command({op:'update_counterparty',counterparty_id:cp.id,...row,director_name:'Петров П.П.',bank_bic:'AKBBBY2X',roles:['subcontractor']});
+ assert.deepEqual(await command({op:'import_counterparties',checked_at:'2026-10-08',rows:[row]}),{created:0,updated:0,unchanged:1});
+ assert.deepEqual(await command({op:'import_counterparties',checked_at:'2026-11-01',rows:[{...row,status_code:'3',status_name:'Ликвидирован',status_change_date:'2026-10-30',liquidation_info:'Решение № 1'}]}),{created:0,updated:1,unchanged:0});
+ const after=(await db.query("select * from pto_counterparties where unp='693340482'")).rows[0];
+ assert.deepEqual([after.status_name,after.director_name,after.bank_bic],['Ликвидирован','Петров П.П.','AKBBBY2X'],'импорт не трогает ручные поля');
+ assert.deepEqual((await db.query('select role from pto_counterparty_roles where counterparty_id=$1',[cp.id])).rows.map(r=>r.role),['subcontractor']);
+ assert.equal((await db.query("select count(*)::int n from pto_events where action='import_counterparty'")).rows[0].n,2,'журнал: создание и изменение, без «без изменений»');
+ await assert.rejects(command({op:'import_counterparties',rows:[{...row,unp:'12'}]}),/9 цифр/);
+ await assert.rejects(command({op:'import_counterparties',rows:[]}),/Нет строк/);
+ await as(users.director);
+ assert.equal((await db.query("select * from pto_counterparties where unp='693340482'")).rows.length,1);
+ await assert.rejects(command({op:'import_counterparties',rows:[row]}),/Недостаточно прав/);
+});

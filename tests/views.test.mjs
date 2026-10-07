@@ -123,3 +123,43 @@ test('object tabs preserve role and period gates for work actions',()=>{
   assert.equal(html.includes('data-action="reopen"'),role==='head');
  }
 });
+
+test('counterparties: list with roles and contract count, search text, read-only card for the director, payload with roles',async()=>{
+ const {partiesList,partyCard,partyPayload,partySearchText}=await import('../src/parties.js');
+ const party={id:'cp1',unp:'190000001',short_name:'ООО <Мегалит>',full_name:'Общество «Мегалит»',address:'Минск',status_name:'Действующий',source:'МНС XML',director_name:'Иванов'};
+ const data={parties:[party],partyRoles:[{counterparty_id:'cp1',role:'subcontractor'}],participants:[{counterparty_id:'cp1',project_id:'object',role:'subcontractor'}],
+  contracts:[{id:'k1',counterparty_id:'cp1',project_id:'object',number:'21',our_role:'customer',current_amount:'1000.50'}],projects:[{id:'object',name:'Пружаны'}]};
+ let html=partiesList({data,canEdit:true});
+ assert.match(html,/data-action="party" data-id="cp1"/);assert.match(html,/ООО &lt;Мегалит&gt;/);assert.doesNotMatch(html,/<Мегалит>/);
+ assert.match(html,/Субподрядчик/);assert.match(html,/<td class="num">1<\/td>/);assert.match(html,/data-action="new-party"/);
+ assert.doesNotMatch(partiesList({data,canEdit:false}),/data-action="new-party"/,'руководитель не добавляет контрагентов');
+ assert.match(partySearchText(data,party),/190000001/);assert.match(partySearchText(data,party),/субподрядчик/);
+ html=partyCard({data,party,canEdit:true});
+ assert.match(html,/Пружаны/);assert.match(html,/1[\s ]000,50 руб\./);assert.match(html,/type="submit"/);
+ assert.match(html,/name="roles" value="subcontractor" checked/);
+ const ro=partyCard({data,party,canEdit:false});
+ assert.doesNotMatch(ro,/type="submit"/);assert.match(ro,/name="director_name" type="text" value="Иванов" autocomplete="off" readonly/);assert.match(ro,/value="customer"  disabled/);
+ assert.match(partyCard({data,canEdit:true}),/Новый контрагент[\s\S]*name="unp"/);
+ const form=new FormData();form.append('unp','190000001');form.append('roles','customer');form.append('roles','supplier');form.append('note','x');
+ assert.deepEqual(partyPayload(form,party),{unp:'190000001',note:'x',roles:['customer','supplier'],op:'update_counterparty',counterparty_id:'cp1'});
+ assert.equal(partyPayload(new FormData()).op,'create_counterparty');
+});
+
+test('MNS XML: parsed without DOM, compared by UNP, manual fields are not part of the diff',async()=>{
+ const {parseMnsXml,mnsPreview,mnsPreviewHtml}=await import('../src/parties.js');
+ const xml='<ROWSET><ROW><VUNP>693340482</VUNP><VNAIMP>Общество с ограниченной ответственностью &quot;КИПМОНТАЖ&quot;</VNAIMP><VNAIMK>ООО "КИПМОНТАЖ"</VNAIMK><VPADRES>Минский район</VPADRES><DREG>2024-11-04</DREG><NMNS>613</NMNS><VMNS>Инспекция МНС РБ по Минскому району</VMNS><CKODSOST>1</CKODSOST><VKODS>Действующий</VKODS><DLIKV/><VLIKV/></ROW><ROW><VUNP>190000001</VUNP><VNAIMP>ООО «Новый &amp; Ко»</VNAIMP><VNAIMK/><VPADRES>Минск</VPADRES><DREG>01.02.2020</DREG><NMNS>104</NMNS><VMNS>ИМНС</VMNS><CKODSOST>3</CKODSOST><VKODS>Ликвидирован</VKODS><DLIKV>2026-09-30</DLIKV><VLIKV>Решение</VLIKV></ROW></ROWSET>';
+ const rows=parseMnsXml(xml);
+ assert.equal(rows.length,2);
+ assert.deepEqual([rows[0].unp,rows[0].full_name,rows[0].status_change_date,rows[1].full_name,rows[1].short_name,rows[1].registration_date],['693340482','Общество с ограниченной ответственностью "КИПМОНТАЖ"','','ООО «Новый & Ко»','','2020-02-01']);
+ assert.throws(()=>parseMnsXml('<html></html>'),/ROWSET/);
+ const existing={id:'k',...rows[0],director_name:'Петров',status_name:'Действующий'};
+ const data={parties:[existing]};
+ let p=mnsPreview(data,rows);
+ assert.deepEqual(p.map(x=>x.status),['same','new']);
+ p=mnsPreview(data,[{...rows[0],status_name:'Ликвидирован',status_code:'3'},rows[0]]);
+ assert.equal(p.length,1,'повтор УНП — одна строка, последняя выписка');
+ p=mnsPreview(data,[{...rows[0],status_name:'Ликвидирован',status_code:'3'}]);
+ assert.deepEqual(p[0].changes.map(c=>c.field),['status_code','status_name']);
+ const html=mnsPreviewHtml(mnsPreview(data,[{...rows[0],status_name:'Ликвидирован'},rows[1]]));
+ assert.match(html,/Новых: <b>1<\/b> · с изменениями: <b>1<\/b>/);assert.match(html,/Действующий → <b>Ликвидирован<\/b>/);assert.match(html,/Новый &amp; Ко/);
+});
