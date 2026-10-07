@@ -140,6 +140,9 @@ test('counterparties: list with roles and contract count, search text, read-only
  const ro=partyCard({data,party,canEdit:false});
  assert.doesNotMatch(ro,/type="submit"/);assert.match(ro,/name="director_name" type="text" value="Иванов" autocomplete="off" readonly/);assert.match(ro,/value="customer"  disabled/);
  assert.match(partyCard({data,canEdit:true}),/Новый контрагент[\s\S]*name="unp"/);
+ assert.match(html,/Договоров<\/span><b>1<\/b>/);assert.doesNotMatch(html,/cp-alert/,'действующий контрагент без плашки');
+ assert.match(partyCard({data,party:{...party,status_name:'Ликвидирован',status_change_date:'2026-10-30',liquidation_info:'Решение № 1'},canEdit:false}),/cp-alert"><b>Ликвидирован с 30\.10\.2026\.<\/b> Решение № 1/);
+ assert.match(partyCard({data,canEdit:true}),/type="hidden" name="status_name" value=""/,'ручное добавление отправляет пустые поля МНС');
  const form=new FormData();form.append('unp','190000001');form.append('roles','customer');form.append('roles','supplier');form.append('note','x');
  assert.deepEqual(partyPayload(form,party),{unp:'190000001',note:'x',roles:['customer','supplier'],op:'update_counterparty',counterparty_id:'cp1'});
  assert.equal(partyPayload(new FormData()).op,'create_counterparty');
