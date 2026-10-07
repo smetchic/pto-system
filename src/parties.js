@@ -61,7 +61,7 @@ function view(data,c){
   ${section('Реквизиты',`<dl class="cp-props">
    ${row('Руководитель',director)}${row('Телефоны',e(String(c.phone||'').replace(/\s*\n\s*/g,', ')))}${row('Эл. почта',c.email?`<a href="mailto:${e(c.email)}">${e(c.email)}</a>`:'')}
    ${row('Счёт',c.bank_account?`<span class="cp-mono">${e(c.bank_account)}</span>`:'')}${row('Банк',join(e(c.bank_name),c.bank_bic?`БИК ${e(c.bank_bic)}`:''))}${row('ОКПО',e(c.okpo))}
-   ${row('Адрес',e(c.address))}${row('Инспекция МНС',join(e(c.tax_office_name),c.registration_date?`на учёте с ${e(day(c.registration_date))}`:''))}
+   ${row('Адрес',e(c.address))}
    ${c.note?row('Примечание',e(c.note)):''}
   </dl>${c.mns_checked_at?`<div class="cp-source">Сведения МНС на ${e(day(c.mns_checked_at))}</div>`:''}`)}`;
 }
