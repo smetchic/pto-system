@@ -23,71 +23,123 @@ export function partiesList({data,canEdit}){
 }
 
 const hidden=(name,value='')=>`<input type="hidden" name="${e(name)}" value="${e(value)}">`;
-const input=(name,label,value='',type='text',ro=false)=>`<label>${e(label)}<input name="${e(name)}" type="${e(type)}" value="${e(value)}" autocomplete="off" ${ro?'readonly':''}></label>`;
+const input=(name,label,value='',type='text',extra='')=>`<label>${e(label)}<input name="${e(name)}" type="${e(type)}" value="${e(value??'')}" autocomplete="off" ${extra}></label>`;
+const copyIcon='<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="5" width="8.5" height="8.5" rx="1.5"/><path d="M10.5 5V3.5A1.5 1.5 0 0 0 9 2H3.5A1.5 1.5 0 0 0 2 3.5V9a1.5 1.5 0 0 0 1.5 1.5H5"/></svg>';
+const copyChip=(text,label=text,title='Скопировать')=>`<button type="button" class="cp-chip-copy" data-action="copy" data-id="${e(text)}" title="${e(title)}">${e(label)}${copyIcon}</button>`;
+const plural=(n,one,few,many)=>{const m10=n%10,m100=n%100;return `${n} ${m10===1&&m100!==11?one:m10>=2&&m10<=4&&(m100<12||m100>14)?few:many}`;};
+const minskToday=()=>new Date().toLocaleDateString('sv-SE',{timeZone:'Europe/Minsk'});
+const daysBetween=(from,to)=>Math.round((Date.parse(to+'T12:00:00Z')-Date.parse(from+'T12:00:00Z'))/864e5);
+// Счёт группами по 4 знака, как в банковских документах.
+const iban=v=>String(v||'').replace(/\s+/g,'').replace(/(.{4})(?=.)/g,'$1 ');
+// «Петров Пётр Петрович» → «П.П. Петров» для строки подписи.
+const signName=v=>{const [last,...rest]=String(v||'').trim().split(/\s+/);return rest.length?`${rest.map(x=>x[0]+'.').join('')} ${last}`:String(v||'');};
+
+// Что не заполнено для реквизитов договора (в родительном падеже — «не хватает …»).
+export const missingRequisites=c=>[['postal_code','индекса'],['address','адреса'],['bank_account','счёта'],['bank_bic','BIC'],['bank_name','банка'],['director_name','подписанта'],['authority_basis','основания подписи']].filter(([k])=>!String(c[k]||'').trim()).map(([,label])=>label);
+
+// Маркеры под названием: можно ли работать, свежие ли сведения МНС, готовы ли реквизиты для договора.
+export function partyMarks(c,today=minskToday()){
+ if(c.status_name&&c.status_name!=='Действующий')return [['bad',`${c.status_name}${c.status_change_date?` с ${day(c.status_change_date)}`:''}`],['bad','Не заключать новые договоры']];
+ const marks=[];
+ if(c.status_name)marks.push(['ok','Действующий']);
+ if(!c.mns_checked_at)marks.push(['off','Нет сведений МНС','mns']);
+ else{const age=daysBetween(c.mns_checked_at,today);marks.push(age>30?['warn',`Сведения МНС ${plural(age,'день','дня','дней')} назад`,'mns']:['ok',`Сведения МНС на ${day(c.mns_checked_at)}`]);}
+ const missing=missingRequisites(c);
+ marks.push(missing.length?['off',`Для договора не хватает ${missing.join(', ')}`]:['ok','Реквизиты для договора заполнены']);
+ return marks;
+}
+
+// Текст реквизитов в порядке договора: наименование → юр. адрес → счёт в банке, BIC → УНП, ОКПО → телефон, e-mail → подписант.
+export function partyRequisitesText(c){
+ const lines=[c.full_name||c.short_name,
+  c.address?`Юр. адрес: ${[c.postal_code,c.address].filter(Boolean).join(', ')}`:'',
+  c.bank_account?`р/с ${iban(c.bank_account)}${c.bank_name?` в ${c.bank_name}`:''}${c.bank_bic?`, BIC ${c.bank_bic}`:''}`:'',
+  [c.unp?`УНП ${c.unp}`:'',c.okpo?`ОКПО ${c.okpo}`:''].filter(Boolean).join(', '),
+  [c.phone?`тел. ${String(c.phone).replace(/\s*\n\s*/g,', ')}`:'',c.email?`e-mail ${c.email}`:''].filter(Boolean).join(', '),
+  c.director_name?`${c.director_title||'Руководитель'} _______________ ${signName(c.director_name)}`:''];
+ return lines.filter(Boolean).join('\n');
+}
+
+// Деньги: итог, полоса долей по объектам и договоры с цветом своего объекта (оттенки одного синего, крупный объект ярче).
+function money_(data,c){
+ const list=contractsOf(data,c.id);
+ const participants=(data.participants||[]).filter(x=>x.counterparty_id===c.id&&!list.some(k=>k.project_id===x.project_id));
+ if(!list.length&&!participants.length)return '<div class="cp-no-data">Пока нет договоров и объектов.</div>';
+ const amount=x=>Number(x.current_amount)||0,total=list.reduce((t,x)=>t+amount(x),0);
+ const groups=[...new Set(list.map(x=>x.project_id))].map(id=>({id,name:projectOf(data,id)?.name||'Объект',sum:list.filter(x=>x.project_id===id).reduce((t,x)=>t+amount(x),0)})).sort((a,b)=>b.sum-a.sum);
+ const tone=id=>Math.min(groups.findIndex(g=>g.id===id),3);
+ const objects=new Set([...groups.map(g=>g.id),...participants.map(x=>x.project_id)]).size;
+ const total_=money(total).replace(/,(\d\d)$/,'<small>,$1</small>');
+ return `<div class="cp-total"><b>${total_}</b><span>руб. по ${plural(list.length,'договору','договорам','договорам')}<br>на ${plural(objects,'объекте','объектах','объектах')}</span></div>
+  ${total>0&&groups.length>1?`<div class="cp-bar">${groups.map(g=>`<i class="t${tone(g.id)}" style="flex:${g.sum}" title="${e(g.name)}: ${money(g.sum)}"></i>`).join('')}</div><div class="cp-legend">${groups.map(g=>`<span><i class="t${tone(g.id)}"></i>${e(g.name)} <b>${money(g.sum)}</b></span>`).join('')}</div>`:''}
+  <div class="cp-contracts">${list.slice().sort((a,b)=>amount(b)-amount(a)).map(x=>`<div class="cp-k" title="Наша роль: ${e(ourRoleNames[x.our_role]||x.our_role||'')}"><i class="t${tone(x.project_id)}"></i><b>№${e(x.number||'—')}</b><span>${x.contract_date?`от ${e(day(x.contract_date))}`:''}${x.amount_addendum_number?` · <em>ДС №${e(x.amount_addendum_number)}</em>`:''} · ${e(projectOf(data,x.project_id)?.name||'')}</span><span class="cp-k-sum">${x.current_amount!==null&&x.current_amount!==undefined&&x.current_amount!==''?money(x.current_amount):''}</span></div>`).join('')}
+  ${participants.map(x=>`<div class="cp-k"><i class="t3"></i><b>—</b><span>${e(projectOf(data,x.project_id)?.name||'Объект')} · ${e(partyRoleNames[x.role]||x.role)}, без договора</span><span></span></div>`).join('')}</div>`;
+}
+
+function contacts(data,c,canEdit){
+ const list=(data.partyContacts||[]).filter(x=>x.counterparty_id===c.id);
+ const rows=list.map(x=>{const objects=(x.project_ids||[]).map(id=>projectOf(data,id)?.name).filter(Boolean).join(', ');
+  return `<div class="cp-person"><div>${canEdit?`<button type="button" class="link" data-action="party-contact" data-id="${e(x.id)}"><b>${e(x.name)}</b></button>`:`<b>${e(x.name)}</b>`}${x.topics?`<span class="cp-topic">${e(x.topics)}</span>`:''}<small>${e([x.position,objects].filter(Boolean).join(' · '))}</small></div>
+   <div class="cp-person-c">${x.phone?`<a href="tel:${e(x.phone.replace(/[^\d+]/g,''))}">${e(x.phone)}</a>`:''}${x.email?`<button type="button" class="cp-copy-line" data-action="copy" data-id="${e(x.email)}" title="Скопировать адрес">${e(x.email)}${copyIcon}</button>`:''}</div></div>`;}).join('');
+ return `<section class="cp-block"><div class="cp-block-head"><h3>Контактные лица</h3>${canEdit?`<button type="button" class="cp-small" data-action="party-contact-new" data-id="${e(c.id)}">+ Добавить</button>`:''}</div>${rows||'<div class="cp-no-data">Кто ведёт процентовки, бухгалтерия, снабжение — добавьте, чтобы не искать телефоны.</div>'}</section>`;
+}
+
+function requisites(c){
+ const text=partyRequisitesText(c),[name,...rest]=text.split('\n');
+ return `<section class="cp-req"><div class="cp-block-head"><h3>Реквизиты для договора</h3><button type="button" class="cp-small" data-action="copy" data-id="${e(text)}">${copyIcon}Скопировать</button></div>
+  <div class="cp-doc"><p><b>${e(name)}</b></p>${rest.map(l=>/_{5,}/.test(l)?`<p class="cp-sign">${e(l.replace(/_+/,'§')).replace('§','<span></span>')}${c.authority_basis?`<small>на основании ${e(c.authority_basis)}</small>`:''}</p>`:`<p>${e(l)}</p>`).join('')}</div></section>`;
+}
+
+const head=(c,title,sub='')=>`<div class="cp-drawer-head"><button type="button" class="cp-drawer-close" data-action="dismiss">Закрыть ×</button><h2>${e(title)}</h2>${sub}</div>`;
 
 // Ручное добавление — запасной путь (основной — XML МНС): только то, без чего контрагента не сохранить.
 const newFields=()=>`<p class="cp-hint">Быстрее и точнее — «Загрузить XML МНС» в списке контрагентов.</p><div class="cp-work-grid">${input('unp','УНП')}${input('short_name','Краткое наименование')}<div class="wide">${input('full_name','Полное наименование')}</div><div class="wide">${input('address','Юридический адрес')}</div></div>${['registration_date','tax_office_code','tax_office_name','status_code','status_name','status_change_date','liquidation_info'].map(k=>hidden(k)).join('')}`;
-
-// Недействующий контрагент заметен сразу: дата и сведения МНС в красной плашке под заголовком.
-function statusAlert(c){
- if(!c?.status_name||c.status_name==='Действующий')return '';
- return `<div class="cp-alert"><b>${e(c.status_name)}${c.status_change_date?` с ${e(day(c.status_change_date))}`:''}.</b> ${e(c.liquidation_info||'Проверьте договоры и платежи с этим контрагентом.')}</div>`;
-}
-
-const plural=(n,one,few,many)=>{const m10=n%10,m100=n%100;return `${n} ${m10===1&&m100!==11?one:m10>=2&&m10<=4&&(m100<12||m100>14)?few:many}`;};
-// Договоры одной строкой каждый: номер, объект, текущая стоимость (из pto_contract_list, по последнему подписанному ДС).
-function usage(data,c){
- const list=contractsOf(data,c.id),withContract=new Set(list.map(x=>x.project_id));
- const objects=new Set([...withContract,...(data.participants||[]).filter(x=>x.counterparty_id===c.id).map(x=>x.project_id)]);
- const sum=list.reduce((t,x)=>t+(Number(x.current_amount)||0),0);
- const rows=list.map(x=>{const p=projectOf(data,x.project_id),has=x.current_amount!==null&&x.current_amount!==undefined&&x.current_amount!=='';
-  return `<div class="cp-use" title="Наша роль: ${e(ourRoleNames[x.our_role]||x.our_role||'')}${x.amount_addendum_number?` · стоимость по ДС №${e(x.amount_addendum_number)} от ${e(day(x.amount_addendum_date))}`:''}"><span><b>№${e(x.number||'—')}</b>${x.contract_date?` от ${e(day(x.contract_date))}`:''} · ${e(p?.name||'')}</span><span class="cp-use-sum">${has?money(x.current_amount):''}</span></div>`;});
- (data.participants||[]).filter(x=>x.counterparty_id===c.id&&!withContract.has(x.project_id)).forEach(x=>{const p=projectOf(data,x.project_id);rows.push(`<div class="cp-use"><span><b>${e(p?.name||'Объект')}</b> · ${e(partyRoleNames[x.role]||x.role)}, без договора</span><span></span></div>`);});
- if(!rows.length)return '<div class="cp-no-data">Пока не используется в объектах и договорах.</div>';
- return `<div class="cp-use-total"><span>${plural(objects.size,'объект','объекта','объектов')} · ${plural(list.length,'договор','договора','договоров')}</span>${list.length?`<b>${money(sum)} руб.</b>`:''}</div><div class="cp-use-list">${rows.join('')}</div>`;
-}
-
 const section=(title,body)=>`<section class="cp-section"><div class="cp-section-title">${title}</div>${body}</section>`;
-const dash='<span class="muted">—</span>';
-const row=(label,value)=>`<dt>${e(label)}</dt><dd>${value||dash}</dd>`;
-const join=(...parts)=>parts.filter(Boolean).join(' · ');
-
-// Просмотр: всё нужное списком «подпись — значение», без полей ввода, поэтому помещается без прокрутки.
-function view(data,c){
- const roles=partyRoles(data,c.id);
- const director=join(e(join(c.director_title,c.director_name)),c.authority_basis?`на основании ${e(c.authority_basis)}`:'');
- return `${section('Объекты и договоры',usage(data,c))}
-  ${section('Роли',roles.length?`<div class="cp-role-list">${roles.map(r=>`<span class="pill">${e(partyRoleNames[r])}</span>`).join('')}</div>`:'<span class="muted">Не назначены</span>')}
-  ${section('Реквизиты',`<dl class="cp-props">
-   ${row('Руководитель',director)}${row('Телефоны',e(String(c.phone||'').replace(/\s*\n\s*/g,', ')))}${row('Эл. почта',c.email?`<a href="mailto:${e(c.email)}">${e(c.email)}</a>`:'')}
-   ${row('Счёт',c.bank_account?`<span class="cp-mono">${e(c.bank_account)}</span>`:'')}${row('Банк',join(e(c.bank_name),c.bank_bic?`БИК ${e(c.bank_bic)}`:''))}${row('ОКПО',e(c.okpo))}
-   ${row('Адрес',e(c.address))}
-   ${c.note?row('Примечание',e(c.note)):''}
-  </dl>${c.mns_checked_at?`<div class="cp-source">Сведения МНС на ${e(day(c.mns_checked_at))}</div>`:''}`)}`;
-}
-
-// Правка: те же данные полями ввода. Официальные поля МНС уходят скрытыми и не правятся.
-function edit(data,c){
- const selected=new Set(c?partyRoles(data,c.id):[]);
- return `${c?'':section('Основные реквизиты',newFields())}
-  ${section('Роли',`<div class="cp-role-checks">${roleOrder.map(r=>`<label class="cp-chip"><input type="checkbox" name="roles" value="${e(r)}" ${selected.has(r)?'checked':''}>${e(partyRoleNames[r])}</label>`).join('')}</div>`)}
-  ${section('Руководитель',`<div class="cp-work-grid">${input('director_title','Должность',c?.director_title)}${input('director_name','ФИО',c?.director_name)}<div class="wide">${input('authority_basis','Действует на основании',c?.authority_basis)}</div></div>`)}
-  ${section('Контакты и банк',`<div class="cp-work-grid">${input('phone','Телефоны',(c?.phone||'').replace(/\s*\n\s*/g,', '))}${input('email','Эл. почта',c?.email,'email')}<div class="wide">${input('bank_account','Расчётный счёт (IBAN)',c?.bank_account)}</div>${input('bank_bic','БИК',c?.bank_bic)}${input('okpo','ОКПО',c?.okpo)}<div class="wide">${input('bank_name','Банк',c?.bank_name)}</div><div class="wide">${input('note','Примечание',c?.note)}</div></div>`)}
-  ${c?officialFields.map(k=>hidden(k,c[k])).join(''):''}${hidden('source',c?.source||'manual')}`;
-}
 
 // Карточка контрагента — боковая панель общей ширины (--drawer-w). Открывается на просмотр, правка — по кнопке «Изменить».
 // Новый контрагент (c=null) сразу открывается на правку.
-export function partyCard({data,party:c=null,canEdit,editing=false}){
+export function partyCard({data,party:c=null,canEdit,editing=false,today}){
  const editMode=canEdit&&(editing||!c);
- const foot=editMode?`<p id="party-error" class="error" role="alert"></p>${c?`<button type="button" data-action="party" data-id="${e(c.id)}">Отмена</button>`:'<button type="button" data-action="dismiss">Отмена</button>'}<button class="primary" type="submit">Сохранить</button>`
-  :canEdit?`<button class="primary" type="button" data-action="party-edit" data-id="${e(c.id)}">Изменить</button>`:'';
- return `<form id="party-form" class="cp-drawer-shell" autocomplete="off"${editMode?' data-editing':''}>
-  <div class="cp-drawer-head"><button type="button" class="cp-drawer-close" data-action="dismiss">Закрыть ×</button><div class="cp-title"><h2>${e(c?(c.short_name||'Контрагент'):'Новый контрагент')}</h2>${c&&c.full_name&&c.full_name!==c.short_name?`<div class="cp-full-name">${e(c.full_name)}</div>`:''}${c?`<div class="cp-card-meta"><span class="pill cp-unp">УНП ${e(c.unp)}</span>${statusPill(c)}</div>`:''}</div></div>
-  ${statusAlert(c)}
-  <div class="cp-drawer-content">${editMode?edit(data,c):view(data,c)}</div>
-  ${foot?`<div class="cp-drawer-foot">${foot}</div>`:''}
- </form>`;
+ if(editMode){
+  const selected=new Set(c?partyRoles(data,c.id):[]);
+  return `<form id="party-form" class="cp-drawer-shell" autocomplete="off" data-editing>${head(c,c?(c.short_name||'Контрагент'):'Новый контрагент',c?`<div class="cp-full-name">${e(c.full_name)}</div>`:'')}
+  <div class="cp-drawer-content">${c?'':section('Основные реквизиты',newFields())}
+   ${section('Роли',`<div class="cp-role-checks">${roleOrder.map(r=>`<label class="cp-chip"><input type="checkbox" name="roles" value="${e(r)}" ${selected.has(r)?'checked':''}>${e(partyRoleNames[r])}</label>`).join('')}</div>`)}
+   ${section('Подписант',`<div class="cp-work-grid">${input('director_title','Должность',c?.director_title)}${input('director_name','ФИО полностью',c?.director_name)}<div class="wide">${input('authority_basis','Действует на основании (Устава, доверенности № …)',c?.authority_basis)}</div></div>`)}
+   ${section('Связь и адрес',`<div class="cp-work-grid">${input('email','Эл. почта организации',c?.email,'email')}${input('phone','Телефон приёмной',(c?.phone||'').replace(/\s*\n\s*/g,', '))}${input('postal_code','Почтовый индекс',c?.postal_code,'text','inputmode="numeric" pattern="[0-9]{6}" maxlength="6"')}</div>`)}
+   ${section('Банк',`<div class="cp-work-grid"><div class="wide">${input('bank_account','Расчётный счёт (IBAN)',c?.bank_account)}</div>${input('bank_bic','BIC',c?.bank_bic)}${input('okpo','ОКПО',c?.okpo)}<div class="wide">${input('bank_name','Банк',c?.bank_name)}</div></div>`)}
+   ${section('Примечание',`<div class="cp-work-grid"><div class="wide">${input('note','Для своих',c?.note)}</div></div>`)}
+   ${c?officialFields.map(k=>hidden(k,c[k])).join(''):''}${hidden('source',c?.source||'manual')}</div>
+  <div class="cp-drawer-foot"><p id="party-error" class="error" role="alert"></p>${c?`<button type="button" data-action="party" data-id="${e(c.id)}">Отмена</button>`:'<button type="button" data-action="dismiss">Отмена</button>'}<button class="primary" type="submit">Сохранить</button></div></form>`;
+ }
+ const roles=partyRoles(data,c.id).map(r=>partyRoleNames[r]);
+ const marks=partyMarks(c,today);
+ const sub=`${c.full_name&&c.full_name!==c.short_name?`<div class="cp-full-name">${e(c.full_name)}</div>`:''}${roles.length?`<div class="cp-roles">${e(roles.join(', '))}</div>`:''}
+  <div class="cp-ids">${copyChip(c.unp,`УНП ${c.unp}`,'Скопировать УНП')}${c.email?copyChip(c.email,c.email,'Скопировать адрес почты'):''}</div>
+  <div class="cp-marks">${marks.map(([k,t,act])=>`<span class="cp-mark ${k}"><i></i>${e(t)}${act==='mns'&&canEdit?' <button type="button" class="link" data-action="mns-xml" data-id="">обновить</button>':''}</span>`).join('')}</div>
+  ${c.note?`<div class="cp-note">${e(c.note)}</div>`:''}`;
+ return `<form id="party-form" class="cp-drawer-shell" autocomplete="off">${head(c,c.short_name||'Контрагент',sub)}
+  <div class="cp-drawer-content">${money_(data,c)}${contacts(data,c,canEdit)}${requisites(c)}</div>
+  <div class="cp-drawer-foot"><span class="cp-foot-note">${c.updated_at?`Изменено ${e(day(String(c.updated_at).slice(0,10)))}`:''}</span>${canEdit?`<button class="primary" type="button" data-action="party-edit" data-id="${e(c.id)}">Изменить</button>`:''}</div></form>`;
+}
+
+// Контактное лицо: форма в той же панели. Объекты — из справочника объектов.
+export function contactCard({data,party:c,contact:x=null}){
+ const chosen=new Set(x?.project_ids||[]);
+ return `<form id="contact-form" class="cp-drawer-shell" autocomplete="off" data-editing>${head(c,x?x.name:'Новое контактное лицо',`<div class="cp-full-name">${e(c.short_name)}</div>`)}
+  <div class="cp-drawer-content"><div class="cp-work-grid">
+   <div class="wide">${input('name','ФИО или отдел',x?.name,'text','required')}</div>${input('position','Должность',x?.position)}${input('topics','По каким вопросам',x?.topics,'text','list="cp-topics"')}
+   ${input('phone','Телефон',x?.phone,'tel')}${input('email','Эл. почта',x?.email,'email')}</div>
+   <datalist id="cp-topics"><option value="Процентовки"><option value="Оплата, акты сверки"><option value="Снабжение"><option value="Исполнительная документация"><option value="Руководство"></datalist>
+   ${(data.projects||[]).length?section('Объекты',`<div class="cp-role-checks">${data.projects.map(p=>`<label class="cp-chip"><input type="checkbox" name="project_ids" value="${e(p.id)}" ${chosen.has(p.id)?'checked':''}>${e(p.name)}</label>`).join('')}</div>`):''}
+   ${hidden('counterparty_id',c.id)}${hidden('contact_id',x?.id||'')}</div>
+  <div class="cp-drawer-foot"><p id="party-error" class="error" role="alert"></p>${x?`<button type="button" class="cp-danger" data-action="party-contact-delete" data-id="${e(x.id)}">Удалить</button>`:''}<button type="button" data-action="party" data-id="${e(c.id)}">Отмена</button><button class="primary" type="submit">Сохранить</button></div></form>`;
+}
+export function contactPayload(form){
+ const payload={op:'save_counterparty_contact'};for(const [k,v] of form)if(k!=='project_ids')payload[k]=v;
+ payload.project_ids=form.getAll('project_ids');
+ if(!payload.contact_id)delete payload.contact_id;
+ return payload;
 }
 
 // Команда сохранения из полей формы: create_counterparty или update_counterparty с полным набором ролей.

@@ -1,7 +1,7 @@
 import {renderWorkspace} from './views.js';
 import {createClient} from '@supabase/supabase-js';
 import {escapeHtml as e,money,isDone,canActOn,canWrite,kindNames,roleNames,actionNames,emptyMatrix,registerSheetRows,ourRoleNames,addendumStateNames} from './domain.js';
-import {partyCard,partyPayload,parseMnsXml,mnsPreview,mnsPreviewHtml} from './parties.js';
+import {partyCard,contactCard,contactPayload,partyPayload,parseMnsXml,mnsPreview,mnsPreviewHtml} from './parties.js';
 import './style.css';
 import './parties.css';
 const $=s=>document.querySelector(s),app=$('#app'),dialog=$('#dialog');
@@ -35,7 +35,7 @@ async function load(){
  if(generation!==loadId)return;
  if(profile?.theme&&profile.theme!==ui.theme){ui.theme=profile.theme;try{localStorage.setItem('pto-theme',ui.theme);}catch{}applyTheme();}
  if(!profile?.active){app.innerHTML=`<section class="login"><div class="mark">П</div><h1>Доступ ещё не назначен</h1><p>Начальник ПТО должен активировать вашу учётную запись и назначить объекты.</p><p class="muted">${e(session.user.email)}</p>${btn('Проверить доступ','refresh')}${btn('Выйти','logout')}</section>`;return;}
- const [projects,contracts,periods,profiles,memberships,templates,steps,parties,partyRoles,participants]=await Promise.all([all('pto_projects'),all('pto_contract_list'),all('pto_periods',q=>q.eq('month',ui.month+'-01')),all('pto_profiles'),query(client.from('pto_memberships').select('*')),query(client.from('pto_workflow_templates').select('*')),query(client.from('pto_workflow_steps').select('*')),query(client.from('pto_counterparties').select('*').order('short_name')),query(client.from('pto_counterparty_roles').select('counterparty_id,role')),query(client.from('pto_project_participants').select('*'))]);
+ const [projects,contracts,periods,profiles,memberships,templates,steps,parties,partyRoles,participants,partyContacts]=await Promise.all([all('pto_projects'),all('pto_contract_list'),all('pto_periods',q=>q.eq('month',ui.month+'-01')),all('pto_profiles'),query(client.from('pto_memberships').select('*')),query(client.from('pto_workflow_templates').select('*')),query(client.from('pto_workflow_steps').select('*')),query(client.from('pto_counterparties').select('*').order('short_name')),query(client.from('pto_counterparty_roles').select('counterparty_id,role')),query(client.from('pto_project_participants').select('*')),query(client.from('pto_counterparty_contacts').select('*').order('created_at'))]);
  if(generation!==loadId)return;
  const ids=periods.map(p=>p.id);
  // Состояние документа и задачи — из комплектов маршрутов (pto_document_list, pto_workflow_list).
@@ -44,7 +44,7 @@ async function load(){
  const versions=dids.length?await all('pto_versions',q=>q.in('document_id',dids)):[];
  const events=await query(client.from('pto_events').select('*').order('id',{ascending:false}).limit(150));
  if(generation!==loadId)return;
- data={projects,contracts,periods,profiles,memberships,documents,allocations,register,matrix,versions,events,workflows,templates,steps,parties,partyRoles,participants};
+ data={projects,contracts,periods,profiles,memberships,documents,allocations,register,matrix,versions,events,workflows,templates,steps,parties,partyRoles,participants,partyContacts};
  if(ui.project&&!projects.some(p=>p.id===ui.project))ui.project=null;
  render();
 }
@@ -79,6 +79,17 @@ function partyModal(id,editing=false){
   catch(err){$('#party-error').textContent=/duplicate key|pto_counterparties_unp_key/i.test(err?.message||'')?'Контрагент с таким УНП уже существует.':errorMessage(err);}
   finally{button.disabled=false;}};
 }
+// Контактное лицо контрагента: форма в той же боковой панели, после сохранения — обратно в карточку.
+function contactModal(partyId,contactId=null){
+ const party=data.parties.find(c=>c.id===partyId),contact=contactId?(data.partyContacts||[]).find(x=>x.id===contactId):null;
+ if(!party||(contactId&&!contact))throw Error('Контакт не найден');
+ delete dialog.dataset.dirty;dialog.className='cp-drawer';dialog.innerHTML=contactCard({data,party,contact});if(!dialog.open)dialog.showModal();
+ const form=$('#contact-form');form.onsubmit=async ev=>{ev.preventDefault();const button=ev.submitter;button.disabled=true;
+  try{await mutate(contactPayload(new FormData(form)));partyModal(party.id);}catch(err){$('#party-error').textContent=errorMessage(err);}finally{button.disabled=false;}};
+}
+// Копирование в буфер; подтверждение — рядом с нажатой кнопкой (тост не виден поверх открытой панели).
+async function copyText(text){const b=document.activeElement;try{await navigator.clipboard.writeText(text);}catch{const t=document.createElement('textarea');t.value=text;t.style.position='fixed';t.style.opacity='0';(dialog.open?dialog:document.body).append(t);t.select();document.execCommand('copy');t.remove();}
+ if(b?.dataset?.action==='copy'){b.classList.add('copied');setTimeout(()=>b.classList.remove('copied'),1500);}else toast('Скопировано');}
 // Импорт выписок МНС: файлы разбираются в браузере, перед сохранением показываются изменения по каждому УНП.
 async function readXml(file){const bytes=await file.arrayBuffer(),head=new TextDecoder('ascii').decode(bytes.slice(0,200)),enc=/encoding=["']([\w-]+)["']/i.exec(head)?.[1]||'utf-8';return new TextDecoder(enc).decode(bytes);}
 async function importMns(files){
@@ -200,6 +211,10 @@ async function action(name,id){
  if(name==='mns-xml')return $('#mns-xml')?.click();
  if(name==='party'||name==='new-party')return partyModal(name==='party'?id:null);
  if(name==='party-edit')return partyModal(id,true);
+ if(name==='copy')return copyText(id);
+ if(name==='party-contact-new')return contactModal(id);
+ if(name==='party-contact'){const x=(data.partyContacts||[]).find(k=>k.id===id);return contactModal(x?.counterparty_id,id);}
+ if(name==='party-contact-delete'){const x=(data.partyContacts||[]).find(k=>k.id===id);if(!x||!confirm(`Удалить контакт «${x.name}»?`))return;await mutate({op:'delete_counterparty_contact',contact_id:id});return partyModal(x.counterparty_id);}
  if(name==='doc')return docModal(id);
  if(name==='contract')return contractModal(id);
  if(name==='edit-contract')return editContract(id);
