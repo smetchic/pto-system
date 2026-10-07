@@ -1,7 +1,7 @@
 import {renderWorkspace} from './views.js';
 import {createClient} from '@supabase/supabase-js';
 import {escapeHtml as e,money,isDone,canActOn,canWrite,kindNames,roleNames,actionNames,emptyMatrix,registerSheetRows,ourRoleNames,addendumStateNames} from './domain.js';
-import {partyCard,partyPayload,parseMnsXml,mnsPreview,mnsPreviewHtml} from './parties.js';
+import {partyCard,contactCard,contactPayload,partyPayload,parseMnsXml,mnsPreview,mnsPreviewHtml} from './parties.js';
 import './style.css';
 import './parties.css';
 const $=s=>document.querySelector(s),app=$('#app'),dialog=$('#dialog');
@@ -35,7 +35,7 @@ async function load(){
  if(generation!==loadId)return;
  if(profile?.theme&&profile.theme!==ui.theme){ui.theme=profile.theme;try{localStorage.setItem('pto-theme',ui.theme);}catch{}applyTheme();}
  if(!profile?.active){app.innerHTML=`<section class="login"><div class="mark">П</div><h1>Доступ ещё не назначен</h1><p>Начальник ПТО должен активировать вашу учётную запись и назначить объекты.</p><p class="muted">${e(session.user.email)}</p>${btn('Проверить доступ','refresh')}${btn('Выйти','logout')}</section>`;return;}
- const [projects,contracts,periods,profiles,memberships,templates,steps,parties,partyRoles,participants]=await Promise.all([all('pto_projects'),all('pto_contract_list'),all('pto_periods',q=>q.eq('month',ui.month+'-01')),all('pto_profiles'),query(client.from('pto_memberships').select('*')),query(client.from('pto_workflow_templates').select('*')),query(client.from('pto_workflow_steps').select('*')),query(client.from('pto_counterparties').select('*').order('short_name')),query(client.from('pto_counterparty_roles').select('counterparty_id,role')),query(client.from('pto_project_participants').select('*'))]);
+ const [projects,contracts,periods,profiles,memberships,templates,steps,parties,partyRoles,participants,partyContacts]=await Promise.all([all('pto_projects'),all('pto_contract_list'),all('pto_periods',q=>q.eq('month',ui.month+'-01')),all('pto_profiles'),query(client.from('pto_memberships').select('*')),query(client.from('pto_workflow_templates').select('*')),query(client.from('pto_workflow_steps').select('*')),query(client.from('pto_counterparties').select('*').order('short_name')),query(client.from('pto_counterparty_roles').select('counterparty_id,role')),query(client.from('pto_project_participants').select('*')),query(client.from('pto_counterparty_contacts').select('*').order('created_at'))]);
  if(generation!==loadId)return;
  const ids=periods.map(p=>p.id);
  // Состояние документа и задачи — из комплектов маршрутов (pto_document_list, pto_workflow_list).
@@ -44,12 +44,12 @@ async function load(){
  const versions=dids.length?await all('pto_versions',q=>q.in('document_id',dids)):[];
  const events=await query(client.from('pto_events').select('*').order('id',{ascending:false}).limit(150));
  if(generation!==loadId)return;
- data={projects,contracts,periods,profiles,memberships,documents,allocations,register,matrix,versions,events,workflows,templates,steps,parties,partyRoles,participants};
+ data={projects,contracts,periods,profiles,memberships,documents,allocations,register,matrix,versions,events,workflows,templates,steps,parties,partyRoles,participants,partyContacts};
  if(ui.project&&!projects.some(p=>p.id===ui.project))ui.project=null;
  render();
 }
 function render(){app.innerHTML=renderWorkspace({ui,data,profile});}
-function modal(title,html,drawer=false){dialog.classList.remove('proc-drawer','cp-drawer');dialog.classList.toggle('document-drawer',drawer);dialog.innerHTML=`<div class="row"><h2>${e(title)}</h2>${btn('Закрыть','dismiss')}</div>${html}`;if(!dialog.open)dialog.showModal();}
+function modal(title,html,drawer=false){delete dialog.dataset.dirty;dialog.classList.remove('proc-drawer','cp-drawer');dialog.classList.toggle('document-drawer',drawer);dialog.innerHTML=`<div class="row"><h2>${e(title)}</h2>${btn('Закрыть','dismiss')}</div>${html}`;if(!dialog.open)dialog.showModal();}
 function form(title,fields,submit){modal(title,`<form id="modal-form">${fields}<p id="form-error" class="error" role="alert"></p><div class="actions"><button class="primary" type="submit">Сохранить</button></div></form>`);$('#modal-form').onsubmit=async ev=>{ev.preventDefault();const button=ev.submitter;button.disabled=true;try{await submit(Object.fromEntries(new FormData(ev.target)));dialog.close();}catch(err){$('#form-error').textContent=errorMessage(err);}finally{button.disabled=false;}};}
 async function mutate(payload){const result=await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload}));await load();toast('Сохранено');return result;}
 function periodPayload(op,extra={}){const p=currentPeriod();if(!p)throw Error('Откройте месяц');return {op,period_id:p.id,expected_revision:p.revision,...extra};}
@@ -69,16 +69,27 @@ async function docModal(id){
  }catch(err){toast(errorMessage(err));ev.target.disabled=false;}};
 }
 // Карточка контрагента — панель справа. Справочник общий: правят начальник ПТО и инженеры, руководитель только смотрит.
-function partyModal(id){
+function partyModal(id,editing=false){
  const party=id?data.parties.find(c=>c.id===id):null;if(id&&!party)throw Error('Контрагент не найден');
  const canEdit=['head','engineer'].includes(profile?.role);
- dialog.className='cp-drawer';dialog.innerHTML=partyCard({data,party,canEdit});if(!dialog.open)dialog.showModal();
- const form=$('#party-form');if(!canEdit)return;
+ delete dialog.dataset.dirty;dialog.className='cp-drawer';dialog.innerHTML=partyCard({data,party,canEdit,editing});if(!dialog.open)dialog.showModal();
+ const form=$('#party-form');if(!canEdit||(party&&!editing))return;
  form.onsubmit=async ev=>{ev.preventDefault();const button=ev.submitter;button.disabled=true;
-  try{await mutate(partyPayload(new FormData(form),party));dialog.close();}
+  try{await mutate(partyPayload(new FormData(form),party));if(party)partyModal(party.id);else dialog.close();}
   catch(err){$('#party-error').textContent=/duplicate key|pto_counterparties_unp_key/i.test(err?.message||'')?'Контрагент с таким УНП уже существует.':errorMessage(err);}
   finally{button.disabled=false;}};
 }
+// Контактное лицо контрагента: форма в той же боковой панели, после сохранения — обратно в карточку.
+function contactModal(partyId,contactId=null){
+ const party=data.parties.find(c=>c.id===partyId),contact=contactId?(data.partyContacts||[]).find(x=>x.id===contactId):null;
+ if(!party||(contactId&&!contact))throw Error('Контакт не найден');
+ delete dialog.dataset.dirty;dialog.className='cp-drawer';dialog.innerHTML=contactCard({data,party,contact});if(!dialog.open)dialog.showModal();
+ const form=$('#contact-form');form.onsubmit=async ev=>{ev.preventDefault();const button=ev.submitter;button.disabled=true;
+  try{await mutate(contactPayload(new FormData(form)));partyModal(party.id);}catch(err){$('#party-error').textContent=errorMessage(err);}finally{button.disabled=false;}};
+}
+// Копирование в буфер; подтверждение — рядом с нажатой кнопкой (тост не виден поверх открытой панели).
+async function copyText(text){const b=document.activeElement;try{await navigator.clipboard.writeText(text);}catch{const t=document.createElement('textarea');t.value=text;t.style.position='fixed';t.style.opacity='0';(dialog.open?dialog:document.body).append(t);t.select();document.execCommand('copy');t.remove();}
+ if(b?.dataset?.action==='copy'){b.classList.add('copied');setTimeout(()=>b.classList.remove('copied'),1500);}else toast('Скопировано');}
 // Импорт выписок МНС: файлы разбираются в браузере, перед сохранением показываются изменения по каждому УНП.
 async function readXml(file){const bytes=await file.arrayBuffer(),head=new TextDecoder('ascii').decode(bytes.slice(0,200)),enc=/encoding=["']([\w-]+)["']/i.exec(head)?.[1]||'utf-8';return new TextDecoder(enc).decode(bytes);}
 async function importMns(files){
@@ -99,7 +110,7 @@ async function workflowModal(id){
  const events=(await all('pto_workflow_events',q=>q.eq('workflow_id',id))).sort((a,b)=>b.id-a.id),steps=stepsOf(w),next=steps.find(s=>s.ordinal===w.step_ordinal+1);
  const kit=data.documents.filter(d=>d.workflow_id===id),label=code=>steps.find(s=>s.code===code)?.label||code||'';
  const who=a=>data.profiles.find(p=>p.id===a)?.display_name||'';
- dialog.className='proc-drawer';
+ delete dialog.dataset.dirty;dialog.className='proc-drawer';
  dialog.innerHTML=`<div class="proc-drawer-body"><button class="proc-drawer-close" data-action="dismiss">Закрыть ×</button>
   <div class="proc-drawer-title">${e(w.template_name)}</div><div class="proc-drawer-sub">${e(w.project)} · договор № ${e(w.contract_number)} · ${e(w.party||'')}${w.money?` · ${money(w.acts_amount)} руб.`:''}</div>
   <div class="proc-timeline">${steps.map(s=>`<div class="proc-step ${s.ordinal<w.step_ordinal?'done':s.code===w.step_code?'current':''}"><span class="proc-step-dot"></span><div>${e(s.label)}${s.code===w.step_code&&s.actor!=='none'?`<small>${s.actor==='accounting'?'у бухгалтерии · отмечает ПТО':'действует ПТО'}</small>`:''}</div></div>`).join('')}</div>
@@ -199,6 +210,11 @@ async function action(name,id){
  if(name==='mns-apply'){const r=await mutate({op:'import_counterparties',checked_at:new Date().toLocaleDateString('sv-SE',{timeZone:'Europe/Minsk'}),rows:ui.mnsRows||[]});ui.mnsRows=null;dialog.close();return toast(`Сведения МНС загружены: новых ${r.created}, обновлено ${r.updated}, без изменений ${r.unchanged}.`);}
  if(name==='mns-xml')return $('#mns-xml')?.click();
  if(name==='party'||name==='new-party')return partyModal(name==='party'?id:null);
+ if(name==='party-edit')return partyModal(id,true);
+ if(name==='copy')return copyText(id);
+ if(name==='party-contact-new')return contactModal(id);
+ if(name==='party-contact'){const x=(data.partyContacts||[]).find(k=>k.id===id);return contactModal(x?.counterparty_id,id);}
+ if(name==='party-contact-delete'){const x=(data.partyContacts||[]).find(k=>k.id===id);if(!x||!confirm(`Удалить контакт «${x.name}»?`))return;await mutate({op:'delete_counterparty_contact',contact_id:id});return partyModal(x.counterparty_id);}
  if(name==='doc')return docModal(id);
  if(name==='contract')return contractModal(id);
  if(name==='edit-contract')return editContract(id);
@@ -230,6 +246,11 @@ function login(){app.innerHTML=`<section class="login"><div class="mark">П</div
 // Поиск по справочнику контрагентов: строки скрываются на месте, без перерисовки страницы.
 document.addEventListener('change',async ev=>{if(ev.target.id!=='mns-xml'||!ev.target.files.length)return;try{await importMns([...ev.target.files]);}catch(err){toast(errorMessage(err));}finally{ev.target.value='';}});
 document.addEventListener('input',ev=>{if(ev.target.id!=='party-search')return;const s=ev.target.value.trim().toLowerCase();let shown=0;for(const tr of document.querySelectorAll('tr[data-search]')){tr.hidden=!!s&&!tr.dataset.search.includes(s);if(!tr.hidden)shown++;}const none=$('#party-empty');if(none)none.hidden=shown>0;});
+// Боковая карточка на просмотре закрывается кликом мимо неё. При правке (форма с data-editing или уже что-то введено) — нет, чтобы не потерять ввод.
+dialog.addEventListener('input',()=>{dialog.dataset.dirty='1';});
+dialog.addEventListener('click',ev=>{if(ev.target!==dialog||!/drawer/.test(dialog.className))return;const r=dialog.getBoundingClientRect();
+ if(ev.clientX>=r.left&&ev.clientX<=r.right&&ev.clientY>=r.top&&ev.clientY<=r.bottom)return;
+ if(dialog.querySelector('[data-editing]')||dialog.dataset.dirty)return;dialog.close();});
 document.addEventListener('click',async ev=>{const b=ev.target.closest('[data-action]');if(!b||b.disabled||ui.busy)return;ui.busy=true;try{await action(b.dataset.action,b.dataset.id);}catch(err){toast(errorMessage(err));}finally{ui.busy=false;}});
 // Карточки конвейера — не кнопки: открываются клавишами Enter и пробел.
 document.addEventListener('keydown',ev=>{const card=ev.target.closest?.('[role="button"][data-action]');if(card&&ev.target===card&&(ev.key==='Enter'||ev.key===' ')){ev.preventDefault();card.click();}});

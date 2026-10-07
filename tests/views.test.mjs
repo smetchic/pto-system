@@ -134,15 +134,41 @@ test('counterparties: list with roles and contract count, search text, read-only
  assert.match(html,/Субподрядчик/);assert.match(html,/<td class="num">1<\/td>/);assert.match(html,/data-action="new-party"/);
  assert.doesNotMatch(partiesList({data,canEdit:false}),/data-action="new-party"/,'руководитель не добавляет контрагентов');
  assert.match(partySearchText(data,party),/190000001/);assert.match(partySearchText(data,party),/субподрядчик/);
- html=partyCard({data,party,canEdit:true});
- assert.match(html,/Пружаны/);assert.match(html,/1[\s ]000,50 руб\./);assert.match(html,/type="submit"/);
- assert.match(html,/name="roles" value="subcontractor" checked/);
- const ro=partyCard({data,party,canEdit:false});
- assert.doesNotMatch(ro,/type="submit"/);assert.match(ro,/name="director_name" type="text" value="Иванов" autocomplete="off" readonly/);assert.match(ro,/value="customer"  disabled/);
- assert.match(partyCard({data,canEdit:true}),/Новый контрагент[\s\S]*name="unp"/);
+ html=partyCard({data,party,canEdit:true,today:'2026-10-07'});
+ assert.match(html,/Пружаны/);assert.match(html,/1[\s ]000<small>,50<\/small>/);assert.match(html,/Иванов/);
+ assert.match(html,/data-action="party-edit"/);assert.doesNotMatch(html,/<input name=/,'просмотр без полей ввода');
+ assert.match(html,/data-action="copy" data-id="190000001"/,'УНП копируется');
+ assert.match(html,/Нет сведений МНС/);assert.match(html,/Для договора не хватает индекса, счёта/);
+ assert.match(html,/Контактные лица/);assert.match(html,/data-action="party-contact-new"/);
+ html=partyCard({data,party,canEdit:true,editing:true});
+ assert.match(html,/type="submit"/);assert.match(html,/name="roles" value="subcontractor" checked/);assert.match(html,/type="hidden" name="unp" value="190000001"/);assert.match(html,/name="postal_code"/);
+ const ro=partyCard({data,party,canEdit:false,editing:true});
+ assert.doesNotMatch(ro,/type="submit"|party-edit|party-contact-new|<input name=/,'руководитель только смотрит');assert.match(ro,/Иванов/);
+ assert.match(partyCard({data,canEdit:true}),/Новый контрагент[\s\S]*name="unp"[\s\S]*type="submit"/);
+ assert.match(partyCard({data,canEdit:true}),/type="hidden" name="status_name" value=""/,'ручное добавление отправляет пустые поля МНС');
+ const liq=partyCard({data,party:{...party,status_name:'Ликвидирован',status_change_date:'2026-10-30'},canEdit:false});
+ assert.match(liq,/cp-mark bad"><i><\/i>Ликвидирован с 30\.10\.2026/);assert.match(liq,/Не заключать новые договоры/);
  const form=new FormData();form.append('unp','190000001');form.append('roles','customer');form.append('roles','supplier');form.append('note','x');
  assert.deepEqual(partyPayload(form,party),{unp:'190000001',note:'x',roles:['customer','supplier'],op:'update_counterparty',counterparty_id:'cp1'});
  assert.equal(partyPayload(new FormData()).op,'create_counterparty');
+});
+
+test('counterparty card: МНС freshness, requisites in contract order, contacts with objects',async()=>{
+ const {partyMarks,partyRequisitesText,contactCard,contactPayload,partyCard}=await import('../src/parties.js');
+ const c={id:'cp1',unp:'693340482',short_name:'ООО "КИПМОНТАЖ"',full_name:'Общество с ограниченной ответственностью "КИПМОНТАЖ"',address:'Минский р-н, д. 62',postal_code:'223053',status_name:'Действующий',
+  mns_checked_at:'2026-08-20',bank_account:'BY20AKBB30120000000000000000',bank_name:'ОАО «АСБ Беларусбанк»',bank_bic:'AKBBBY2X',okpo:'512345678',phone:'+375 17 222-33-44',email:'info@k.by',
+  director_title:'Директор',director_name:'Петров Пётр Петрович',authority_basis:'Устава'};
+ assert.deepEqual(partyMarks(c,'2026-10-07').map(m=>m[0]+':'+m[1]),['ok:Действующий','warn:Сведения МНС 48 дней назад','ok:Реквизиты для договора заполнены']);
+ assert.equal(partyMarks(c,'2026-09-01')[1][0],'ok');
+ assert.equal(partyRequisitesText(c),['Общество с ограниченной ответственностью "КИПМОНТАЖ"','Юр. адрес: 223053, Минский р-н, д. 62','р/с BY20 AKBB 3012 0000 0000 0000 0000 в ОАО «АСБ Беларусбанк», BIC AKBBBY2X','УНП 693340482, ОКПО 512345678','тел. +375 17 222-33-44, e-mail info@k.by','Директор _______________ П.П. Петров'].join('\n'));
+ const data={parties:[c],projects:[{id:'p1',name:'Пружаны'},{id:'p2',name:'Паркинг'}],partyContacts:[{id:'k1',counterparty_id:'cp1',name:'Сидоренко Ольга',position:'Инженер ПТО',topics:'Процентовки',project_ids:['p1'],phone:'+375 29 555-12-34',email:'o@k.by'}],contracts:[],partyRoles:[],participants:[]};
+ const html=partyCard({data,party:c,canEdit:true,today:'2026-10-07'});
+ assert.match(html,/Сидоренко Ольга[\s\S]*Процентовки[\s\S]*Инженер ПТО · Пружаны/);assert.match(html,/data-action="copy" data-id="o@k.by"/);
+ assert.match(html,/data-action="copy" data-id="Общество[^"]*\nЮр. адрес/,'кнопка копирует текст реквизитов');
+ const form=contactCard({data,party:c,contact:data.partyContacts[0]});
+ assert.match(form,/name="project_ids" value="p1" checked/);assert.match(form,/party-contact-delete/);
+ const fd=new FormData();fd.append('name','Бухгалтерия');fd.append('counterparty_id','cp1');fd.append('contact_id','');fd.append('project_ids','p2');
+ assert.deepEqual(contactPayload(fd),{op:'save_counterparty_contact',name:'Бухгалтерия',counterparty_id:'cp1',project_ids:['p2']});
 });
 
 test('MNS XML: parsed without DOM, compared by UNP, manual fields are not part of the diff',async()=>{

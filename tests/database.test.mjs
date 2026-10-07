@@ -376,3 +376,26 @@ test('counterparties: MNS XML import creates or updates by UNP and keeps manual 
  assert.equal((await db.query("select * from pto_counterparties where unp='693340482'")).rows.length,1);
  await assert.rejects(command({op:'import_counterparties',rows:[row]}),/Недостаточно прав/);
 });
+test('counterparties: postal code for contract requisites, contact persons with objects; director reads only',async()=>{
+ await as(users.engineer);
+ const cp=(await db.query("select * from pto_counterparties where unp='693340482'")).rows[0];
+ const {unp,short_name,full_name,address,status_name}=cp;
+ await command({op:'update_counterparty',counterparty_id:cp.id,unp,short_name,full_name,address,status_name,postal_code:'223053'});
+ assert.equal((await db.query('select postal_code from pto_counterparties where id=$1',[cp.id])).rows[0].postal_code,'223053');
+ await assert.rejects(command({op:'update_counterparty',counterparty_id:cp.id,unp,short_name,full_name,postal_code:'2230'}),/индекс/);
+ const project=(await db.query('select id from pto_projects limit 1')).rows[0].id;
+ const {contact_id}=await command({op:'save_counterparty_contact',counterparty_id:cp.id,name:'Сидоренко Ольга',position:'Инженер ПТО',topics:'Процентовки',project_ids:[project],phone:'+375 29 555-12-34',email:'o@x.by'});
+ await command({op:'save_counterparty_contact',contact_id,name:'Сидоренко Ольга Ивановна',topics:'Процентовки',project_ids:[]});
+ let row=(await db.query('select * from pto_counterparty_contacts where id=$1',[contact_id])).rows[0];
+ assert.deepEqual([row.name,row.project_ids,row.counterparty_id],['Сидоренко Ольга Ивановна',[],cp.id]);
+ await assert.rejects(command({op:'save_counterparty_contact',counterparty_id:cp.id,name:' '}),/ФИО/);
+ await assert.rejects(command({op:'save_counterparty_contact',counterparty_id:cp.id,name:'X',project_ids:[randomUUID()]}),/Объект не найден/);
+ await as(users.director);
+ assert.equal((await db.query('select * from pto_counterparty_contacts')).rows.length,1);
+ await assert.rejects(command({op:'delete_counterparty_contact',contact_id}),/Недостаточно прав/);
+ await as(users.engineer);
+ await command({op:'delete_counterparty_contact',contact_id});
+ assert.equal((await db.query('select * from pto_counterparty_contacts')).rows.length,0);
+ assert.equal((await db.query("select count(*)::int n from pto_events where action in ('save_counterparty_contact','delete_counterparty_contact')")).rows[0].n,3);
+ await as(users.inactive);assert.equal((await db.query('select * from pto_counterparties')).rows.length,0);
+});
