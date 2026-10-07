@@ -1,6 +1,5 @@
--- Откат миграции 20261007200000_counterparty_import_and_files.sql: убирает импорт выписок МНС и файлы контрагента.
--- Диспетчер команд — из миграции 20261005230629. Загруженные в хранилище файлы counterparties/* остаются,
--- но становятся недоступны клиентам (политики чтения удаляются); при необходимости удалить их из bucket вручную.
+-- Откат миграции 20261007200000_counterparty_mns_import.sql: убирает импорт выписок МНС.
+-- Диспетчер команд — из миграции 20261005230629.
 -- После выполнения удалить запись версии 20261007200000 из supabase_migrations.schema_migrations.
 
 create or replace function public.pto_command(request_id uuid, payload jsonb) returns jsonb
@@ -22,8 +21,5 @@ end $$;
 revoke all on function public.pto_command(uuid,jsonb) from public, anon;
 grant execute on function public.pto_command(uuid,jsonb) to authenticated;
 
-drop function pto_private.counterparty_files_command(uuid,jsonb);
-drop policy pto_counterparty_file_upload on storage.objects;
-drop policy pto_counterparty_file_read on storage.objects;
-drop table public.pto_counterparty_files;
+drop function pto_private.counterparty_import_command(uuid,jsonb);
 alter table public.pto_counterparties drop column mns_checked_at;

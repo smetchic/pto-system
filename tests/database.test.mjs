@@ -356,7 +356,7 @@ test('audit log, workflow events and snapshots are append-only even for the data
  // Прежний конвейер удалён (шаг 6б): маршруты — единственный механизм состояний.
  assert.deepEqual((await db.query("select relname from pg_class where relname like 'pto_process%' and relkind='r'")).rows,[]);
 });
-test('counterparties: MNS XML import creates or updates by UNP and keeps manual fields; EGR file is attached; director reads only',async()=>{
+test('counterparties: MNS XML import creates or updates by UNP and keeps manual fields; director reads only',async()=>{
  await as(users.engineer);
  const row={unp:'693340482',full_name:'Общество с ограниченной ответственностью "КИПМОНТАЖ"',short_name:'ООО "КИПМОНТАЖ"',address:'Минский район',registration_date:'2024-11-04',tax_office_code:'613',tax_office_name:'Инспекция МНС РБ по Минскому району',status_code:'1',status_name:'Действующий',status_change_date:'',liquidation_info:''};
  assert.deepEqual(await command({op:'import_counterparties',checked_at:'2026-10-07',rows:[row]}),{created:1,updated:0,unchanged:0});
@@ -372,16 +372,7 @@ test('counterparties: MNS XML import creates or updates by UNP and keeps manual 
  assert.equal((await db.query("select count(*)::int n from pto_events where action='import_counterparty'")).rows[0].n,2,'журнал: создание и изменение, без «без изменений»');
  await assert.rejects(command({op:'import_counterparties',rows:[{...row,unp:'12'}]}),/9 цифр/);
  await assert.rejects(command({op:'import_counterparties',rows:[]}),/Нет строк/);
- // Выписка ЕГР в карточке.
- const path=`counterparties/${cp.id}/${randomUUID()}.pdf`;
- await db.query("insert into storage.objects(bucket_id,name) values('pto-documents',$1)",[path]);
- await command({op:'attach_counterparty_file',counterparty_id:cp.id,path,name:'693340482.pdf',statement_date:'2026-10-07',sha256:'a'.repeat(64)});
- await assert.rejects(command({op:'attach_counterparty_file',counterparty_id:cp.id,path:`counterparties/${randomUUID()}/x.pdf`,name:'x.pdf'}),/Неверный путь/);
- await assert.rejects(db.query("insert into storage.objects(bucket_id,name) values('pto-documents',$1)",[`counterparties/${randomUUID()}/x.pdf`]),/row-level security/);
  await as(users.director);
- assert.equal((await db.query('select * from pto_counterparty_files')).rows.length,1);
- assert.equal((await db.query('select * from storage.objects where name=$1',[path])).rows.length,1,'руководитель может открыть выписку');
+ assert.equal((await db.query("select * from pto_counterparties where unp='693340482'")).rows.length,1);
  await assert.rejects(command({op:'import_counterparties',rows:[row]}),/Недостаточно прав/);
- await assert.rejects(db.query("insert into storage.objects(bucket_id,name) values('pto-documents',$1)",[`counterparties/${cp.id}/y.pdf`]),/row-level security/);
- await as(users.inactive);assert.equal((await db.query('select * from pto_counterparty_files')).rows.length,0);
 });

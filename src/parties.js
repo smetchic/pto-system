@@ -51,14 +51,6 @@ function usage(data,c){
  return rows.length?`<div class="cp-system-list">${rows.join('')}</div>`:'<div class="cp-no-data">Пока не используется в объектах и договорах.</div>';
 }
 
-const fileKinds={egr:'Выписка ЕГР',other:'Документ'};
-// Выписки ЕГР и другие файлы контрагента: скачивание по закрытой ссылке, загрузка — у начальника ПТО и инженеров.
-function partyFiles(data,c,canEdit){
- const files=(data.partyFiles||[]).filter(f=>f.counterparty_id===c.id).sort((a,b)=>String(b.statement_date||b.created_at).localeCompare(String(a.statement_date||a.created_at)));
- const list=files.length?`<div class="cp-system-list">${files.map(f=>`<div class="cp-system-row"><div><span class="pill">${e(fileKinds[f.kind]||'Документ')}</span></div><div><button type="button" class="link" data-action="download" data-id="${e(f.path)}">${e(f.name)}</button><small>${f.statement_date?`Сведения на ${e(day(f.statement_date))} · `:''}загружен ${e(day(String(f.created_at).slice(0,10)))}</small></div></div>`).join('')}</div>`:'<div class="cp-no-data">Выписка ЕГР не приложена.</div>';
- return list+(canEdit?`<div class="cp-work-grid cp-upload">${input('party-file-date','Сведения по состоянию на',new Date().toLocaleDateString('sv-SE',{timeZone:'Europe/Minsk'}),'date')}<label>Приложить выписку ЕГР (PDF, до 20 МБ)<input id="party-file" type="file" accept="application/pdf,.pdf"></label></div>`:'');
-}
-
 // Карточка: новый контрагент (c=null) или существующий. Без права записи все поля только для чтения.
 export function partyCard({data,party:c=null,canEdit}){
  const ro=!canEdit,selected=new Set(c?partyRoles(data,c.id):[]);
@@ -68,7 +60,6 @@ export function partyCard({data,party:c=null,canEdit}){
    ${c?`<section class="cp-section"><div class="cp-section-title">В нашей системе</div>${usage(data,c)}</section>`:''}
    <section class="cp-section"><div class="cp-section-title">Роли контрагента</div><div class="cp-role-checks">${roleOrder.map(r=>`<label><input type="checkbox" name="roles" value="${e(r)}" ${selected.has(r)?'checked':''} ${ro?'disabled':''}>${e(partyRoleNames[r])}</label>`).join('')}</div></section>
    <section class="cp-section"><div class="cp-section-title">${c?'Официальные данные МНС':'Основные реквизиты'}</div>${c?facts(c):newFields()}</section>
-   ${c?`<section class="cp-section"><div class="cp-section-title">Документы</div>${partyFiles(data,c,canEdit)}</section>`:''}
    <section class="cp-section"><div class="cp-section-title">Руководитель и право подписи</div><div class="cp-work-grid">${input('director_title','Должность',c?.director_title,'text',ro)}${input('director_name','ФИО руководителя',c?.director_name,'text',ro)}${input('authority_basis','Действует на основании',c?.authority_basis,'text',ro)}</div></section>
    <section class="cp-section"><div class="cp-section-title">Контакты</div><div class="cp-work-grid">${area('phone','Телефоны',c?.phone,ro)}${input('email','Электронная почта',c?.email,'email',ro)}</div></section>
    <section class="cp-section"><div class="cp-section-title">Банковские реквизиты</div><div class="cp-work-grid">${input('okpo','ОКПО',c?.okpo,'text',ro)}${input('bank_bic','БИК',c?.bank_bic,'text',ro)}${area('bank_account','Расчётный счёт / IBAN',c?.bank_account,ro)}${area('bank_name','Банк',c?.bank_name,ro)}</div></section>

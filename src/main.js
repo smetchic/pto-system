@@ -35,7 +35,7 @@ async function load(){
  if(generation!==loadId)return;
  if(profile?.theme&&profile.theme!==ui.theme){ui.theme=profile.theme;try{localStorage.setItem('pto-theme',ui.theme);}catch{}applyTheme();}
  if(!profile?.active){app.innerHTML=`<section class="login"><div class="mark">П</div><h1>Доступ ещё не назначен</h1><p>Начальник ПТО должен активировать вашу учётную запись и назначить объекты.</p><p class="muted">${e(session.user.email)}</p>${btn('Проверить доступ','refresh')}${btn('Выйти','logout')}</section>`;return;}
- const [projects,contracts,periods,profiles,memberships,templates,steps,parties,partyRoles,participants,partyFiles]=await Promise.all([all('pto_projects'),all('pto_contract_list'),all('pto_periods',q=>q.eq('month',ui.month+'-01')),all('pto_profiles'),query(client.from('pto_memberships').select('*')),query(client.from('pto_workflow_templates').select('*')),query(client.from('pto_workflow_steps').select('*')),query(client.from('pto_counterparties').select('*').order('short_name')),query(client.from('pto_counterparty_roles').select('counterparty_id,role')),query(client.from('pto_project_participants').select('*')),query(client.from('pto_counterparty_files').select('*'))]);
+ const [projects,contracts,periods,profiles,memberships,templates,steps,parties,partyRoles,participants]=await Promise.all([all('pto_projects'),all('pto_contract_list'),all('pto_periods',q=>q.eq('month',ui.month+'-01')),all('pto_profiles'),query(client.from('pto_memberships').select('*')),query(client.from('pto_workflow_templates').select('*')),query(client.from('pto_workflow_steps').select('*')),query(client.from('pto_counterparties').select('*').order('short_name')),query(client.from('pto_counterparty_roles').select('counterparty_id,role')),query(client.from('pto_project_participants').select('*'))]);
  if(generation!==loadId)return;
  const ids=periods.map(p=>p.id);
  // Состояние документа и задачи — из комплектов маршрутов (pto_document_list, pto_workflow_list).
@@ -44,7 +44,7 @@ async function load(){
  const versions=dids.length?await all('pto_versions',q=>q.in('document_id',dids)):[];
  const events=await query(client.from('pto_events').select('*').order('id',{ascending:false}).limit(150));
  if(generation!==loadId)return;
- data={projects,contracts,periods,profiles,memberships,documents,allocations,register,matrix,versions,events,workflows,templates,steps,parties,partyRoles,participants,partyFiles};
+ data={projects,contracts,periods,profiles,memberships,documents,allocations,register,matrix,versions,events,workflows,templates,steps,parties,partyRoles,participants};
  if(ui.project&&!projects.some(p=>p.id===ui.project))ui.project=null;
  render();
 }
@@ -74,14 +74,6 @@ function partyModal(id){
  const canEdit=['head','engineer'].includes(profile?.role);
  dialog.className='cp-drawer';dialog.innerHTML=partyCard({data,party,canEdit});if(!dialog.open)dialog.showModal();
  const form=$('#party-form');if(!canEdit)return;
- if(party&&$('#party-file'))$('#party-file').onchange=async ev=>{const file=ev.target.files[0];if(!file)return;
-  if(file.size>20971520)return toast('Максимальный размер файла — 20 МБ');ev.target.disabled=true;
-  try{const ext=file.name.split('.').pop().replace(/[^a-zA-Z0-9]/g,'').slice(0,10)||'pdf',path=`counterparties/${party.id}/${crypto.randomUUID()}.${ext}`;
-   const sha256=[...new Uint8Array(await crypto.subtle.digest('SHA-256',await file.arrayBuffer()))].map(b=>b.toString(16).padStart(2,'0')).join('');
-   await query(client.storage.from('pto-documents').upload(path,file,{upsert:false,contentType:file.type||'application/pdf'}));
-   await mutate({op:'attach_counterparty_file',counterparty_id:party.id,path,name:file.name,kind:'egr',statement_date:form.querySelector('[name="party-file-date"]').value,sha256});
-   partyModal(party.id);
-  }catch(err){toast(errorMessage(err));ev.target.disabled=false;}};
  form.onsubmit=async ev=>{ev.preventDefault();const button=ev.submitter;button.disabled=true;
   try{await mutate(partyPayload(new FormData(form),party));dialog.close();}
   catch(err){$('#party-error').textContent=/duplicate key|pto_counterparties_unp_key/i.test(err?.message||'')?'Контрагент с таким УНП уже существует.':errorMessage(err);}

@@ -1,41 +1,15 @@
--- Шаг 9: контрагенты — импорт выписок МНС (XML) и файлы контрагента (выписка ЕГР в PDF).
--- * import_counterparties: создаёт или обновляет контрагентов по УНП. Меняются только официальные поля МНС;
---   руководитель, контакты, банк, примечание и роли не затрагиваются. Дата сведений хранится в mns_checked_at.
--- * attach_counterparty_file: файл (выписка ЕГР и др.) в карточке контрагента, с датой сведений и SHA-256.
--- Правят начальник ПТО и инженеры; руководитель только читает.
--- Откат: supabase/rollback/20261007200000_counterparty_import_and_files.down.sql
+-- Шаг 9: контрагенты — импорт выписок МНС (XML).
+-- import_counterparties создаёт или обновляет контрагентов по УНП. Меняются только официальные поля МНС;
+-- руководитель, контакты, банк, примечание и роли не затрагиваются. Дата сведений хранится в mns_checked_at.
+-- Импортируют начальник ПТО и инженеры; руководитель только читает.
+-- Откат: supabase/rollback/20261007200000_counterparty_mns_import.down.sql
 
 -- 1. Дата сведений МНС, на которую актуальны официальные поля.
 alter table public.pto_counterparties add column mns_checked_at date;
 update public.pto_counterparties set mns_checked_at=updated_at::date where source='МНС XML';
 
--- 2. Файлы контрагента. Путь в хранилище: counterparties/<id контрагента>/<uuid>.<расширение>.
-create table public.pto_counterparty_files (
- id uuid primary key default gen_random_uuid(),
- counterparty_id uuid not null references public.pto_counterparties(id) on delete restrict,
- kind text not null default 'egr' check (kind in ('egr','other')),
- statement_date date,
- path text not null unique,
- name text not null check (length(trim(name)) between 1 and 300),
- sha256 text check (sha256 ~ '^[0-9a-f]{64}$'),
- uploaded_by uuid not null references public.pto_profiles(id),
- created_at timestamptz not null default now()
-);
-create index pto_counterparty_files_counterparty_idx on public.pto_counterparty_files(counterparty_id);
-create index pto_counterparty_files_uploaded_by_idx on public.pto_counterparty_files(uploaded_by);
-alter table public.pto_counterparty_files enable row level security;
-revoke all on public.pto_counterparty_files from anon, authenticated;
-grant select on public.pto_counterparty_files to authenticated;
-create policy counterparty_files_read on public.pto_counterparty_files for select to authenticated using (pto_private.my_role() is not null);
-
-create policy pto_counterparty_file_read on storage.objects for select to authenticated using (
- bucket_id='pto-documents' and exists(select 1 from public.pto_counterparty_files f where f.path=objects.name) and pto_private.my_role() is not null);
-create policy pto_counterparty_file_upload on storage.objects for insert to authenticated with check (
- bucket_id='pto-documents' and pto_private.my_role() in ('head','engineer') and split_part(name,'/',1)='counterparties'
- and exists(select 1 from public.pto_counterparties c where c.id::text=split_part(name,'/',2)));
-
--- 3. Команды.
-create function pto_private.counterparty_files_command(req uuid, body jsonb) returns jsonb
+-- 2. Команда импорта.
+create function pto_private.counterparty_import_command(req uuid, body jsonb) returns jsonb
 language plpgsql security definer set search_path='' as $$
 declare
  who uuid:=auth.uid(); role_name text; op text:=body->>'op'; prior pto_private.requests; result jsonb;
@@ -88,25 +62,16 @@ begin
    end if;
   end loop;
   result:=jsonb_build_object('created',created,'updated',updated,'unchanged',unchanged);
- elsif op='attach_counterparty_file' then
-  target:=(body->>'counterparty_id')::uuid;
-  if not exists(select 1 from public.pto_counterparties where id=target) then raise exception 'Контрагент не найден'; end if;
-  if split_part(body->>'path','/',1)<>'counterparties' or split_part(body->>'path','/',2)<>target::text then raise exception 'Неверный путь файла'; end if;
-  if not exists(select 1 from storage.objects where bucket_id='pto-documents' and name=body->>'path') then raise exception 'Файл ещё не загружен'; end if;
-  insert into public.pto_counterparty_files(counterparty_id,kind,statement_date,path,name,sha256,uploaded_by)
-  values(target,coalesce(nullif(body->>'kind',''),'egr'),nullif(body->>'statement_date','')::date,body->>'path',trim(coalesce(body->>'name','')),nullif(body->>'sha256',''),who)
-  returning jsonb_build_object('file_id',id) into result;
-  insert into public.pto_events(project_id,actor,action,detail) values(null,who,op,body);
  else
   raise exception 'Неизвестная операция';
  end if;
  insert into pto_private.requests values(req,who,body,result);
  return result;
 end $$;
-revoke all on function pto_private.counterparty_files_command(uuid,jsonb) from public, anon, authenticated;
-grant execute on function pto_private.counterparty_files_command(uuid,jsonb) to authenticated;
+revoke all on function pto_private.counterparty_import_command(uuid,jsonb) from public, anon, authenticated;
+grant execute on function pto_private.counterparty_import_command(uuid,jsonb) to authenticated;
 
--- 4. Диспетчер команд.
+-- 3. Диспетчер команд.
 create or replace function public.pto_command(request_id uuid, payload jsonb) returns jsonb
 language plpgsql set search_path='' as $$
 begin
@@ -116,7 +81,7 @@ begin
   when payload->>'op'='create_contract' then pto_private.create_contract(request_id,payload)
   when payload->>'op' in ('update_contract','create_addendum','set_addendum_status') then pto_private.contract_command(request_id,payload)
   when payload->>'op' in ('create_counterparty','update_counterparty') then pto_private.counterparty_command(request_id,payload)
-  when payload->>'op' in ('import_counterparties','attach_counterparty_file') then pto_private.counterparty_files_command(request_id,payload)
+  when payload->>'op' ='import_counterparties' then pto_private.counterparty_import_command(request_id,payload)
   when payload->>'op' in ('add_project_participant','remove_project_participant') then pto_private.project_participant_command(request_id,payload)
   when payload->>'op'='set_theme' then pto_private.profile_command(request_id,payload)
   when payload->>'op'='set_estimate' then pto_private.estimate_command(request_id,payload)
