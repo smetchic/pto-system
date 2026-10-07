@@ -40,14 +40,17 @@ async function load(){
  const ids=periods.map(p=>p.id);
  // Состояние документа и задачи — из комплектов маршрутов (pto_document_list, pto_workflow_list).
  const [documents,allocations,register,matrix,workflows]=ids.length?await Promise.all([all('pto_document_list',q=>q.in('period_id',ids)),all('pto_allocations',q=>q.in('period_id',ids)),query(client.from('pto_register').select('*').eq('month',ui.month+'-01')),query(client.rpc('pto_register_matrix',{p_month:ui.month+'-01'})),all('pto_workflow_list',q=>q.in('period_id',ids))]):[[],[],[],emptyMatrix,[]];
+ // Прошлый месяц — только для сравнения в портфеле (▲/▼ %).
+ const prevMatrix=await query(client.rpc('pto_register_matrix',{p_month:prevMonth(ui.month)+'-01'})).catch(()=>emptyMatrix);
  const dids=documents.map(d=>d.id);
  const versions=dids.length?await all('pto_versions',q=>q.in('document_id',dids)):[];
  const events=await query(client.from('pto_events').select('*').order('id',{ascending:false}).limit(150));
  if(generation!==loadId)return;
- data={projects,contracts,periods,profiles,memberships,documents,allocations,register,matrix,versions,events,workflows,templates,steps,parties,partyRoles,participants,partyContacts};
+ data={prevMatrix,projects,contracts,periods,profiles,memberships,documents,allocations,register,matrix,versions,events,workflows,templates,steps,parties,partyRoles,participants,partyContacts};
  if(ui.project&&!projects.some(p=>p.id===ui.project))ui.project=null;
  render();
 }
+function prevMonth(month){const [y,m]=month.split('-').map(Number),d=new Date(Date.UTC(y,m-2,1));return d.toISOString().slice(0,7);}
 function render(){app.innerHTML=renderWorkspace({ui,data,profile});}
 function modal(title,html,drawer=false){delete dialog.dataset.dirty;dialog.classList.remove('proc-drawer','cp-drawer');dialog.classList.toggle('document-drawer',drawer);dialog.innerHTML=`<div class="row"><h2>${e(title)}</h2>${btn('Закрыть','dismiss')}</div>${html}`;if(!dialog.open)dialog.showModal();}
 function form(title,fields,submit){modal(title,`<form id="modal-form">${fields}<p id="form-error" class="error" role="alert"></p><div class="actions"><button class="primary" type="submit">Сохранить</button></div></form>`);$('#modal-form').onsubmit=async ev=>{ev.preventDefault();const button=ev.submitter;button.disabled=true;try{await submit(Object.fromEntries(new FormData(ev.target)));dialog.close();}catch(err){$('#form-error').textContent=errorMessage(err);}finally{button.disabled=false;}};}
