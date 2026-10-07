@@ -49,7 +49,7 @@ async function load(){
  render();
 }
 function render(){app.innerHTML=renderWorkspace({ui,data,profile});}
-function modal(title,html,drawer=false){dialog.classList.remove('proc-drawer','cp-drawer');dialog.classList.toggle('document-drawer',drawer);dialog.innerHTML=`<div class="row"><h2>${e(title)}</h2>${btn('Закрыть','dismiss')}</div>${html}`;if(!dialog.open)dialog.showModal();}
+function modal(title,html,drawer=false){delete dialog.dataset.dirty;dialog.classList.remove('proc-drawer','cp-drawer');dialog.classList.toggle('document-drawer',drawer);dialog.innerHTML=`<div class="row"><h2>${e(title)}</h2>${btn('Закрыть','dismiss')}</div>${html}`;if(!dialog.open)dialog.showModal();}
 function form(title,fields,submit){modal(title,`<form id="modal-form">${fields}<p id="form-error" class="error" role="alert"></p><div class="actions"><button class="primary" type="submit">Сохранить</button></div></form>`);$('#modal-form').onsubmit=async ev=>{ev.preventDefault();const button=ev.submitter;button.disabled=true;try{await submit(Object.fromEntries(new FormData(ev.target)));dialog.close();}catch(err){$('#form-error').textContent=errorMessage(err);}finally{button.disabled=false;}};}
 async function mutate(payload){const result=await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload}));await load();toast('Сохранено');return result;}
 function periodPayload(op,extra={}){const p=currentPeriod();if(!p)throw Error('Откройте месяц');return {op,period_id:p.id,expected_revision:p.revision,...extra};}
@@ -72,7 +72,7 @@ async function docModal(id){
 function partyModal(id,editing=false){
  const party=id?data.parties.find(c=>c.id===id):null;if(id&&!party)throw Error('Контрагент не найден');
  const canEdit=['head','engineer'].includes(profile?.role);
- dialog.className='cp-drawer';dialog.innerHTML=partyCard({data,party,canEdit,editing});if(!dialog.open)dialog.showModal();
+ delete dialog.dataset.dirty;dialog.className='cp-drawer';dialog.innerHTML=partyCard({data,party,canEdit,editing});if(!dialog.open)dialog.showModal();
  const form=$('#party-form');if(!canEdit||(party&&!editing))return;
  form.onsubmit=async ev=>{ev.preventDefault();const button=ev.submitter;button.disabled=true;
   try{await mutate(partyPayload(new FormData(form),party));if(party)partyModal(party.id);else dialog.close();}
@@ -99,7 +99,7 @@ async function workflowModal(id){
  const events=(await all('pto_workflow_events',q=>q.eq('workflow_id',id))).sort((a,b)=>b.id-a.id),steps=stepsOf(w),next=steps.find(s=>s.ordinal===w.step_ordinal+1);
  const kit=data.documents.filter(d=>d.workflow_id===id),label=code=>steps.find(s=>s.code===code)?.label||code||'';
  const who=a=>data.profiles.find(p=>p.id===a)?.display_name||'';
- dialog.className='proc-drawer';
+ delete dialog.dataset.dirty;dialog.className='proc-drawer';
  dialog.innerHTML=`<div class="proc-drawer-body"><button class="proc-drawer-close" data-action="dismiss">Закрыть ×</button>
   <div class="proc-drawer-title">${e(w.template_name)}</div><div class="proc-drawer-sub">${e(w.project)} · договор № ${e(w.contract_number)} · ${e(w.party||'')}${w.money?` · ${money(w.acts_amount)} руб.`:''}</div>
   <div class="proc-timeline">${steps.map(s=>`<div class="proc-step ${s.ordinal<w.step_ordinal?'done':s.code===w.step_code?'current':''}"><span class="proc-step-dot"></span><div>${e(s.label)}${s.code===w.step_code&&s.actor!=='none'?`<small>${s.actor==='accounting'?'у бухгалтерии · отмечает ПТО':'действует ПТО'}</small>`:''}</div></div>`).join('')}</div>
@@ -231,6 +231,11 @@ function login(){app.innerHTML=`<section class="login"><div class="mark">П</div
 // Поиск по справочнику контрагентов: строки скрываются на месте, без перерисовки страницы.
 document.addEventListener('change',async ev=>{if(ev.target.id!=='mns-xml'||!ev.target.files.length)return;try{await importMns([...ev.target.files]);}catch(err){toast(errorMessage(err));}finally{ev.target.value='';}});
 document.addEventListener('input',ev=>{if(ev.target.id!=='party-search')return;const s=ev.target.value.trim().toLowerCase();let shown=0;for(const tr of document.querySelectorAll('tr[data-search]')){tr.hidden=!!s&&!tr.dataset.search.includes(s);if(!tr.hidden)shown++;}const none=$('#party-empty');if(none)none.hidden=shown>0;});
+// Боковая карточка на просмотре закрывается кликом мимо неё. При правке (форма с data-editing или уже что-то введено) — нет, чтобы не потерять ввод.
+dialog.addEventListener('input',()=>{dialog.dataset.dirty='1';});
+dialog.addEventListener('click',ev=>{if(ev.target!==dialog||!/drawer/.test(dialog.className))return;const r=dialog.getBoundingClientRect();
+ if(ev.clientX>=r.left&&ev.clientX<=r.right&&ev.clientY>=r.top&&ev.clientY<=r.bottom)return;
+ if(dialog.querySelector('[data-editing]')||dialog.dataset.dirty)return;dialog.close();});
 document.addEventListener('click',async ev=>{const b=ev.target.closest('[data-action]');if(!b||b.disabled||ui.busy)return;ui.busy=true;try{await action(b.dataset.action,b.dataset.id);}catch(err){toast(errorMessage(err));}finally{ui.busy=false;}});
 // Карточки конвейера — не кнопки: открываются клавишами Enter и пробел.
 document.addEventListener('keydown',ev=>{const card=ev.target.closest?.('[role="button"][data-action]');if(card&&ev.target===card&&(ev.key==='Enter'||ev.key===' ')){ev.preventDefault();card.click();}});

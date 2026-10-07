@@ -76,14 +76,14 @@ function edit(data,c){
   ${c?officialFields.map(k=>hidden(k,c[k])).join(''):''}${hidden('source',c?.source||'manual')}`;
 }
 
-// Карточка контрагента — узкая панель справа (≈30 % окна 24″). Открывается на просмотр, правка — по кнопке «Изменить».
+// Карточка контрагента — боковая панель общей ширины (--drawer-w). Открывается на просмотр, правка — по кнопке «Изменить».
 // Новый контрагент (c=null) сразу открывается на правку.
 export function partyCard({data,party:c=null,canEdit,editing=false}){
  const editMode=canEdit&&(editing||!c);
  const foot=editMode?`<p id="party-error" class="error" role="alert"></p>${c?`<button type="button" data-action="party" data-id="${e(c.id)}">Отмена</button>`:'<button type="button" data-action="dismiss">Отмена</button>'}<button class="primary" type="submit">Сохранить</button>`
   :canEdit?`<button class="primary" type="button" data-action="party-edit" data-id="${e(c.id)}">Изменить</button>`:'';
- return `<form id="party-form" class="cp-drawer-shell" autocomplete="off">
-  <div class="cp-drawer-head"><div class="cp-title"><h2>${e(c?(c.short_name||'Контрагент'):'Новый контрагент')}</h2>${c&&c.full_name&&c.full_name!==c.short_name?`<div class="cp-full-name">${e(c.full_name)}</div>`:''}${c?`<div class="cp-card-meta"><span class="pill cp-unp">УНП ${e(c.unp)}</span>${statusPill(c)}</div>`:''}</div><button type="button" class="cp-drawer-close" data-action="dismiss" aria-label="Закрыть">×</button></div>
+ return `<form id="party-form" class="cp-drawer-shell" autocomplete="off"${editMode?' data-editing':''}>
+  <div class="cp-drawer-head"><button type="button" class="cp-drawer-close" data-action="dismiss">Закрыть ×</button><div class="cp-title"><h2>${e(c?(c.short_name||'Контрагент'):'Новый контрагент')}</h2>${c&&c.full_name&&c.full_name!==c.short_name?`<div class="cp-full-name">${e(c.full_name)}</div>`:''}${c?`<div class="cp-card-meta"><span class="pill cp-unp">УНП ${e(c.unp)}</span>${statusPill(c)}</div>`:''}</div></div>
   ${statusAlert(c)}
   <div class="cp-drawer-content">${editMode?edit(data,c):view(data,c)}</div>
   ${foot?`<div class="cp-drawer-foot">${foot}</div>`:''}

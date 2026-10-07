@@ -2,17 +2,17 @@
 .cp-toolbar{display:flex;gap:10px;align-items:center;margin:16px 0}.cp-search{max-width:420px;width:100%}
 .cp-empty{padding:30px 0}.cp-table button.link{text-align:left}.cp-table td{vertical-align:top}
 .cp-role-list,.cp-card-meta{display:flex;gap:6px;flex-wrap:wrap}.cp-card-meta{margin:8px 0 0}.cp-card-meta .pill{white-space:nowrap}
-/* Карточка — узкая панель справа: ≈30 % окна 24″ (≈580 px), список слева остаётся виден.
+/* Карточка — боковая панель общей ширины --drawer-w (style.css), список слева остаётся виден.
    Просмотр без полей ввода, поэтому помещается без прокрутки; при нехватке высоты прокручивается только тело. */
-#dialog.cp-drawer{margin:0 0 0 auto!important;inset:0 0 0 auto!important;width:clamp(480px,30vw,600px);max-width:100vw;height:100vh;max-height:100vh;border:0;border-left:1px solid var(--ln);border-radius:0;padding:0;background:var(--sf);color:var(--ink);box-shadow:-10px 0 28px rgba(0,0,0,.08);overflow:hidden}
+#dialog.cp-drawer{margin:0 0 0 auto!important;inset:0 0 0 auto!important;width:var(--drawer-w);max-width:100vw;height:100vh;max-height:100vh;border:0;border-left:1px solid var(--ln);border-radius:0;padding:0;background:var(--sf);color:var(--ink);box-shadow:-10px 0 28px rgba(0,0,0,.08);overflow:hidden}
 #dialog.cp-drawer::backdrop{background:rgba(15,17,21,.08)}
 .cp-drawer-shell{height:100%;display:flex;flex-direction:column;overflow:hidden}
-.cp-drawer-head{flex:none;display:flex;gap:12px;align-items:flex-start;justify-content:space-between;border-bottom:1px solid var(--ln);padding:14px 20px 12px}
+.cp-drawer-head{flex:none;border-bottom:1px solid var(--ln);padding:14px 20px 12px}
 .cp-title{min-width:0}
 .cp-drawer-head h2{margin:0;color:var(--ink);font-size:20px;line-height:1.25;font-weight:650;text-transform:none;letter-spacing:0}
 .cp-full-name{color:var(--mu);font-size:12px;line-height:1.4;margin:2px 0 0}
 .cp-card-meta{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 0}.cp-card-meta .pill{white-space:nowrap}.cp-unp{font-variant-numeric:tabular-nums;font-weight:600}
-.cp-drawer-close{flex:none;width:32px;height:32px;display:inline-flex;align-items:center;justify-content:center;border:0!important;background:transparent!important;padding:0!important;color:var(--mu);font-size:22px;line-height:1;border-radius:6px;cursor:pointer}.cp-drawer-close:hover{color:var(--ink);background:var(--hv)!important}
+.cp-drawer-close{display:inline-block;border:0!important;background:transparent!important;padding:0!important;color:var(--mu);font-size:12px;margin:0 0 10px;cursor:pointer}.cp-drawer-close:hover{color:var(--ink)}
 .cp-alert{flex:none;padding:8px 20px;background:var(--ers);color:var(--er);border-bottom:1px solid var(--ln);font-size:12px}
 .cp-drawer-content{flex:1;min-height:0;overflow:auto;padding:14px 20px;overscroll-behavior:contain}
 .cp-drawer-foot{flex:none;display:flex;align-items:center;justify-content:flex-end;gap:8px;border-top:1px solid var(--ln);padding:10px 20px}.cp-drawer-foot .error{margin:0 auto 0 0}
