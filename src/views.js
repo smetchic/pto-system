@@ -36,7 +36,7 @@ function teamPage(){return heading('Команда','Учётные записи
 const primaryNav=[
  ['today','Сегодня','<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>'],
  ['objects','Портфель','<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>'],
- ['flow','Конвейер','<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v12"/>'],
+ ['flow','Подписание','<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v12"/>'],
  ['register','Реестры','<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18"/>'],
  ['help','Справка','<circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 2.5-3 4M12 17h.01"/>']
 ];

@@ -1,4 +1,4 @@
-// Конвейер (docs/conveyor.md): общие колонки для всех маршрутов, карточка открывает боковую панель, кнопки шага на карточке нет.
+// Экран «Подписание» (docs/conveyor.md): общие колонки для всех маршрутов, карточка открывает боковую панель, кнопки шага на карточке нет.
 // Шаг 1 — без изменений базы: шаги маршрутов из базы раскладываются по шести общим колонкам.
 import {escapeHtml as e,money,actorRoles,canWrite} from './domain.js';
 
@@ -81,6 +81,6 @@ export function conveyorPage({ui,data,profile,month,now=Date.now()}){
  const counts={};for(const x of all)if(kindOk(x)&&x.column!=='acc'){const c=counts[x.project_id]||(counts[x.project_id]={n:0,bad:false});c.n++;if(problem(x))c.bad=true;}
  const kinds=`<div class="cv-seg" role="group" aria-label="Что показывать">${[['','Все'],['claim','Наша'],['sub_claim','Субподряд'],['c29','С-29']].map(([k,l])=>`<button class="${(ui.flowKind||'')===k?'on':''}" data-action="flow-kind" data-id="${k}">${l}</button>`).join('')}</div>`;
  const chips=`<div class="cv-chips"><button class="cv-chip ${ui.flowProject?'':'on'}" data-action="flow-filter" data-id="">Все объекты</button>${projects.map(p=>`<button class="cv-chip ${ui.flowProject===p.id?'on':''}" data-action="flow-filter" data-id="${e(ui.flowProject===p.id?'':p.id)}" style="--oc:${objectColor(projects,p.id)}"><i class="cv-od"></i>${e(p.name)}<span class="cv-c">${counts[p.id]?.n||0}</span>${counts[p.id]?.bad?'<i class="cv-rd" aria-label="есть замечания"></i>':''}</button>`).join('')}</div>`;
- return `<div class="cv-top"><h1>Конвейер</h1>${kinds}</div>${chips}<div class="cv-board">${COLUMNS.map(column).join('')}</div>
+ return `<div class="cv-top"><h1>Подписание</h1>${kinds}</div>${chips}<div class="cv-board">${COLUMNS.map(column).join('')}</div>
   <div class="cv-legend"><span>Полоска и цвет названия: объект.</span><span>Красный уголок: замечание.</span><span>«Ваш ход» видит тот, кто делает следующий шаг; шаг делается в карточке справа.</span></div>`;
 }
