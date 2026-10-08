@@ -4,10 +4,11 @@ import {escapeHtml as e,money,isDone,canActOn,canWrite,kindNames,roleNames,actio
 import {partyCard,contactCard,contactPayload,partyPayload,parseMnsXml,mnsPreview,mnsPreviewHtml} from './parties.js';
 import './style.css';
 import './parties.css';
+import './conveyor.css';
 const $=s=>document.querySelector(s),app=$('#app'),dialog=$('#dialog');
 const url=import.meta.env.VITE_SUPABASE_URL,key=import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const monthNow=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Minsk',year:'numeric',month:'2-digit'}).format(new Date());
-const ui={route:'today',month:monthNow,project:null,doc:null,busy:false,recovery:false,wide:false,more:false,portfolioView:'tiles',projectTab:'summary',flowProject:'',theme:'system',textScale:100};
+const ui={route:'today',month:monthNow,project:null,doc:null,busy:false,recovery:false,wide:false,more:false,portfolioView:'tiles',projectTab:'summary',flowProject:'',flowKind:'',theme:'system',textScale:100};
 try{ui.wide=localStorage.getItem('pto-wide')==='true';ui.theme=localStorage.getItem('pto-theme')||'system';ui.textScale=Number(localStorage.getItem('pto-text-scale'))||100;}catch{}
 function applyTheme(){if(ui.theme==='system')delete document.documentElement.dataset.theme;else document.documentElement.dataset.theme=ui.theme;}
 // Размер текста масштабирует всю страницу, как Ctrl +; --zoom возвращает высоту окна и боковых карточек к размеру экрана.
@@ -196,7 +197,7 @@ async function action(name,id){
  if(name==='portfolio-view'){ui.portfolioView=id;return render();}
  if(name==='project-tab'){ui.projectTab=id;return render();}
  if(name==='flow-filter'){ui.flowProject=id;return render();}
- if(name==='flow-template'){ui.flowTemplate=id;return render();}
+ if(name==='flow-kind'){ui.flowKind=id;return render();}
  // Тема хранится в профиле; в браузере — только копия для первой отрисовки до загрузки профиля.
  if(name==='text-scale'){const scale=Number(id);if(!textScales.includes(scale))return;ui.textScale=scale;try{localStorage.setItem('pto-text-scale',id);}catch{}applyTextScale();render();await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'set_text_scale',text_scale:scale}}));profile.text_scale=scale;return toast('Размер текста сохранён в профиле');}
  if(name==='theme'){if(!['light','dark','system'].includes(id))return;ui.theme=id;try{localStorage.setItem('pto-theme',id);}catch{}applyTheme();render();await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'set_theme',theme:id}}));profile.theme=id;return toast('Тема сохранена в профиле');}
@@ -256,6 +257,9 @@ document.addEventListener('change',async ev=>{if(ev.target.id!=='mns-xml'||!ev.t
 document.addEventListener('input',ev=>{if(ev.target.id!=='party-search')return;const s=ev.target.value.trim().toLowerCase();let shown=0;for(const tr of document.querySelectorAll('tr[data-search]')){tr.hidden=!!s&&!tr.dataset.search.includes(s);if(!tr.hidden)shown++;}const none=$('#party-empty');if(none)none.hidden=shown>0;});
 // Боковая карточка на просмотре закрывается кликом мимо неё. При правке (форма с data-editing или уже что-то введено) — нет, чтобы не потерять ввод.
 dialog.addEventListener('input',()=>{dialog.dataset.dirty='1';});
+// Конвейер: карточка раскрывается поверх соседних через полсекунды наведения (docs/conveyor.md).
+let hoverTimer=null;
+document.addEventListener('mouseover',ev=>{const w=ev.target.closest?.('.cv-wrap'),cur=document.querySelector('.cv-wrap.open');if(w===cur)return;clearTimeout(hoverTimer);cur?.classList.remove('open');if(w&&w.querySelector('.cv-more'))hoverTimer=setTimeout(()=>w.classList.add('open'),450);});
 dialog.addEventListener('click',ev=>{if(ev.target!==dialog||!/drawer/.test(dialog.className))return;const r=dialog.getBoundingClientRect();
  if(ev.clientX>=r.left&&ev.clientX<=r.right&&ev.clientY>=r.top&&ev.clientY<=r.bottom)return;
  if(dialog.querySelector('[data-editing]')||dialog.dataset.dirty)return;dialog.close();});
