@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {projectAmounts,deltaPercent,c29Deadline,claimStatus,c29Status,portfolioPage,objectListPage} from '../src/portfolio.js';
 
 const now=Date.parse('2026-11-12T12:00:00Z');
-const wf=(over)=>({project_id:'p',template_code:'claim',step_code:'supervision',step_label:'Технадзор',step_ordinal:3,last_event_at:'2026-11-08T12:00:00Z',...over});
+const wf=(over)=>({project_id:'p',template_code:'claim',step_code:'tn',step_label:'У технадзора',step_ordinal:3,step_since:'2026-11-08T12:00:00Z',open_notes:[],...over});
 
 test('object amounts come from the register matrix: object subtotal, or the single contract row',()=>{
  const m={rows:[{kind:'contract',project_id:'a',total:'10.00',own:'7.00',subcontract:'3.00'},
@@ -23,24 +23,23 @@ test('change to the previous month and the С-29 deadline',()=>{
  assert.equal(c29Deadline('2026-12'),'2027-01-15');
 });
 
-test('customer claim status: lagging kit, days on step, return, signed and accepted',()=>{
+test('customer claim status: lagging kit, days on step, remark, at the customer, signed and transferred',()=>{
  assert.deepEqual(claimStatus([],'p',now),{text:'Не начата',cls:'n'});
- assert.equal(claimStatus([wf()],'p',now).text,'Технадзор · 4 дн.');
- assert.equal(claimStatus([wf(),wf({step_code:'accepted',step_ordinal:8})],'p',now).text,'Технадзор · 4 дн.','показывается отстающий комплект');
- assert.equal(claimStatus([wf({last_event_kind:'return',last_note:'нет визы'})],'p',now).cls,'o');
- assert.equal(claimStatus([wf({step_code:'signed',step_label:'Подписана заказчиком',step_ordinal:5})],'p',now).signed,true);
- assert.equal(claimStatus([wf({step_code:'accounting',step_ordinal:7})],'p',now).text,'В бухгалтерии · 4 дн.');
- assert.equal(claimStatus([wf({step_code:'closed',step_ordinal:9})],'p',now).done,true);
+ assert.equal(claimStatus([wf()],'p',now).text,'У технадзора · 4 дн.');
+ assert.equal(claimStatus([wf(),wf({step_code:'accepted',step_ordinal:6})],'p',now).text,'У технадзора · 4 дн.','показывается отстающий комплект');
+ const noted=claimStatus([wf({open_notes:[{id:1,note:'нет визы'}]})],'p',now);assert.deepEqual([noted.cls,noted.title],['o','нет визы']);
+ assert.equal(claimStatus([wf({step_code:'check',step_ordinal:4})],'p',now).text,'У заказчика · 4 дн.');
+ assert.equal(claimStatus([wf({step_code:'signed',step_label:'Проверено',step_ordinal:5})],'p',now).signed,true);
+ assert.equal(claimStatus([wf({step_code:'accepted',step_ordinal:6})],'p',now).done,true);
 });
 
-test('С-29 status: not started, who holds it, soon due, overdue, accepted',()=>{
- const c=(over)=>wf({template_code:'c29',step_code:'site',step_label:'У прораба',step_ordinal:2,...over});
+test('С-29 status: not started, who holds it, soon due, overdue, transferred',()=>{
+ const c=(over)=>wf({template_code:'c29',step_code:'tn',step_label:'У прораба',step_ordinal:3,...over});
  let s=c29Status([],'p','2026-10','2026-11-03',now);assert.equal(s.text,'Не начат');assert.equal(s.soon,undefined);
  s=c29Status([c()],'p','2026-10','2026-11-12',now);assert.equal(s.text,'В работе · у прораба · 4 дн.');assert.equal(s.soon,3);
- assert.equal(c29Status([c({step_code:'review'})],'p','2026-10','2026-11-03',now).text,'В работе · у ПТО · 4 дн.');
+ assert.equal(c29Status([c({step_code:'check'})],'p','2026-10','2026-11-03',now).text,'В работе · у ПТО · 4 дн.');
  s=c29Status([],'p','2026-10','2026-11-16',now);assert.equal(s.cls,'e');assert.match(s.text,/^Просрочен · Не начат/);
- assert.equal(c29Status([c({step_code:'accounting'})],'p','2026-10','2026-11-16',now).cls,'b','переданный в бухгалтерию не просрочен');
- assert.equal(c29Status([c({step_code:'accepted'})],'p','2026-10','2026-11-20',now).text,'Принят');
+ const done=c29Status([c({step_code:'accepted'})],'p','2026-10','2026-11-20',now);assert.deepEqual([done.text,done.cls],['В бухгалтерии','ok'],'переданный в бухгалтерию не просрочен');
 });
 
 test('portfolio page: band from the database total, tiles without address, engineer name, negative own forces highlighted',()=>{

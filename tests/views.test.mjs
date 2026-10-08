@@ -9,13 +9,11 @@ function fixture(role='head') {
   contracts:[{id:'contract',project_id:'object',number:'Д-1',party:'Контрагент',direction:'outgoing'}],
   periods:[{id:'period',project_id:'object',status:'open',revision:2,reviewed_revision:1}],
   profiles:[profile],memberships:[{project_id:'object',user_id:'user'}],allocations:[],events:[],
-  documents:[{id:'act',project_id:'object',period_id:'period',contract_id:'contract',kind:'c2a',number:'1',current_version:'new',accepted_version:'old',due_date:'2026-10-10',workflow_id:'kit',step_code:'site',step_label:'У прораба'}],
+  documents:[{id:'act',project_id:'object',period_id:'period',contract_id:'contract',kind:'c2a',number:'1',current_version:'new',accepted_version:'old',due_date:'2026-10-10',workflow_id:'kit',step_code:'acts',step_label:'Готовятся акты'}],
   templates:[{code:'claim',name:'Процентовка заказчику',money:true,ordinal:1},{code:'c29',name:'С-29',money:false,ordinal:3}],
-  steps:[{template_code:'claim',code:'prepared',ordinal:1,label:'Подготовлена ПТО',actor:'pto',requires:[]},{template_code:'claim',code:'site',ordinal:2,label:'У прораба',actor:'pto',requires:['kit','person']},
-   {template_code:'claim',code:'accounting',ordinal:3,label:'Оригинал в бухгалтерии',actor:'accounting',requires:['kit']},{template_code:'claim',code:'accepted',ordinal:4,label:'Принято бухгалтерией',actor:'accounting',requires:['accept']},
-   {template_code:'c29',code:'formation',ordinal:1,label:'Формирование ПТО',actor:'pto',requires:[]}],
+  steps:[['wait','Ждём объёмы'],['acts','Готовятся акты'],['tn','У технадзора'],['check','На проверке'],['signed','Проверено'],['accepted','В бухгалтерии']].map(([code,label],i)=>({template_code:'claim',code,ordinal:i+1,label,actor:code==='accepted'?'none':'pto',requires:[]})),
   workflows:[{id:'kit',template_code:'claim',template_name:'Процентовка заказчику',money:true,project_id:'object',project:'Объект <script>alert(1)</script>',period_id:'period',contract_id:'contract',contract_number:'Д-1',party:'Контрагент',
-   step_code:'site',step_label:'У прораба',step_ordinal:2,actor:'pto',documents:1,acts_amount:'9999.00',last_event_kind:'return',last_note:'Нет подписи <i>',last_event_at:new Date(Date.now()-3*86400000).toISOString()}],
+   step_code:'acts',step_label:'Готовятся акты',step_ordinal:2,actor:'pto',documents:1,acts_amount:'9999.00',open_notes:[{id:7,note:'Нет подписи <i>',source:'технадзор',round:2,date:'2026-10-05'}],step_since:new Date(Date.now()-3*86400000).toISOString(),step_dates:{wait:'2026-10-02'}}],
   versions:[{id:'new',document_id:'act',amount:9999,version:2},{id:'old',document_id:'act',amount:100,version:1}],
   register:[{period_id:'period',project_id:'object',contract_id:'contract',number:'Д-1',total:100,subcontract:25}],
   matrix:{columns:[{id:'sub',label:'Субподрядчик <b>',total:'25.00'}],
@@ -51,22 +49,25 @@ test('conveyor: six shared columns, card opens the side panel, no step button; "
  assert.match(html,/class="cv-card"[^>]*data-action="workflow" data-id="kit"/,'клик по карточке открывает панель');
  assert.doesNotMatch(html,/data-action="wf-advance"/,'кнопки шага на карточке нет');
  assert.match(html,/Ваш ход: передать технадзору/);
- assert.match(html,/cv-flag">Нет подписи &lt;i&gt;/);assert.match(html,/cv-corner/);assert.match(html,/<i class="bad">2<\/i>/,'точка шага красная при замечании');
+ assert.match(html,/cv-flag">Нет подписи &lt;i&gt;, 2-й круг/);assert.match(html,/cv-corner/);assert.match(html,/<i class="bad">2<\/i>/,'точка шага красная при замечании');
  assert.doesNotMatch(html,/<script>alert/);
  {const d=fixture('director');d.ui.route='flow';assert.doesNotMatch(renderWorkspace(d),/Ваш ход:/,'руководитель шаги не делает');}
  {const other=fixture('engineer');other.data.memberships=[];other.ui.route='flow';const h=renderWorkspace(other);assert.match(h,/data-id="kit"/,'инженер видит конвейер чужого объекта');assert.doesNotMatch(h,/Ваш ход:/,'но шаги не делает');}
  ctx.ui.flowKind='c29';html=renderWorkspace(ctx);assert.doesNotMatch(html,/data-id="kit"/,'фильтр вида');
- ctx.ui.flowKind='';Object.assign(ctx.data.workflows[0],{step_code:'accounting',step_ordinal:3,step_label:'Оригинал в бухгалтерии'});html=renderWorkspace(ctx);assert.match(html,/data-action="workflow" data-id="kit"/,'в «В бухгалтерии» карточки, а не только счётчик');
+ ctx.ui.flowKind='';assert.match(html=renderWorkspace(ctx),/data-action="expected" data-id="c29:contract"/,'ожидаемая С-29 открывает панель');
+ ctx.data.skips=[{template_code:'c29',project_id:'object',contract_id:'contract'}];assert.doesNotMatch(renderWorkspace(ctx),/data-id="c29:contract"/,'снятое ожидание не показывается');
+ Object.assign(ctx.data.workflows[0],{step_code:'accepted',step_ordinal:6,step_label:'В бухгалтерии',actor:'none',open_notes:[]});html=renderWorkspace(ctx);
+ assert.match(html,/data-action="workflow" data-id="kit"/,'в «В бухгалтерии» карточки, а не только счётчик');assert.doesNotMatch(html,/Ваш ход: передать/,'после передачи шагов нет');
 });
 
-test('Today lists kits awaiting PTO and, separately, kits at accounting that PTO marks',()=>{
+test('Today lists kits awaiting PTO with the remark and the next move; transferred kits need no action',()=>{
  const ctx=fixture();let html=renderWorkspace(ctx);
- assert.match(html,/\u0422\u0440\u0435\u0431\u0443\u0435\u0442 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0439 \u041f\u0422\u041e/);assert.match(html,/\u041f\u0440\u043e\u0446\u0435\u043d\u0442\u043e\u0432\u043a\u0430 \u0437\u0430\u043a\u0430\u0437\u0447\u0438\u043a\u0443 \u00b7 \u0423 \u043f\u0440\u043e\u0440\u0430\u0431\u0430/);assert.match(html,/3 \u0434\u043d\./);
- assert.match(html,/\u0412 \u0431\u0443\u0445\u0433\u0430\u043b\u0442\u0435\u0440\u0438\u0438 \u043d\u0435\u0442 \u043a\u043e\u043c\u043f\u043b\u0435\u043a\u0442\u043e\u0432/);
- ctx.data.workflows[0].actor='accounting';html=renderWorkspace(ctx);
- assert.match(html,/\u041d\u0435\u0442 \u043a\u043e\u043c\u043f\u043b\u0435\u043a\u0442\u043e\u0432, \u043e\u0436\u0438\u0434\u0430\u044e\u0449\u0438\u0445 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0439 \u041f\u0422\u041e/);assert.match(html,/\u0423 \u0431\u0443\u0445\u0433\u0430\u043b\u0442\u0435\u0440\u0438\u0438[\s\S]*\u041f\u0440\u043e\u0446\u0435\u043d\u0442\u043e\u0432\u043a\u0430 \u0437\u0430\u043a\u0430\u0437\u0447\u0438\u043a\u0443 \u00b7 \u0423 \u043f\u0440\u043e\u0440\u0430\u0431\u0430/);
- assert.match(renderWorkspace({...ctx,ui:{...ctx.ui,route:'flow'}}),/Ваш ход:/,'\u0448\u0430\u0433 \u0431\u0443\u0445\u0433\u0430\u043b\u0442\u0435\u0440\u0438\u0438 \u043e\u0442\u043c\u0435\u0447\u0430\u0435\u0442 \u041f\u0422\u041e');
- assert.doesNotMatch(html,/data-action="view-as"|\u0411\u0443\u0445\u0433\u0430\u043b\u0442\u0435\u0440\u0438\u044f<\/button>/);
+ assert.match(html,/Требует действий ПТО/);assert.match(html,/Процентовка заказчику · Готовятся акты/);assert.match(html,/3 дн\./);
+ assert.match(html,/замечание: Нет подписи &lt;i&gt;/);assert.match(html,/Ваш ход: передать технадзору/);
+ assert.doesNotMatch(html,/У бухгалтерии/);
+ Object.assign(ctx.data.workflows[0],{step_code:'accepted',actor:'none'});html=renderWorkspace(ctx);
+ assert.match(html,/Нет комплектов, ожидающих действий ПТО/);
+ assert.doesNotMatch(html,/data-action="view-as"|Бухгалтерия<\/button>/);
 });
 
 test('negative own forces are shown and highlighted, not hidden',()=>{

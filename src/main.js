@@ -1,10 +1,12 @@
 import {renderWorkspace} from './views.js';
 import {createClient} from '@supabase/supabase-js';
-import {escapeHtml as e,money,isDone,canActOn,canWrite,kindNames,roleNames,actionNames,emptyMatrix,registerSheetRows,ourRoleNames,addendumStateNames} from './domain.js';
+import {escapeHtml as e,money,isDone,canWrite,kindNames,roleNames,actionNames,emptyMatrix,registerSheetRows,ourRoleNames,addendumStateNames} from './domain.js';
 import {partyCard,contactCard,contactPayload,partyPayload,parseMnsXml,mnsPreview,mnsPreviewHtml} from './parties.js';
 import './style.css';
 import './parties.css';
 import './conveyor.css';
+import {signingPanel} from './signing-panel.js';
+import {expectedCards} from './conveyor.js';
 const $=s=>document.querySelector(s),app=$('#app'),dialog=$('#dialog');
 const url=import.meta.env.VITE_SUPABASE_URL,key=import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const monthNow=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Minsk',year:'numeric',month:'2-digit'}).format(new Date());
@@ -44,14 +46,14 @@ async function load(){
  if(generation!==loadId)return;
  const ids=periods.map(p=>p.id);
  // Состояние документа и задачи — из комплектов маршрутов (pto_document_list, pto_workflow_list).
- const [documents,allocations,register,matrix,workflows]=ids.length?await Promise.all([all('pto_document_list',q=>q.in('period_id',ids)),all('pto_allocations',q=>q.in('period_id',ids)),query(client.from('pto_register').select('*').eq('month',ui.month+'-01')),query(client.rpc('pto_register_matrix',{p_month:ui.month+'-01'})),all('pto_workflow_list',q=>q.in('period_id',ids))]):[[],[],[],emptyMatrix,[]];
+ const [documents,allocations,register,matrix,workflows,skips]=ids.length?await Promise.all([all('pto_document_list',q=>q.in('period_id',ids)),all('pto_allocations',q=>q.in('period_id',ids)),query(client.from('pto_register').select('*').eq('month',ui.month+'-01')),query(client.rpc('pto_register_matrix',{p_month:ui.month+'-01'})),all('pto_workflow_list',q=>q.in('period_id',ids)),all('pto_workflow_skips',q=>q.in('period_id',ids))]):[[],[],[],emptyMatrix,[],[]];
  // Прошлый месяц — только для сравнения в портфеле (▲/▼ %).
  const prevMatrix=await query(client.rpc('pto_register_matrix',{p_month:prevMonth(ui.month)+'-01'})).catch(()=>emptyMatrix);
  const dids=documents.map(d=>d.id);
  const versions=dids.length?await all('pto_versions',q=>q.in('document_id',dids)):[];
  const events=await query(client.from('pto_events').select('*').order('id',{ascending:false}).limit(150));
  if(generation!==loadId)return;
- data={prevMatrix,projects,contracts,periods,profiles,memberships,documents,allocations,register,matrix,versions,events,workflows,templates,steps,parties,partyRoles,participants,partyContacts};
+ data={prevMatrix,projects,contracts,periods,profiles,memberships,documents,allocations,register,matrix,versions,events,workflows,skips,templates,steps,parties,partyRoles,participants,partyContacts};
  if(ui.project&&!projects.some(p=>p.id===ui.project))ui.project=null;
  render();
 }
@@ -108,42 +110,44 @@ async function importMns(files){
 }
 // Справка С-3а: СМР с НДС = сумма актов комплекта (считает база); вводятся только выделенный НДС, оборудование и зачёт авансов.
 const c3aHint='<p class="muted">СМР с НДС за период не вводится: это сумма актов С-2 договора за месяц (текущие версии). После изменения акта создайте новую версию справки. «К оплате» и накопительные колонки считаются автоматически.</p>';
-// Комплект: шаги маршрута из базы, состав, история; переход и возврат — одной командой.
+// Боковая панель «Подписания» (signing-panel.js): шаг, комплект, замечания, история; команды — по формам панели.
 const wfOf=id=>data.workflows.find(w=>w.id===id);
-const stepsOf=w=>data.steps.filter(s=>s.template_code===w.template_code).sort((a,b)=>a.ordinal-b.ordinal);
 const periodOf=w=>data.periods.find(p=>p.id===w.period_id);
-const canMove=w=>canActOn(w,profile.role)&&editor(w.project_id)&&periodOf(w)?.status==='open';
-async function workflowModal(id){
- const w=wfOf(id);if(!w)throw Error('Комплект не найден');
- const events=(await all('pto_workflow_events',q=>q.eq('workflow_id',id))).sort((a,b)=>b.id-a.id),steps=stepsOf(w),next=steps.find(s=>s.ordinal===w.step_ordinal+1);
- const kit=data.documents.filter(d=>d.workflow_id===id),label=code=>steps.find(s=>s.code===code)?.label||code||'';
- const who=a=>data.profiles.find(p=>p.id===a)?.display_name||'';
+const panelItem=()=>ui.panel?.kind==='wf'?wfOf(ui.panel.id):expectedCards({projects:data.projects,contracts:data.contracts,workflows:data.workflows,skips:data.skips||[]},ui.month).find(x=>x.key===ui.panel?.id);
+async function openPanel(kind,id,mode=''){
+ ui.panel={kind,id,mode};const x=panelItem();if(!x){ui.panel=null;if(dialog.open)dialog.close();throw Error(kind==='wf'?'Комплект не найден':'Карточка уже не ожидает действий');}
+ let events=[],files=[];
+ if(kind==='wf'){
+  const versions=data.documents.filter(d=>d.workflow_id===id).map(d=>d.current_version).filter(Boolean);
+  [events,files]=await Promise.all([all('pto_workflow_events',q=>q.eq('workflow_id',id)),versions.length?all('pto_files',q=>q.in('version_id',versions)):[]]);
+  events.sort((a,b)=>b.id-a.id);ui.panel.events=events;ui.panel.files=files;
+ }
+ renderPanel();
+}
+function renderPanel(){
+ const x=panelItem();if(!x)return;
  delete dialog.dataset.dirty;dialog.className='proc-drawer';
- dialog.innerHTML=`<div class="proc-drawer-body"><button class="proc-drawer-close" data-action="dismiss">Закрыть ×</button>
-  <div class="proc-drawer-title">${e(w.template_name)}</div><div class="proc-drawer-sub">${e(w.project)} · договор № ${e(w.contract_number)} · ${e(w.party||'')}${w.money?` · ${money(w.acts_amount)} руб.`:''}</div>
-  <div class="proc-timeline">${steps.map(s=>`<div class="proc-step ${s.ordinal<w.step_ordinal?'done':s.code===w.step_code?'current':''}"><span class="proc-step-dot"></span><div>${e(s.label)}${s.code===w.step_code&&s.actor!=='none'?`<small>${s.actor==='accounting'?'у бухгалтерии · отмечает ПТО':'действует ПТО'}</small>`:''}</div></div>`).join('')}</div>
-  ${next&&canMove(w)?`<button class="proc-primary-action" data-action="wf-advance" data-id="${e(id)}">→ ${e(next.label)}</button>`:''}
-  ${w.hint?`<section class="proc-help"><h3>Что делать на этом шаге</h3><p>${e(w.hint)}</p></section>`:''}
-  <div class="proc-history-title">Состав комплекта</div><div class="wf-docs">${kit.map(d=>`<button class="link" data-action="doc" data-id="${e(d.id)}">${e(kindNames[d.kind])} № ${e(d.number)}${d.id===w.attention_document_id?' <span class="wf-attention">· замечание</span>':''}</button>`).join('')||'<span class="muted">Документов нет.</span>'}</div>
-  ${w.step_ordinal>1&&canMove(w)?`<section class="proc-return">${btn('Вернуть на исправление','wf-return',id)}</section>`:''}
-  <div class="proc-history-title">История</div><div class="proc-history">${events.map(x=>`<div class="proc-event"><b>${x.kind==='created'?'Создан':x.kind==='reset'?'Возврат на первый шаг':x.kind==='return'?'Возврат':'Переход'}: ${e(x.from_step?label(x.from_step)+' → ':'')}${e(label(x.to_step))}</b><small>${e(fmtDate(x.created_at))}${x.actor?` · ${e(who(x.actor))}`:''}${x.person?` · ${e(x.person)}`:''}${x.method?` · ${e(x.method)}`:''}</small>${x.proof?`<small>Подтверждение: ${e(x.proof)}</small>`:''}${x.note?`<small>${e(x.note)}</small>`:''}</div>`).join('')}</div></div>`;
+ dialog.innerHTML=signingPanel({x,data,profile,mode:ui.panel.mode,events:ui.panel.events||[],files:ui.panel.files||[],month:ui.month});
  if(!dialog.open)dialog.showModal();
+ dialog.querySelector('form.sp-move input,form.sp-move select,form.sp-move textarea')?.focus();
 }
-function workflowAdvance(id){
- const w=wfOf(id),next=stepsOf(w).find(s=>s.ordinal===w.step_ordinal+1),req=next?.requires||[];
- if(!next)return toast('Маршрут завершён');
- const personLabel={accounting:'Кому в бухгалтерии передан оригинал',accepted:'Кто в бухгалтерии принял'}[next.code]||'Кому передан комплект';
- const proofLabel=next.code==='accepted'?'Подтверждение принятия: отметка на описи, номер реестра':'Подтверждение: номер письма, описи, отметка о подписи';
- const fields=(req.includes('person')?field('person',personLabel):'')+(req.includes('method')?field('method','Способ передачи'):'')
-  +(req.includes('proof')?note('proof',proofLabel):'')+note('note','Комментарий').replace(' required','');
- const warn=req.includes('accept')?'<p>Все документы комплекта будут приняты одновременно; принятые версии зафиксируются.</p>':req.includes('files')?'<p class="muted">У каждого документа комплекта должен быть файл текущей версии.</p>':'';
- dialogReset();return form(`→ ${next.label}`,warn+fields,x=>mutate({op:'workflow_advance',workflow_id:id,expected_revision:periodOf(w)?.revision,...x}));
-}
-function workflowReturn(id){
- const w=wfOf(id),earlier=stepsOf(w).filter(s=>s.ordinal<w.step_ordinal).reverse(),kit=data.documents.filter(d=>d.workflow_id===id);
- dialogReset();return form('Вернуть комплект на исправление',select('to_step','Вернуть на шаг',earlier.map(s=>[s.code,s.label]))
-  +`<label>Документ с замечанием<select name="document_id"><option value="">Весь комплект</option>${kit.map(d=>`<option value="${e(d.id)}">${e(kindNames[d.kind])} № ${e(d.number)}</option>`).join('')}</select></label>`
-  +note('note','Причина возврата'),x=>mutate({op:'workflow_return',workflow_id:id,expected_revision:periodOf(w)?.revision,...x}));
+// Команда формы панели; после записи данные перечитываются, панель остаётся открытой.
+async function panelSubmit(f){
+ const x=panelItem(),v=Object.fromEntries(new FormData(f)),month=ui.month+'-01',rev=x.expected?undefined:periodOf(x)?.revision;
+ const target={workflow_id:x.id,expected_revision:rev};
+ const payload={
+  start:{op:'workflow_start',project_id:x.project_id,contract_id:x.contract_id,template_code:x.template_code,month,...v},
+  skip:{op:'workflow_skip',project_id:x.project_id,contract_id:x.contract_id,template_code:x.template_code,month,...v},
+  exclude:{op:'workflow_skip',project_id:x.project_id,contract_id:f.dataset.contract,template_code:'sub_claim',month,...v},
+  advance:{op:'workflow_advance',...target,...v},
+  received:{op:'workflow_received',...target,...v},
+  note:{op:'workflow_note',...target,...v},
+  undo:{op:'workflow_undo',...target,...v}
+ }[f.dataset.op];
+ const result=await mutate(payload);
+ if(f.dataset.op==='start'&&result?.workflow_id)return openPanel('wf',result.workflow_id);
+ if(f.dataset.op==='skip')return dialog.close();
+ return openPanel(ui.panel.kind,ui.panel.id);
 }
 function dialogReset(){dialog.className='';}
 const c3aFields=(v={})=>[['smr_vat','в т.ч. НДС в СМР, руб.'],['equipment_amount','Оборудование с НДС, руб.'],['equipment_vat','в т.ч. НДС на оборудование, руб.'],['advance_target_offset','Зачёт целевого аванса, руб.'],['advance_current_offset','Зачёт текущего аванса, руб.']].map(([k,label])=>field(k,label,'number',v[k]??'',false)).join('');
@@ -233,9 +237,10 @@ async function action(name,id){
  if(name==='revise'){const d=data.documents.find(d=>d.id===id),v=ver(d);
  const body=d.kind==='c3a'?c3aHint+c3aFields(v):d.kind==='c29'?'':field('amount','Сумма акта с НДС, руб.','number',v.amount);
  return form('Новая версия документа',body+note('note','Содержание / основание',v.note).replace(' required','')+note('reason','Причина изменения'),x=>mutate(periodPayload('revise',{document_id:id,...x})));}
- if(name==='workflow')return workflowModal(id);
- if(name==='wf-advance')return workflowAdvance(id);
- if(name==='wf-return')return workflowReturn(id);
+ if(name==='workflow')return openPanel('wf',id);
+ if(name==='expected')return openPanel('exp',id);
+ if(name==='sp-mode'){if(!ui.panel)return;ui.panel.mode=id||'';return renderPanel();}
+ if(name==='sp-note-off'){const x=panelItem();await mutate({op:'workflow_note_off',workflow_id:x.id,expected_revision:periodOf(x)?.revision,event_id:Number(id)});return openPanel('wf',x.id);}
  if(name==='review')return mutate(periodPayload('review'));
  if(name==='close')return form('Закрыть отчётный период',`<p>Все документы будут заблокированы. Сохранится неизменяемый снимок выполнения. Повторно открыть период сможет администратор с указанием причины.</p>`,()=>mutate(periodPayload('close')));
  if(name==='reopen')return form('Повторное открытие',note('reason','Причина открытия'),x=>mutate(periodPayload('reopen',x)));
@@ -257,6 +262,9 @@ document.addEventListener('change',async ev=>{if(ev.target.id!=='mns-xml'||!ev.t
 document.addEventListener('input',ev=>{if(ev.target.id!=='party-search')return;const s=ev.target.value.trim().toLowerCase();let shown=0;for(const tr of document.querySelectorAll('tr[data-search]')){tr.hidden=!!s&&!tr.dataset.search.includes(s);if(!tr.hidden)shown++;}const none=$('#party-empty');if(none)none.hidden=shown>0;});
 // Боковая карточка на просмотре закрывается кликом мимо неё. При правке (форма с data-editing или уже что-то введено) — нет, чтобы не потерять ввод.
 dialog.addEventListener('input',()=>{dialog.dataset.dirty='1';});
+dialog.addEventListener('submit',async ev=>{const f=ev.target.closest('form.sp-move');if(!f)return;ev.preventDefault();if(ui.busy)return;ui.busy=true;const b=f.querySelector('[type=submit]');b.disabled=true;
+ try{await panelSubmit(f);}catch(err){const out=f.querySelector('.sp-error');if(out&&f.isConnected)out.textContent=errorMessage(err);else toast(errorMessage(err));}finally{b.disabled=false;ui.busy=false;}});
+dialog.addEventListener('close',()=>{ui.panel=null;});
 // Подписание: карточка раскрывается поверх соседних через полсекунды наведения (docs/conveyor.md).
 let hoverTimer=null;
 document.addEventListener('mouseover',ev=>{const w=ev.target.closest?.('.cv-wrap'),cur=document.querySelector('.cv-wrap.open');if(w===cur)return;clearTimeout(hoverTimer);cur?.classList.remove('open');if(w&&w.querySelector('.cv-more'))hoverTimer=setTimeout(()=>w.classList.add('open'),450);});

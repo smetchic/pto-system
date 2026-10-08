@@ -1,7 +1,7 @@
 import {escapeHtml as e,money,kindNames,roleNames,actionNames,matrixOf,isDone,actorRoles,canWrite} from './domain.js';
 import {partiesList} from './parties.js';
 import {portfolioPage,objectListPage} from './portfolio.js';
-import {conveyorPage} from './conveyor.js';
+import {conveyorPage,daysOnStep,openNotes,turnOf} from './conveyor.js';
 
 export function renderWorkspace({ui,data,profile}) {
 const btn=(text,action,id='',primary=false)=>`<button ${primary?'class="primary"':''} data-action="${action}" data-id="${e(id)}">${e(text)}</button>`;
@@ -47,8 +47,8 @@ const todayKey=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Minsk',year:'nu
 const readiness=list=>({done:list.filter(isDone).length,total:list.length});
 // Задачи не хранятся: это комплекты, на шаге которых действует выбранная роль.
 const workflows=()=>data.workflows||[];
-const ageDays=w=>{const t=w.last_event_at||w.updated_at||w.created_at;return t?Math.max(0,Math.floor((Date.now()-new Date(t).getTime())/86400000)):0;};
-const returned=w=>['return','reset'].includes(w.last_event_kind);
+const ageDays=w=>daysOnStep(w,Date.now());
+const lastNote=w=>{const n=openNotes(w);return n[n.length-1];};
 function heading(title,sub,actions=''){return `<div class="heading"><div><h1>${e(title)}</h1><div class="muted">${e(sub)}</div></div><div class="actions">${actions}</div></div>`;}
 function ring(done,total,size=64){const pct=total?Math.round(done/total*100):0,r=size/2-7,length=2*Math.PI*r;return `<svg class="ring" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" role="img" aria-label="Принято документов: ${done} из ${total}"><circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="var(--ln)" stroke-width="8"/><circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="var(--ac)" stroke-width="8" stroke-linecap="round" stroke-dasharray="${length*pct/100} ${length}" transform="rotate(-90 ${size/2} ${size/2})"/><text x="50%" y="50%" dy=".35em" text-anchor="middle" fill="var(--ink)" font-size="${size/4.2}" font-weight="600">${total?pct+'%':'—'}</text></svg>`;}
 function amounts(id){const rows=data.register.filter(r=>!id||r.project_id===id);const total=rows.reduce((s,r)=>s+Number(r.total),0),sub=rows.reduce((s,r)=>s+Number(r.subcontract),0);return {total,sub,own:total-sub};}
@@ -60,16 +60,15 @@ function contractAmount(c){if(c.current_amount===null||c.current_amount===undefi
 function contractTerm(c){if(!c.current_end_date)return '<span class="muted">—</span>';const late=c.current_end_date<todayKey;return `<span class="pill ${late?'e':''}">${late?'Истёк · ':'до '}${e(fmtDay(c.current_end_date))}</span>${c.term_addendum_number?`<small>по ДС №${e(c.term_addendum_number)}</small>`:''}`;}
 function due(d){if(!d.due_date)return '<span class="muted">Без срока</span>';const done=isDone(d),late=!done&&d.due_date<todayKey;return `<span class="pill ${late?'e':done?'g':'w'}">${late?'Просрочен · ':''}${e(new Date(d.due_date+'T12:00:00Z').toLocaleDateString('ru-RU',{day:'numeric',month:'short',timeZone:'Europe/Minsk'}))}</span>`;}
 function actionList(list){return list.length?list.slice().sort((a,b)=>(a.due_date||'9999').localeCompare(b.due_date||'9999')).map(d=>`<button class="act" data-action="doc" data-id="${e(d.id)}"><span class="av">${e(projectName(d.project_id).slice(0,1)||'П')}</span><span class="t"><b>${e(d.step_label||'Без комплекта')}</b><small>${e(kindNames[d.kind])} № ${e(d.number)} · ${e(projectName(d.project_id))}</small></span>${due(d)}</button>`).join(''):empty('Нет документов со сроками.');}
-function taskList(list,emptyText='Нет комплектов, ожидающих действий.'){return list.length?list.slice().sort((a,b)=>ageDays(b)-ageDays(a)).map(w=>`<button class="act" data-action="workflow" data-id="${e(w.id)}"><span class="av">${e((w.project||'П').slice(0,1))}</span><span class="t"><b>${e(w.template_name)} · ${e(w.step_label)}</b><small>${e(w.project)} · договор № ${e(w.contract_number)} · ${e(w.party||'')}${returned(w)&&w.last_note?` · <span class="neg">возврат: ${e(w.last_note)}</span>`:''}</small></span><span class="pill ${returned(w)?'e':'w'}">${ageDays(w)} дн.</span></button>`).join(''):empty(emptyText);}
+function taskList(list,emptyText='Нет комплектов, ожидающих действий.'){return list.length?list.slice().sort((a,b)=>ageDays(b)-ageDays(a)).map(w=>`<button class="act" data-action="workflow" data-id="${e(w.id)}"><span class="av">${e((w.project||'П').slice(0,1))}</span><span class="t"><b>${e(w.template_name)} · ${e(w.step_label)}</b><small>${e(w.project)} · договор № ${e(w.contract_number)} · ${e(w.party||'')}${lastNote(w)?` · <span class="neg">замечание: ${e(lastNote(w).note)}</span>`:''}${canAct(w)&&turnOf(w)?` · <b>Ваш ход: ${e(turnOf(w))}</b>`:''}</small></span><span class="pill ${lastNote(w)?'e':'w'}">${ageDays(w)} дн.</span></button>`).join(''):empty(emptyText);}
 function todayPage(){const ready=readiness(data.documents),pending=data.documents.filter(d=>!isDone(d)),late=pending.filter(d=>d.due_date&&d.due_date<todayKey).length;
- // Все шаги отмечает ПТО; комплекты у бухгалтерии показаны отдельно — ПТО ждёт её решения и отмечает его.
- const atPto=workflows().filter(w=>w.actor==='pto'),atAccounting=workflows().filter(w=>w.actor==='accounting');
+ // Все шаги отмечает ПТО; переданные в бухгалтерию комплекты действий не требуют (бухгалтерия системой не пользуется).
+ const atPto=workflows().filter(w=>w.actor==='pto');
  const days=Array.from({length:7},(_,i)=>{const date=new Date(todayKey+'T12:00:00Z');date.setUTCDate(date.getUTCDate()+i);const key=date.toISOString().slice(0,10);return {date,key,count:pending.filter(d=>d.due_date===key).length};}),max=Math.max(1,...days.map(d=>d.count));
  return `<h1>Сегодня</h1><div class="muted">${e(new Date().toLocaleDateString('ru-RU',{day:'numeric',month:'long',weekday:'long',timeZone:'Europe/Minsk'}))} · отчётный месяц ${e(monthLabel)} ${late?`<span class="pill e">Просрочено: ${late}</span>`:''}</div>
  <div class="row overview"><div><h2>Выполнение за месяц, ${money(amounts().total)} руб.</h2>${data.projects.length?data.projects.map(p=>`<button class="project-bar" data-action="project" data-id="${e(p.id)}"><span><b>${e(p.name)}</b><span class="muted">${money(amounts(p.id).total)}</span></span>${stack(amounts(p.id))}</button>`).join(''):empty('Добавьте первый объект в портфель, чтобы начать работу.')}${legend()}</div><div class="readiness">${ring(ready.done,ready.total)}<div><b>Принято документов</b><div class="muted">${ready.done} из ${ready.total} за месяц</div></div></div></div>
  <h2>Ближайшие 7 дней</h2><div class="week">${days.map(d=>`<div class="day"><span>${d.count||'—'}</span><div style="height:${d.count?Math.max(8,d.count/max*58):2}px"></div><span>${e(d.date.toLocaleDateString('ru-RU',{day:'numeric',month:'short',timeZone:'Europe/Minsk'}))}</span></div>`).join('')}</div>
- <div class="section-title"><h2>Требует действий ПТО</h2></div>${taskList(atPto,'Нет комплектов, ожидающих действий ПТО.')}
- <div class="section-title"><h2>У бухгалтерии</h2><span class="muted">отметьте принятие или возврат</span></div>${taskList(atAccounting,'В бухгалтерии нет комплектов.')}`;
+ <div class="section-title"><h2>Требует действий ПТО</h2></div>${taskList(atPto,'Нет комплектов, ожидающих действий ПТО.')}`;
 }
 function objectsPage(){return portfolioPage({ui,data,profile,today:todayKey,view:ui.portfolioView==='table'?'table':'tiles'});}
 function flowPage(){return conveyorPage({ui,data,profile,month:ui.month});}

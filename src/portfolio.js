@@ -13,34 +13,33 @@ export function deltaPercent(current,previous){const c=Number(current),p=Number(
 // 15-е число месяца, следующего за отчётным (срок С-29).
 export function c29Deadline(month){const [y,m]=month.split('-').map(Number),d=new Date(Date.UTC(y,m,15));return d.toISOString().slice(0,10);}
 const daysBetween=(from,to)=>Math.round((new Date(to+'T12:00:00Z')-new Date(from+'T12:00:00Z'))/DAY);
-const age=(w,now)=>{const t=w.last_event_at||w.updated_at||w.created_at;return t?Math.max(0,Math.floor((now-new Date(t).getTime())/DAY)):0;};
-const returned=w=>['return','reset'].includes(w.last_event_kind);
-const finalSteps=['accepted','closed'];
+const age=(w,now)=>{const t=w.step_since||w.updated_at||w.created_at;return t?Math.max(0,Math.floor((now-new Date(t).getTime())/DAY)):0;};
+const noteOf=w=>{const n=Array.isArray(w.open_notes)?w.open_notes:[];return n[n.length-1]||null;};
 // Отстающий комплект объекта по маршруту: с наименьшим шагом.
 const lagging=(workflows,projectId,template)=>workflows.filter(w=>w.project_id===projectId&&w.template_code===template).sort((a,b)=>a.step_ordinal-b.step_ordinal)[0]||null;
 
 export function claimStatus(workflows,projectId,now=Date.now()){
  const w=lagging(workflows,projectId,'claim');
  if(!w)return {text:'Не начата',cls:'n'};
- if(finalSteps.includes(w.step_code))return {text:'Принято бухгалтерией',cls:'ok',done:true,signed:true};
+ if(w.step_code==='accepted')return {text:'В бухгалтерии',cls:'ok',done:true,signed:true};
  const days=` · ${age(w,now)} дн.`;
- if(returned(w))return {text:`Возврат · ${w.step_label}${days}`,cls:'o',title:w.last_note||''};
- if(w.step_code==='accounting')return {text:`В бухгалтерии${days}`,cls:'b',signed:true};
- if(['signed','scan'].includes(w.step_code))return {text:w.step_label,cls:'ok',signed:true};
+ if(noteOf(w))return {text:`Замечание · ${w.step_label}${days}`,cls:'o',title:noteOf(w).note};
+ if(w.step_code==='signed')return {text:'Подписана заказчиком',cls:'ok',signed:true};
+ if(w.step_code==='check')return {text:`У заказчика${days}`,cls:'b'};
  return {text:`${w.step_label}${days}`,cls:'w'};
 }
 
 export function c29Status(workflows,projectId,month,today,now=Date.now()){
  const w=lagging(workflows,projectId,'c29'),deadline=c29Deadline(month),left=daysBetween(today,deadline);
- if(w&&finalSteps.includes(w.step_code))return {text:'Принят',cls:'ok',done:true,deadline};
+ if(w&&w.step_code==='accepted')return {text:'В бухгалтерии',cls:'ok',done:true,deadline};
  let s;
  if(!w)s={text:'Не начат',cls:'n'};
  else{const days=` · ${age(w,now)} дн.`;
-  if(returned(w))s={text:`Замечания${days}`,cls:'o',title:w.last_note||''};
-  else if(w.step_code==='accounting')s={text:`В бухгалтерии${days}`,cls:'b'};
-  else s={text:`В работе · ${w.step_code==='site'?'у прораба':'у ПТО'}${days}`,cls:'w'};}
- if(left<0&&w?.step_code!=='accounting')return {...s,text:`Просрочен · ${s.text}`,cls:'e',deadline};
- if(left<=5&&w?.step_code!=='accounting')return {...s,soon:left,deadline};
+  if(noteOf(w))s={text:`Замечания${days}`,cls:'o',title:noteOf(w).note};
+  else if(w.step_code==='signed')s={text:`Проверен${days}`,cls:'b'};
+  else s={text:`В работе · ${w.step_code==='tn'?'у прораба':'у ПТО'}${days}`,cls:'w'};}
+ if(left<0)return {...s,text:`Просрочен · ${s.text}`,cls:'e',deadline};
+ if(left<=5)return {...s,soon:left,deadline};
  return {...s,deadline};
 }
 
