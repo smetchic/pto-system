@@ -74,8 +74,8 @@ export function conveyorPage({ui,data,profile,month,now=Date.now()}){
  const plural=n=>{const m=n%10,h=n%100;return n+' '+(m===1&&h!==11?'документ':m>=2&&m<=4&&(h<12||h>14)?'документа':'документов');};
  const column=([code,label],i)=>{
   const items=shown.filter(x=>x.column===code),sum=items.filter(x=>!x.expected&&x.money).reduce((t,x)=>t+Number(x.acts_amount||0),0);
-  const body=code==='acc'?`<div class="cv-done"><b>${items.length}</b>передано за месяц</div>`:(items.map(card).join('')||'<div class="cv-empty">Пусто</div>');
-  return `<section class="cv-stage"><div class="cv-head">${e(label)}</div><div class="cv-metric">${sum&&code!=='acc'?`<b>${money(sum)}</b> `:''}<span>${plural(items.length)}</span></div>
+  const body=items.map(card).join('')||'<div class="cv-empty">Пусто</div>';
+  return `<section class="cv-stage"><div class="cv-head">${e(label)}</div><div class="cv-metric">${sum?`<b>${money(sum)}</b> `:''}<span>${plural(items.length)}</span></div>
    <div class="cv-rail"><i class="${items.some(problem)?'bad':''}">${i+1}</i></div><div class="cv-lane">${body}</div></section>`;
  };
  const counts={};for(const x of all)if(kindOk(x)&&x.column!=='acc'){const c=counts[x.project_id]||(counts[x.project_id]={n:0,bad:false});c.n++;if(problem(x))c.bad=true;}

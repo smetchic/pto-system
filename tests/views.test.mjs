@@ -56,6 +56,7 @@ test('conveyor: six shared columns, card opens the side panel, no step button; "
  {const d=fixture('director');d.ui.route='flow';assert.doesNotMatch(renderWorkspace(d),/Ваш ход:/,'руководитель шаги не делает');}
  {const other=fixture('engineer');other.data.memberships=[];other.ui.route='flow';const h=renderWorkspace(other);assert.match(h,/data-id="kit"/,'инженер видит конвейер чужого объекта');assert.doesNotMatch(h,/Ваш ход:/,'но шаги не делает');}
  ctx.ui.flowKind='c29';html=renderWorkspace(ctx);assert.doesNotMatch(html,/data-id="kit"/,'фильтр вида');
+ ctx.ui.flowKind='';Object.assign(ctx.data.workflows[0],{step_code:'accounting',step_ordinal:3,step_label:'Оригинал в бухгалтерии'});html=renderWorkspace(ctx);assert.match(html,/data-action="workflow" data-id="kit"/,'в «В бухгалтерии» карточки, а не только счётчик');
 });
 
 test('Today lists kits awaiting PTO and, separately, kits at accounting that PTO marks',()=>{
