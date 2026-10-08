@@ -1,4 +1,4 @@
-/* Конвейер: шкала шагов с номерами над колонками, колонки разделены линиями, карточка с полоской цвета объекта. */
+/* Подписание: шкала шагов с номерами над колонками, колонки разделены линиями, карточка с полоской цвета объекта. */
 .pg:has(.cv-board){max-width:none;padding-bottom:20px}
 .cv-top{display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-bottom:12px}.cv-top h1{margin:0}
 .cv-seg{display:inline-flex;border:1px solid var(--ln);border-radius:6px;overflow:hidden}.cv-seg button{border:0;border-radius:0;background:transparent;color:var(--mu);padding:5px 12px}.cv-seg button+button{border-left:1px solid var(--ln)}.cv-seg button.on{background:var(--acs);color:var(--ac);font-weight:600}

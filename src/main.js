@@ -257,7 +257,7 @@ document.addEventListener('change',async ev=>{if(ev.target.id!=='mns-xml'||!ev.t
 document.addEventListener('input',ev=>{if(ev.target.id!=='party-search')return;const s=ev.target.value.trim().toLowerCase();let shown=0;for(const tr of document.querySelectorAll('tr[data-search]')){tr.hidden=!!s&&!tr.dataset.search.includes(s);if(!tr.hidden)shown++;}const none=$('#party-empty');if(none)none.hidden=shown>0;});
 // Боковая карточка на просмотре закрывается кликом мимо неё. При правке (форма с data-editing или уже что-то введено) — нет, чтобы не потерять ввод.
 dialog.addEventListener('input',()=>{dialog.dataset.dirty='1';});
-// Конвейер: карточка раскрывается поверх соседних через полсекунды наведения (docs/conveyor.md).
+// Подписание: карточка раскрывается поверх соседних через полсекунды наведения (docs/conveyor.md).
 let hoverTimer=null;
 document.addEventListener('mouseover',ev=>{const w=ev.target.closest?.('.cv-wrap'),cur=document.querySelector('.cv-wrap.open');if(w===cur)return;clearTimeout(hoverTimer);cur?.classList.remove('open');if(w&&w.querySelector('.cv-more'))hoverTimer=setTimeout(()=>w.classList.add('open'),450);});
 dialog.addEventListener('click',ev=>{if(ev.target!==dialog||!/drawer/.test(dialog.className))return;const r=dialog.getBoundingClientRect();
