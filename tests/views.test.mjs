@@ -45,16 +45,17 @@ test('dashboard financial bars retain accepted values while the new draft is in 
  ctx.ui.flowProject='another-object';assert.doesNotMatch(renderWorkspace(ctx),/data-id="kit"/);
 });
 
-test('conveyor shows one board per route with stages from the template; quick step only for the acting role',()=>{
+test('conveyor: six shared columns, card opens the side panel, no step button; "your move" only for the acting role',()=>{
  const ctx=fixture();ctx.ui.route='flow';let html=renderWorkspace(ctx);
- assert.match(html,/\u041f\u0440\u043e\u0446\u0435\u043d\u0442\u043e\u0432\u043a\u0430 \u0437\u0430\u043a\u0430\u0437\u0447\u0438\u043a\u0443/);assert.match(html,/data-action="flow-template" data-id="c29"/);
- for(const label of ['\u041f\u043e\u0434\u0433\u043e\u0442\u043e\u0432\u043b\u0435\u043d\u0430 \u041f\u0422\u041e','\u0423 \u043f\u0440\u043e\u0440\u0430\u0431\u0430','\u041e\u0440\u0438\u0433\u0438\u043d\u0430\u043b \u0432 \u0431\u0443\u0445\u0433\u0430\u043b\u0442\u0435\u0440\u0438\u0438','\u041f\u0440\u0438\u043d\u044f\u0442\u043e \u0431\u0443\u0445\u0433\u0430\u043b\u0442\u0435\u0440\u0438\u0435\u0439'])assert.match(html,new RegExp(label));
- assert.match(html,/data-action="wf-advance" data-id="kit">\u2192 \u041e\u0440\u0438\u0433\u0438\u043d\u0430\u043b \u0432 \u0431\u0443\u0445\u0433\u0430\u043b\u0442\u0435\u0440\u0438\u0438/);
- assert.match(html,/\u0412\u043e\u0437\u0432\u0440\u0430\u0442: \u041d\u0435\u0442 \u043f\u043e\u0434\u043f\u0438\u0441\u0438 &lt;i&gt;/);assert.match(html,/proc-corner red/);
- assert.doesNotMatch(renderWorkspace(fixture('director')),/data-action="wf-advance"/,'руководитель шаги не отмечает');
- {const other=fixture('engineer');other.data.memberships=[];other.ui.route='flow';assert.doesNotMatch(renderWorkspace(other),/data-action="wf-advance"/,'инженер видит конвейер чужого объекта, но шаги не отмечает');}
- assert.doesNotMatch(renderWorkspace(fixture('director')),/data-action="wf-advance"/,'\u0430\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440 \u0448\u0430\u0433\u0438 \u043d\u0435 \u043e\u0442\u043c\u0435\u0447\u0430\u0435\u0442');
- ctx.ui.flowTemplate='c29';html=renderWorkspace(ctx);assert.match(html,/\u0424\u043e\u0440\u043c\u0438\u0440\u043e\u0432\u0430\u043d\u0438\u0435 \u041f\u0422\u041e/);assert.doesNotMatch(html,/\u0440\u0443\u0431\. \u00b7 \u0441\u0440\./,'\u0443 \u0421-29 \u043d\u0435\u0442 \u0441\u0443\u043c\u043c');
+ for(const label of ['Ждём объёмы','Готовятся акты','У технадзора','На проверке','Проверено','В бухгалтерии'])assert.match(html,new RegExp(label));
+ assert.match(html,/class="cv-card"[^>]*data-action="workflow" data-id="kit"/,'клик по карточке открывает панель');
+ assert.doesNotMatch(html,/data-action="wf-advance"/,'кнопки шага на карточке нет');
+ assert.match(html,/Ваш ход: передать технадзору/);
+ assert.match(html,/cv-flag">Нет подписи &lt;i&gt;/);assert.match(html,/cv-corner/);assert.match(html,/<i class="bad">2<\/i>/,'точка шага красная при замечании');
+ assert.doesNotMatch(html,/<script>alert/);
+ {const d=fixture('director');d.ui.route='flow';assert.doesNotMatch(renderWorkspace(d),/Ваш ход:/,'руководитель шаги не делает');}
+ {const other=fixture('engineer');other.data.memberships=[];other.ui.route='flow';const h=renderWorkspace(other);assert.match(h,/data-id="kit"/,'инженер видит конвейер чужого объекта');assert.doesNotMatch(h,/Ваш ход:/,'но шаги не делает');}
+ ctx.ui.flowKind='c29';html=renderWorkspace(ctx);assert.doesNotMatch(html,/data-id="kit"/,'фильтр вида');
 });
 
 test('Today lists kits awaiting PTO and, separately, kits at accounting that PTO marks',()=>{
@@ -63,7 +64,7 @@ test('Today lists kits awaiting PTO and, separately, kits at accounting that PTO
  assert.match(html,/\u0412 \u0431\u0443\u0445\u0433\u0430\u043b\u0442\u0435\u0440\u0438\u0438 \u043d\u0435\u0442 \u043a\u043e\u043c\u043f\u043b\u0435\u043a\u0442\u043e\u0432/);
  ctx.data.workflows[0].actor='accounting';html=renderWorkspace(ctx);
  assert.match(html,/\u041d\u0435\u0442 \u043a\u043e\u043c\u043f\u043b\u0435\u043a\u0442\u043e\u0432, \u043e\u0436\u0438\u0434\u0430\u044e\u0449\u0438\u0445 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0439 \u041f\u0422\u041e/);assert.match(html,/\u0423 \u0431\u0443\u0445\u0433\u0430\u043b\u0442\u0435\u0440\u0438\u0438[\s\S]*\u041f\u0440\u043e\u0446\u0435\u043d\u0442\u043e\u0432\u043a\u0430 \u0437\u0430\u043a\u0430\u0437\u0447\u0438\u043a\u0443 \u00b7 \u0423 \u043f\u0440\u043e\u0440\u0430\u0431\u0430/);
- assert.match(renderWorkspace({...ctx,ui:{...ctx.ui,route:'flow'}}),/data-action="wf-advance"/,'\u0448\u0430\u0433 \u0431\u0443\u0445\u0433\u0430\u043b\u0442\u0435\u0440\u0438\u0438 \u043e\u0442\u043c\u0435\u0447\u0430\u0435\u0442 \u041f\u0422\u041e');
+ assert.match(renderWorkspace({...ctx,ui:{...ctx.ui,route:'flow'}}),/Ваш ход:/,'\u0448\u0430\u0433 \u0431\u0443\u0445\u0433\u0430\u043b\u0442\u0435\u0440\u0438\u0438 \u043e\u0442\u043c\u0435\u0447\u0430\u0435\u0442 \u041f\u0422\u041e');
  assert.doesNotMatch(html,/data-action="view-as"|\u0411\u0443\u0445\u0433\u0430\u043b\u0442\u0435\u0440\u0438\u044f<\/button>/);
 });
 

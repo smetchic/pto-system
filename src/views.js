@@ -1,6 +1,7 @@
 import {escapeHtml as e,money,kindNames,roleNames,actionNames,matrixOf,isDone,actorRoles,canWrite} from './domain.js';
 import {partiesList} from './parties.js';
 import {portfolioPage,objectListPage} from './portfolio.js';
+import {conveyorPage} from './conveyor.js';
 
 export function renderWorkspace({ui,data,profile}) {
 const btn=(text,action,id='',primary=false)=>`<button ${primary?'class="primary"':''} data-action="${action}" data-id="${e(id)}">${e(text)}</button>`;
@@ -71,24 +72,7 @@ function todayPage(){const ready=readiness(data.documents),pending=data.document
  <div class="section-title"><h2>У бухгалтерии</h2><span class="muted">отметьте принятие или возврат</span></div>${taskList(atAccounting,'В бухгалтерии нет комплектов.')}`;
 }
 function objectsPage(){return portfolioPage({ui,data,profile,today:todayKey,view:ui.portfolioView==='table'?'table':'tiles'});}
-// Конвейер: отдельная доска на каждый маршрут; стадии — шаги шаблона из базы, суммы — только у денежных маршрутов.
-function flowPage(){
- const templates=(data.templates||[]).slice().sort((a,b)=>a.ordinal-b.ordinal),current=templates.find(t=>t.code===ui.flowTemplate)||templates[0];
- const list=workflows().filter(w=>(!ui.flowProject||w.project_id===ui.flowProject));
- const tabs=`<div class="tabs" role="tablist" aria-label="Маршруты">${templates.map(t=>`<button role="tab" class="${t.code===current?.code?'on':''}" aria-selected="${t.code===current?.code}" data-action="flow-template" data-id="${e(t.code)}">${e(t.name)} <span class="muted">${list.filter(w=>w.template_code===t.code&&w.actor!=='none').length}</span></button>`).join('')}</div>`;
- const filters=`<div class="filter-pills">${[['','Все объекты'],...data.projects.map(p=>[p.id,p.name])].map(([id,label])=>`<button class="${(ui.flowProject||'')===id?'on':''}" data-action="flow-filter" data-id="${e(id)}">${e(label)}</button>`).join('')}</div>`;
- if(!current)return heading('Конвейер месяца','Маршруты комплектов.')+empty('Маршруты не настроены.');
- const steps=(data.steps||[]).filter(s=>s.template_code===current.code).sort((a,b)=>a.ordinal-b.ordinal);
- const card=w=>{const next=steps.find(s=>s.ordinal===w.step_ordinal+1),act=next&&canAct(w);return `<article class="proc-card" data-action="workflow" data-id="${e(w.id)}" tabindex="0" role="button">
-  <div class="proc-card-title">${e(w.project)}</div><span class="proc-card-line">Договор № ${e(w.contract_number)} · ${e(w.party||'')}</span>
-  <span class="proc-card-line">${w.documents} док.${current.money?` · ${money(w.acts_amount)} руб.`:''} · ${ageDays(w)} дн.</span>
-  ${returned(w)&&w.last_note?`<span class="proc-card-line neg">Возврат: ${e(w.last_note)}</span>`:''}
-  ${act?`<button class="proc-card-action" data-action="wf-advance" data-id="${e(w.id)}">→ ${e(next.label)}</button>`:''}
-  ${returned(w)?'<span class="proc-corner red" aria-hidden="true"></span>':''}</article>`;};
- const lane=s=>{const items=list.filter(w=>w.template_code===current.code&&w.step_code===s.code),avg=items.length?Math.round(items.reduce((t,w)=>t+ageDays(w),0)/items.length):0;
-  return `<section class="proc-stage" data-actor="${e(s.actor)}"><div class="proc-stage-head">${e(s.label)} (${items.length})</div><div class="proc-stage-metric">${current.money?`<b>${money(items.reduce((t,w)=>t+Number(w.acts_amount||0),0))}</b> руб. · `:''}ср. ${avg} дн.</div><div class="proc-lane-body">${items.map(card).join('')||'<div class="proc-empty">Нет комплектов</div>'}</div></section>`;};
- return heading('Конвейер месяца','Комплекты движутся по шагам маршрута. Красный уголок — возврат на исправление или новая версия документа.')+tabs+filters+`<div class="proc-board-wrap"><div class="proc-board" style="--steps:${steps.length}">${steps.map(lane).join('')}</div></div>`;
-}
+function flowPage(){return conveyorPage({ui,data,profile,month:ui.month});}
 function canAct(w){return (actorRoles[w.actor]||[]).includes(profile.role)&&editor(w.project_id)&&data.periods?.find(p=>p.id===w.period_id)?.status!=='closed';}
 function projectPage(){const p=currentPeriod(),project=data.projects.find(x=>x.id===ui.project),list=docs(),contracts=data.contracts.filter(c=>c.project_id===ui.project),r=readiness(list),a=amounts(ui.project);let actions='';
  if(!p&&editor())actions+=btn('Открыть месяц','open-period','',true);if(canEdit())actions+=btn('Новый акт','new-doc','',true)+btn('Справка С-3а','new-c3a')+btn('С-29','new-c29')+btn('Оценка выполнения','estimate');
