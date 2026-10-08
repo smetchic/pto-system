@@ -7,10 +7,13 @@ import './parties.css';
 const $=s=>document.querySelector(s),app=$('#app'),dialog=$('#dialog');
 const url=import.meta.env.VITE_SUPABASE_URL,key=import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const monthNow=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Minsk',year:'numeric',month:'2-digit'}).format(new Date());
-const ui={route:'today',month:monthNow,project:null,doc:null,busy:false,recovery:false,wide:false,more:false,portfolioView:'tiles',projectTab:'summary',flowProject:'',theme:'system'};
-try{ui.wide=localStorage.getItem('pto-wide')==='true';ui.theme=localStorage.getItem('pto-theme')||'system';}catch{}
+const ui={route:'today',month:monthNow,project:null,doc:null,busy:false,recovery:false,wide:false,more:false,portfolioView:'tiles',projectTab:'summary',flowProject:'',theme:'system',textScale:100};
+try{ui.wide=localStorage.getItem('pto-wide')==='true';ui.theme=localStorage.getItem('pto-theme')||'system';ui.textScale=Number(localStorage.getItem('pto-text-scale'))||100;}catch{}
 function applyTheme(){if(ui.theme==='system')delete document.documentElement.dataset.theme;else document.documentElement.dataset.theme=ui.theme;}
-applyTheme();
+// Размер текста масштабирует всю страницу, как Ctrl +; --zoom возвращает высоту окна и боковых карточек к размеру экрана.
+const textScales=[100,115,130];
+function applyTextScale(){const root=document.documentElement.style;if(!textScales.includes(ui.textScale))ui.textScale=100;if(ui.textScale===100){root.removeProperty('zoom');root.removeProperty('--zoom');}else{const z=String(ui.textScale/100);root.setProperty('zoom',z);root.setProperty('--zoom',z);}}
+applyTheme();applyTextScale();
 let client,session,profile,data={},loadId=0;
 const btn=(text,action,id='',primary=false)=>`<button ${primary?'class="primary"':''} data-action="${action}" data-id="${e(id)}">${e(text)}</button>`;
 const badge=(text,good=false)=>`<span class="badge ${good?'good':''}">${e(text)}</span>`;
@@ -34,6 +37,7 @@ async function load(){
  profile=await query(client.from('pto_profiles').select('*').eq('id',session.user.id).maybeSingle());
  if(generation!==loadId)return;
  if(profile?.theme&&profile.theme!==ui.theme){ui.theme=profile.theme;try{localStorage.setItem('pto-theme',ui.theme);}catch{}applyTheme();}
+ if(profile?.text_scale&&profile.text_scale!==ui.textScale){ui.textScale=profile.text_scale;try{localStorage.setItem('pto-text-scale',String(ui.textScale));}catch{}applyTextScale();}
  if(!profile?.active){app.innerHTML=`<section class="login"><div class="mark">П</div><h1>Доступ ещё не назначен</h1><p>Начальник ПТО должен активировать вашу учётную запись и назначить объекты.</p><p class="muted">${e(session.user.email)}</p>${btn('Проверить доступ','refresh')}${btn('Выйти','logout')}</section>`;return;}
  const [projects,contracts,periods,profiles,memberships,templates,steps,parties,partyRoles,participants,partyContacts]=await Promise.all([all('pto_projects'),all('pto_contract_list'),all('pto_periods',q=>q.eq('month',ui.month+'-01')),all('pto_profiles'),query(client.from('pto_memberships').select('*')),query(client.from('pto_workflow_templates').select('*')),query(client.from('pto_workflow_steps').select('*')),query(client.from('pto_counterparties').select('*').order('short_name')),query(client.from('pto_counterparty_roles').select('counterparty_id,role')),query(client.from('pto_project_participants').select('*')),query(client.from('pto_counterparty_contacts').select('*').order('created_at'))]);
  if(generation!==loadId)return;
@@ -194,6 +198,7 @@ async function action(name,id){
  if(name==='flow-filter'){ui.flowProject=id;return render();}
  if(name==='flow-template'){ui.flowTemplate=id;return render();}
  // Тема хранится в профиле; в браузере — только копия для первой отрисовки до загрузки профиля.
+ if(name==='text-scale'){const scale=Number(id);if(!textScales.includes(scale))return;ui.textScale=scale;try{localStorage.setItem('pto-text-scale',id);}catch{}applyTextScale();render();await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'set_text_scale',text_scale:scale}}));profile.text_scale=scale;return toast('Размер текста сохранён в профиле');}
  if(name==='theme'){if(!['light','dark','system'].includes(id))return;ui.theme=id;try{localStorage.setItem('pto-theme',id);}catch{}applyTheme();render();await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'set_theme',theme:id}}));profile.theme=id;return toast('Тема сохранена в профиле');}
  if(name==='project'){ui.project=id;ui.route='project';ui.projectTab='summary';ui.more=false;return render();}
  if(name==='new-project')return form('Новый объект',field('name','Короткое название')+field('full_name','Полное наименование объекта')+field('address','Адрес','text','',false),async x=>{const r=await mutate({op:'create_project',...x});ui.project=r.project_id;ui.route='project';render();});

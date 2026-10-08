@@ -189,3 +189,8 @@ test('MNS XML: parsed without DOM, compared by UNP, manual fields are not part o
  const html=mnsPreviewHtml(mnsPreview(data,[{...rows[0],status_name:'Ликвидирован'},rows[1]]));
  assert.match(html,/Новых: <b>1<\/b> · с изменениями: <b>1<\/b>/);assert.match(html,/Действующий → <b>Ликвидирован<\/b>/);assert.match(html,/Новый &amp; Ко/);
 });
+test('settings offer text size and mark the current one',()=>{
+ const ctx=fixture();const html=renderWorkspace({...ctx,ui:{...ctx.ui,route:'settings',textScale:115}});
+ for(const scale of ['100','115','130'])assert.match(html,new RegExp(`data-action="text-scale" data-id="${scale}"`));
+ assert.match(html,/data-id="115" aria-pressed="true"/);
+});

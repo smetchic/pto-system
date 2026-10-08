@@ -399,3 +399,18 @@ test('counterparties: postal code for contract requisites, contact persons with 
  assert.equal((await db.query("select count(*)::int n from pto_events where action in ('save_counterparty_contact','delete_counterparty_contact')")).rows[0].n,3);
  await as(users.inactive);assert.equal((await db.query('select * from pto_counterparties')).rows.length,0);
 });
+test('text size is kept in the profile, only by its owner and only from the allowed values',async()=>{
+ await as(users.engineer);
+ assert.equal((await db.query('select text_scale from pto_profiles where id=$1',[users.engineer])).rows[0].text_scale,100);
+ const req=randomUUID();assert.deepEqual(await command({op:'set_text_scale',text_scale:130},req),{text_scale:130});
+ assert.deepEqual(await command({op:'set_text_scale',text_scale:130},req),{text_scale:130},'повтор запроса не меняет результат');
+ await assert.rejects(command({op:'set_text_scale',text_scale:200}),/размер текста/);
+ await assert.rejects(command({op:'set_text_scale'}),/размер текста/);
+ await assert.rejects(db.query('update pto_profiles set text_scale=115 where id=$1',[users.engineer]),/permission denied/);
+ await as(users.director);await command({op:'set_text_scale',text_scale:115});
+ await as(users.head);
+ assert.equal((await db.query('select text_scale from pto_profiles where id=$1',[users.engineer])).rows[0].text_scale,130);
+ assert.equal((await db.query('select text_scale from pto_profiles where id=$1',[users.director])).rows[0].text_scale,115);
+ assert.equal((await db.query('select text_scale from pto_profiles where id=$1',[users.head])).rows[0].text_scale,100);
+ assert.deepEqual(await command({op:'set_theme',theme:'light'}),{theme:'light'},'тема сохраняется прежней командой');
+});
