@@ -26,7 +26,7 @@ function fixture(role='head') {
 test('all workspace routes render empty and populated data with escaped user content',()=>{
  for(const empty of [false,true]){
   const ctx=fixture();if(empty)for(const key of Object.keys(ctx.data))ctx.data[key]=[];
-  for(const route of ['today','objects','project','flow','register','documents','audit','team','deadlines','parties','settings','help']){
+  for(const route of ['today','objects','project','flow','register','documents','audit','team','deadlines','parties','contracts','settings','help']){
    ctx.ui.route=route;const html=renderWorkspace(ctx);
    assert.match(html,/<main>/,route);assert.doesNotMatch(html,/<script>|\bNaN\b|\bundefined\b/,route);
   }
