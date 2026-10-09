@@ -31,7 +31,7 @@
 @media(prefers-color-scheme:dark){:root:not([data-theme=light]) .cv-title{color:color-mix(in srgb,var(--oc) 60%,#fff)}}
 :root[data-theme=dark] .cv-title{color:color-mix(in srgb,var(--oc) 60%,#fff)}
 /* Боковая панель шага (signing-panel.js): шапка цветом объекта, шкала шагов, «Ваш ход», блоки, отмена перехода внизу. */
-#dialog.proc-drawer:has(.sp){display:block}
+#dialog.proc-drawer[open]:has(.sp){display:block}
 .sp{display:flex;flex-direction:column;height:100%}
 .sp-scroll{flex:1;overflow:auto;padding:14px 22px 16px}
 .sp .proc-drawer-close{margin-bottom:10px;font-size:13px}
