@@ -5,12 +5,13 @@ import {partyCard,contactCard,contactPayload,partyPayload,parseMnsXml,mnsPreview
 import './style.css';
 import './parties.css';
 import './conveyor.css';
+import './object.css';
 import {signingPanel} from './signing-panel.js';
 import {expectedCards} from './conveyor.js';
 const $=s=>document.querySelector(s),app=$('#app'),dialog=$('#dialog');
 const url=import.meta.env.VITE_SUPABASE_URL,key=import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const monthNow=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Minsk',year:'numeric',month:'2-digit'}).format(new Date());
-const ui={route:'today',month:monthNow,project:null,doc:null,busy:false,recovery:false,wide:false,more:false,portfolioView:'tiles',projectTab:'summary',flowProject:'',flowKind:'',theme:'system',textScale:100};
+const ui={route:'today',month:monthNow,project:null,doc:null,busy:false,recovery:false,wide:false,more:false,portfolioView:'tiles',projectTab:'month',historyKind:'',flowProject:'',flowKind:'',theme:'system',textScale:100};
 try{ui.wide=localStorage.getItem('pto-wide')==='true';ui.theme=localStorage.getItem('pto-theme')||'system';ui.textScale=Number(localStorage.getItem('pto-text-scale'))||100;}catch{}
 function applyTheme(){if(ui.theme==='system')delete document.documentElement.dataset.theme;else document.documentElement.dataset.theme=ui.theme;}
 // Размер текста масштабирует всю страницу, как Ctrl +; --zoom возвращает высоту окна и боковых карточек к размеру экрана.
@@ -47,13 +48,17 @@ async function load(){
  const ids=periods.map(p=>p.id);
  // Состояние документа и задачи — из комплектов маршрутов (pto_document_list, pto_workflow_list).
  const [documents,allocations,register,matrix,workflows,skips]=ids.length?await Promise.all([all('pto_document_list',q=>q.in('period_id',ids)),all('pto_allocations',q=>q.in('period_id',ids)),query(client.from('pto_register').select('*').eq('month',ui.month+'-01')),query(client.rpc('pto_register_matrix',{p_month:ui.month+'-01'})),all('pto_workflow_list',q=>q.in('period_id',ids)),all('pto_workflow_skips',q=>q.in('period_id',ids))]):[[],[],[],emptyMatrix,[],[]];
- // Прошлый месяц — только для сравнения в портфеле (▲/▼ %).
- const prevMatrix=await query(client.rpc('pto_register_matrix',{p_month:prevMonth(ui.month)+'-01'})).catch(()=>emptyMatrix);
+ // Прошлый месяц: сравнение в портфеле (▲/▼ %) и «хвосты» на странице объекта — комплекты, ещё не переданные в бухгалтерию.
+ // Допсоглашения в работе и «к оплате» по текущим справкам С-3а месяца — для страницы объекта.
+ const c3aVersions=documents.filter(d=>d.kind==='c3a').map(d=>d.current_version).filter(Boolean);
+ const [prevMatrix,prevPeriods,addenda,c3aReports]=await Promise.all([query(client.rpc('pto_register_matrix',{p_month:prevMonth(ui.month)+'-01'})).catch(()=>emptyMatrix),
+  all('pto_periods',q=>q.eq('month',prevMonth(ui.month)+'-01')),all('pto_contract_addenda'),c3aVersions.length?query(client.from('pto_c3a_report').select('*').in('version_id',c3aVersions)):[]]);
+ const prevWorkflows=prevPeriods.length?await all('pto_workflow_list',q=>q.in('period_id',prevPeriods.map(p=>p.id)).neq('step_code','accepted')):[];
  const dids=documents.map(d=>d.id);
  const versions=dids.length?await all('pto_versions',q=>q.in('document_id',dids)):[];
  const events=await query(client.from('pto_events').select('*').order('id',{ascending:false}).limit(150));
  if(generation!==loadId)return;
- data={prevMatrix,projects,contracts,periods,profiles,memberships,documents,allocations,register,matrix,versions,events,workflows,skips,templates,steps,parties,partyRoles,participants,partyContacts};
+ data={prevMatrix,prevPeriods,prevWorkflows,addenda,c3aReports,projects,contracts,periods,profiles,memberships,documents,allocations,register,matrix,versions,events,workflows,skips,templates,steps,parties,partyRoles,participants,partyContacts};
  if(ui.project&&!projects.some(p=>p.id===ui.project))ui.project=null;
  render();
 }
@@ -111,8 +116,8 @@ async function importMns(files){
 // Справка С-3а: СМР с НДС = сумма актов комплекта (считает база); вводятся только выделенный НДС, оборудование и зачёт авансов.
 const c3aHint='<p class="muted">СМР с НДС за период не вводится: это сумма актов С-2 договора за месяц (текущие версии). После изменения акта создайте новую версию справки. «К оплате» и накопительные колонки считаются автоматически.</p>';
 // Боковая панель «Подписания» (signing-panel.js): шаг, комплект, замечания, история; команды — по формам панели.
-const wfOf=id=>data.workflows.find(w=>w.id===id);
-const periodOf=w=>data.periods.find(p=>p.id===w.period_id);
+const wfOf=id=>data.workflows.find(w=>w.id===id)||(data.prevWorkflows||[]).find(w=>w.id===id);
+const periodOf=w=>[...data.periods,...(data.prevPeriods||[])].find(p=>p.id===w.period_id);
 const panelItem=()=>ui.panel?.kind==='wf'?wfOf(ui.panel.id):expectedCards({projects:data.projects,contracts:data.contracts,workflows:data.workflows,skips:data.skips||[]},ui.month).find(x=>x.key===ui.panel?.id);
 async function openPanel(kind,id,mode=''){
  ui.panel={kind,id,mode};const x=panelItem();if(!x){ui.panel=null;if(dialog.open)dialog.close();throw Error(kind==='wf'?'Комплект не найден':'Карточка уже не ожидает действий');}
@@ -199,13 +204,14 @@ async function action(name,id){
  if(name==='more'){ui.more=!ui.more;return render();}
  if(name==='wide'){ui.wide=!ui.wide;try{localStorage.setItem('pto-wide',String(ui.wide));}catch{}return render();}
  if(name==='portfolio-view'){ui.portfolioView=id;return render();}
- if(name==='project-tab'){ui.projectTab=id;return render();}
+ if(name==='project-tab'){ui.projectTab=id;if(ui.route!=='project')ui.route='project';return render();}
+ if(name==='history-kind'){ui.historyKind=id||'';return render();}
  if(name==='flow-filter'){ui.flowProject=id;return render();}
  if(name==='flow-kind'){ui.flowKind=id;return render();}
  // Тема хранится в профиле; в браузере — только копия для первой отрисовки до загрузки профиля.
  if(name==='text-scale'){const scale=Number(id);if(!textScales.includes(scale))return;ui.textScale=scale;try{localStorage.setItem('pto-text-scale',id);}catch{}applyTextScale();render();await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'set_text_scale',text_scale:scale}}));profile.text_scale=scale;return toast('Размер текста сохранён в профиле');}
  if(name==='theme'){if(!['light','dark','system'].includes(id))return;ui.theme=id;try{localStorage.setItem('pto-theme',id);}catch{}applyTheme();render();await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'set_theme',theme:id}}));profile.theme=id;return toast('Тема сохранена в профиле');}
- if(name==='project'){ui.project=id;ui.route='project';ui.projectTab='summary';ui.more=false;return render();}
+ if(name==='project'){ui.project=id;ui.route='project';ui.projectTab='month';ui.historyKind='';ui.more=false;return render();}
  if(name==='new-project')return form('Новый объект',field('name','Короткое название')+field('full_name','Полное наименование объекта')+field('address','Адрес','text','',false),async x=>{const r=await mutate({op:'create_project',...x});ui.project=r.project_id;ui.route='project';render();});
  if(name==='new-contract')return form('Новый договор',field('number','Номер договора')+field('party','Контрагент')+select('direction','Направление',[['outgoing','Предъявление заказчику'],['incoming','Входящий субподряд']]),x=>mutate({op:'create_contract',project_id:ui.project,...x}));
  if(name==='open-period')return mutate({op:'open_period',project_id:ui.project,month:ui.month+'-01'});

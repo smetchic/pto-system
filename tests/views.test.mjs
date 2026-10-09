@@ -75,7 +75,7 @@ test('negative own forces are shown and highlighted, not hidden',()=>{
  ctx.data.matrix.rows[0].own=ctx.data.matrix.total.own='-224.58';
  for(const route of ['register','objects']){ctx.ui.route=route;ctx.ui.portfolioView='table';
   assert.match(renderWorkspace(ctx),/class="num neg"[^>]*>-224,58</,route);}
- ctx.ui.route='project';ctx.ui.projectTab='month';assert.match(renderWorkspace(ctx),/<b class="neg"[^>]*>-224,58</);
+ ctx.ui.route='project';ctx.ui.projectTab='month';assert.match(renderWorkspace(ctx),/class="neg"[^>]*>(≈ )?-224,58</);
 });
 
 test('register renders the database matrix: sub-contract columns, object subtotal and total without client sums',()=>{
@@ -99,31 +99,35 @@ test('register shows the operative estimate separately and marks the basis of ac
  assert.match(html,/Оценка, предв\./);assert.match(html,/<td class="num muted">150,00</);
  assert.match(html,/по актам, С-3а не принята/);
  ctx.data.matrix.rows[0].basis='c3a';assert.match(renderWorkspace(ctx),/Итого по договору · по С-3а/);
- ctx.ui.route='project';ctx.ui.projectTab='month';assert.match(renderWorkspace(ctx),/Оперативная оценка · предварительно/);
+ ctx.ui.route='project';ctx.ui.projectTab='month';assert.match(renderWorkspace(ctx),/Оценка выполнения<\/b><span>150,00 · предварительно/);
 });
 
 test('contracts tab shows computed current price and term and opens the contract card',()=>{
  const ctx=fixture();ctx.ui.route='project';ctx.ui.projectTab='contracts';
  Object.assign(ctx.data.contracts[0],{current_amount:'159559.72',amount_addendum_number:'1',current_end_date:'2000-01-31'});
+ ctx.data.addenda=[{id:'a2',contract_id:'contract',number:'2',status:'draft'}];
  const html=renderWorkspace(ctx);
  assert.match(html,/data-action="contract" data-id="contract"/);
- assert.match(html,/159[\s ]559,72<small>по ДС №1/);
+ assert.match(html,/159[\s ]559,72<small>по ДС № 1 · ДС № 2 в работе/);
  assert.match(html,/Истёк · 31\.01\.2000/);
  ctx.data.contracts[0].current_amount=null;assert.match(renderWorkspace(ctx),/<td class="num"><span class="muted">—<\/span>/);
 });
 
-test('object tabs preserve role and period gates for work actions',()=>{
+test('object page: work actions follow role and period; steps stay in the side panel',()=>{
  for(const [role,assigned] of [['head',false],['engineer',true],['engineer',false],['director',true]]){
   const ctx=fixture(role);ctx.ui.route='project';if(!assigned)ctx.data.memberships=[];
   const writer=role==='head'||(role==='engineer'&&assigned);
-  for(const tab of ['summary','contracts','subcontract','month','acts','documents','history']){
-   ctx.ui.projectTab=tab;const html=renderWorkspace(ctx);
-   assert.equal(html.includes('data-action="new-doc"'),writer);
-   assert.equal(html.includes('data-action="close"'),role==='head');
-  }
-  ctx.data.periods[0].status='closed';const html=renderWorkspace(ctx);
-  assert.doesNotMatch(html,/data-action="new-doc"|data-action="close"/);
-  assert.equal(html.includes('data-action="reopen"'),role==='head');
+  ctx.ui.projectTab='documents';assert.equal(renderWorkspace(ctx).includes('data-action="new-doc"'),writer,role);
+  ctx.ui.projectTab='contracts';assert.equal(renderWorkspace(ctx).includes('data-action="new-contract"'),writer,role);
+  ctx.ui.projectTab='month';let html=renderWorkspace(ctx);
+  assert.equal(html.includes('data-action="close"'),role==='head',role);
+  assert.equal(html.includes('Ваш ход'),writer,role);
+  assert.match(html,/data-action="workflow" data-id="kit"/,'дело открывает боковую панель');
+  assert.doesNotMatch(html,/data-action="sp-mode"/,'кнопок шага на странице нет');
+  ctx.data.periods[0].status='closed';
+  for(const tab of ['month','contracts','documents','history']){ctx.ui.projectTab=tab;html=renderWorkspace(ctx);
+   assert.doesNotMatch(html,/data-action="new-doc"|data-action="close"/,tab);}
+  ctx.ui.projectTab='month';assert.equal(renderWorkspace(ctx).includes('data-action="reopen"'),role==='head');
  }
 });
 
