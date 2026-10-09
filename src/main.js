@@ -1,9 +1,11 @@
 import {renderWorkspace} from './views.js';
 import {createClient} from '@supabase/supabase-js';
-import {escapeHtml as e,money,isDone,canWrite,kindNames,roleNames,actionNames,emptyMatrix,registerSheetRows,ourRoleNames,addendumStateNames} from './domain.js';
+import {escapeHtml as e,money,isDone,canWrite,kindNames,roleNames,actionNames,emptyMatrix,registerSheetRows} from './domain.js';
+import {contractCard,newContractCard,newContractPayload,addendumCard,addendumStatusCard} from './contracts.js';
 import {partyCard,contactCard,contactPayload,partyPayload,parseMnsXml,mnsPreview,mnsPreviewHtml} from './parties.js';
 import './style.css';
 import './parties.css';
+import './contracts.css';
 import './conveyor.css';
 import './object.css';
 import {signingPanel} from './signing-panel.js';
@@ -158,43 +160,35 @@ function dialogReset(){dialog.className='';}
 const c3aFields=(v={})=>[['smr_vat','в т.ч. НДС в СМР, руб.'],['equipment_amount','Оборудование с НДС, руб.'],['equipment_vat','в т.ч. НДС на оборудование, руб.'],['advance_target_offset','Зачёт целевого аванса, руб.'],['advance_current_offset','Зачёт текущего аванса, руб.']].map(([k,label])=>field(k,label,'number',v[k]??'',false)).join('');
 const c3aRows=[['smr','СМР с НДС'],['smr_vat','в т.ч. НДС'],['equipment','Оборудование с НДС'],['equipment_vat','в т.ч. НДС'],['target_offset','Зачёт целевого аванса'],['current_offset','Зачёт текущего аванса'],['to_pay','К оплате']];
 function c3aTable(r){if(!r)return '';const cell=(prefix,k)=>money(r[(prefix?prefix+'_':'')+k]);return `<div class="table-wrap"><table><thead><tr><th>Справка С-3а</th><th class="num">С начала работ</th><th class="num">С начала года</th><th class="num">За период</th></tr></thead><tbody>${c3aRows.map(([k,label])=>`<tr class="${k==='to_pay'?'total':''}"><td>${e(label)}</td><td class="num">${cell('total',k)}</td><td class="num">${cell('ytd',k)}</td><td class="num">${cell('',k)}</td></tr>`).join('')}</tbody></table></div><p class="muted">К оплате = СМР + оборудование − зачёт авансов. Накопление — по принятым справкам предыдущих месяцев.</p>`;}
-// Карточка договора: введённые условия и вычисленные базой текущая стоимость и срок (pto_contract_list).
-const day=x=>x?new Date(x+'T12:00:00Z').toLocaleDateString('ru-RU',{timeZone:'Europe/Minsk'}):'—';
-const sum=x=>x===null||x===undefined||x===''?'—':money(x)+' руб.';
-async function contractModal(id){
- const c=data.contracts.find(x=>x.id===id);if(!c)throw Error('Договор не найден');
- const addenda=(await all('pto_contract_addenda',q=>q.eq('contract_id',id))).sort((a,b)=>String(b.agreement_date).localeCompare(String(a.agreement_date))||String(b.created_at).localeCompare(String(a.created_at)));
- const parent=data.contracts.find(x=>x.id===c.parent_contract_id),edit=editor(c.project_id);
- const terms=[['Договорная цена',c.initial_amount],['НДС',c.vat_amount],['СМР',c.smr_amount],['НДС СМР',c.smr_vat_amount],['ПНР',c.pnr_amount],['НДС ПНР',c.pnr_vat_amount],['Оборудование',c.equipment_amount],['НДС оборудования',c.equipment_vat_amount]].filter(([,v])=>v!==null&&v!==undefined);
- const addendumActions=a=>!edit?'':a.status==='draft'?btn('Подписано','sign-addendum',a.id)+btn('Отменить','cancel-addendum',a.id):a.status==='signed'?btn('Отменить','cancel-addendum',a.id):'';
- modal(`Договор № ${c.number}`,`<p>${badge(c.direction==='incoming'?'Входящий':'Исходящий')} · ${e(c.party)} · наша роль: ${e(ourRoleNames[c.our_role]||c.our_role)}</p>
-  <p class="muted">${c.contract_date?'от '+e(day(c.contract_date)):''}${parent?` · к договору № ${e(parent.number)}`:''}${c.subject?`<br>${e(c.subject)}`:''}</p>
-  <div class="stats"><article><small>Текущая стоимость</small><strong>${sum(c.current_amount)}</strong><small>${c.amount_addendum_number?`по ДС № ${e(c.amount_addendum_number)} от ${e(day(c.amount_addendum_date))}`:'по договору'}</small></article>
-  <article><small>Срок выполнения</small><strong>${e(day(c.work_start_date))} — ${e(day(c.current_end_date))}</strong><small>${c.term_addendum_number?`по ДС № ${e(c.term_addendum_number)}`:'по договору'}</small></article></div>
-  <div class="actions">${edit?btn('Изменить условия','edit-contract',id,true)+btn('Добавить допсоглашение','new-addendum',id):''}</div>
-  <h3>Условия договора</h3>${terms.length?`<table>${terms.map(([label,v])=>`<tr><td>${e(label)}</td><td class="num">${sum(v)}</td></tr>`).join('')}</table>`:'<p class="muted">Суммы договора не заполнены.</p>'}
-  <h3>Допсоглашения</h3>${addenda.length?addenda.map(a=>`<div class="version"><b>ДС № ${e(a.number)} от ${e(day(a.agreement_date))}</b> ${badge(addendumStateNames[a.status]||a.status,a.status==='signed')}<small>${a.amount_after!==null?'Цена: '+sum(a.amount_after):''}${a.amount_after!==null&&a.work_end_date?' · ':''}${a.work_end_date?'Срок: до '+e(day(a.work_end_date)):''}</small><p>${e(a.note)}</p><div class="actions">${addendumActions(a)}</div></div>`).join(''):'<p class="muted">Допсоглашений нет.</p>'}
-  <p class="muted">Текущие стоимость и срок считаются по последнему подписанному допсоглашению. Проекты и отменённые допсоглашения не учитываются.</p>`,true);
+// Карточка договора — боковая панель, как у контрагента (src/contracts.js). Правят начальник ПТО и инженер своего объекта.
+function contractDrawer(html,formId,submit){
+ delete dialog.dataset.dirty;dialog.className='cp-drawer';dialog.innerHTML=html;if(!dialog.open)dialog.showModal();
+ const f=formId&&$('#'+formId);if(!f||!submit)return;
+ f.onsubmit=async ev=>{ev.preventDefault();const button=ev.submitter;button.disabled=true;
+  try{await submit(new FormData(f));}catch(err){const out=$('#contract-error');if(out)out.textContent=errorMessage(err);else toast(errorMessage(err));}finally{button.disabled=false;}};
 }
-function editContract(id){
- const c=data.contracts.find(x=>x.id===id),v=k=>c[k]??'';
- const parents=data.contracts.filter(x=>x.project_id===c.project_id&&x.id!==c.id&&x.direction==='outgoing');
- const amount=(k,label)=>field(k,label,'number',v(k),false);
- form(`Условия договора № ${c.number}`,field('number','Номер договора','text',c.number)+field('contract_date','Дата договора','date',v('contract_date'),false)+note('subject','Предмет договора',v('subject')).replace(' required','')
-  +`<label>Основной договор<select name="parent_contract_id"><option value="">—</option>${parents.map(p=>`<option value="${e(p.id)}" ${p.id===c.parent_contract_id?'selected':''}>${e(p.number+' · '+p.party)}</option>`).join('')}</select></label>`
-  +amount('initial_amount','Договорная цена, руб.')+field('vat_rate','Ставка НДС, %','number',v('vat_rate'),false)+amount('vat_amount','НДС, руб.')
-  +amount('smr_amount','СМР, руб.')+amount('smr_vat_amount','НДС СМР, руб.')+amount('pnr_amount','ПНР, руб.')+amount('pnr_vat_amount','НДС ПНР, руб.')
-  +amount('equipment_amount','Оборудование, руб.')+amount('equipment_vat_amount','НДС оборудования, руб.')
-  +field('work_start_date','Начало работ','date',v('work_start_date'),false)+field('work_end_date','Окончание работ по договору','date',v('work_end_date'),false),
-  x=>mutate({op:'update_contract',contract_id:id,...x}));
+const todayKey=()=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Minsk',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+const contractOf=id=>{const c=data.contracts.find(x=>x.id===id);if(!c)throw Error('Договор не найден');return c;};
+function contractModal(id,editing=false){
+ const c=contractOf(id),canEdit=editor(c.project_id);
+ contractDrawer(contractCard({data,contract:c,canEdit,editing,today:todayKey()}),'contract-form',canEdit&&editing?async form=>{
+  await mutate({op:'update_contract',...Object.fromEntries(form)});contractModal(id);}:null);
+}
+function newContract(){
+ contractDrawer(newContractCard({data,profile,projectId:ui.route==='project'?ui.project:''}),'new-contract-form',async form=>{
+  const payload=newContractPayload(form);await mutate(payload);
+  const c=data.contracts.find(x=>x.project_id===payload.project_id&&x.number===String(payload.number).trim()&&x.our_role===payload.our_role);
+  if(c)contractModal(c.id,true);else dialog.close();});
 }
 function newAddendum(id){
- const c=data.contracts.find(x=>x.id===id);
- form(`Допсоглашение к договору № ${c.number}`,field('number','Номер ДС')+field('agreement_date','Дата ДС','date')
-  +select('status','Состояние',[['draft','Проект (не учитывается)'],['signed','Подписано']])
-  +field('amount_after','Цена договора после ДС, руб.','number','',false)+field('vat_rate','Ставка НДС, %','number','',false)+field('vat_amount','НДС, руб.','number','',false)
-  +field('work_end_date','Новый срок окончания','date','',false)+note('note','Содержание изменений').replace(' required',''),
-  x=>mutate({op:'create_addendum',contract_id:id,...x}));
+ const c=contractOf(id);
+ contractDrawer(addendumCard({data,contract:c}),'addendum-form',async form=>{
+  await mutate({op:'create_addendum',...Object.fromEntries(form)});contractModal(id);});
+}
+function addendumStatus(id,status){
+ const a=(data.addenda||[]).find(x=>x.id===id);if(!a)throw Error('Допсоглашение не найдено');
+ contractDrawer(addendumStatusCard({data,contract:contractOf(a.contract_id),addendum:a,status}),'addendum-status-form',async form=>{
+  await mutate({op:'set_addendum_status',...Object.fromEntries(form)});contractModal(a.contract_id);});
 }
 async function action(name,id){
  if(name==='dismiss')return dialog.close();
@@ -213,7 +207,7 @@ async function action(name,id){
  if(name==='theme'){if(!['light','dark','system'].includes(id))return;ui.theme=id;try{localStorage.setItem('pto-theme',id);}catch{}applyTheme();render();await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'set_theme',theme:id}}));profile.theme=id;return toast('Тема сохранена в профиле');}
  if(name==='project'){ui.project=id;ui.route='project';ui.projectTab='month';ui.historyKind='';ui.more=false;return render();}
  if(name==='new-project')return form('Новый объект',field('name','Короткое название')+field('full_name','Полное наименование объекта')+field('address','Адрес','text','',false),async x=>{const r=await mutate({op:'create_project',...x});ui.project=r.project_id;ui.route='project';render();});
- if(name==='new-contract')return form('Новый договор',field('number','Номер договора')+field('party','Контрагент')+select('direction','Направление',[['outgoing','Предъявление заказчику'],['incoming','Входящий субподряд']]),x=>mutate({op:'create_contract',project_id:ui.project,...x}));
+ if(name==='new-contract')return newContract();
  if(name==='open-period')return mutate({op:'open_period',project_id:ui.project,month:ui.month+'-01'});
  if(['new-doc','new-c3a','new-c29'].includes(name)){
  const outgoingOnly=name!=='new-doc',contracts=data.contracts.filter(c=>c.project_id===ui.project&&(!outgoingOnly||c.direction==='outgoing'));if(!contracts.length)return toast(outgoingOnly?'Сначала добавьте договор с заказчиком.':'Сначала добавьте договор.');
@@ -236,10 +230,12 @@ async function action(name,id){
  if(name==='party-contact-delete'){const x=(data.partyContacts||[]).find(k=>k.id===id);if(!x||!confirm(`Удалить контакт «${x.name}»?`))return;await mutate({op:'delete_counterparty_contact',contact_id:id});return partyModal(x.counterparty_id);}
  if(name==='doc')return docModal(id);
  if(name==='contract')return contractModal(id);
- if(name==='edit-contract')return editContract(id);
+ if(name==='edit-contract')return contractModal(id,true);
  if(name==='new-addendum')return newAddendum(id);
- if(name==='sign-addendum')return form('Допсоглашение подписано',`<p>После подписания цена и срок договора пересчитываются автоматически.</p>`,()=>mutate({op:'set_addendum_status',addendum_id:id,status:'signed'}));
- if(name==='cancel-addendum')return form('Отменить допсоглашение',note('reason','Причина отмены'),x=>mutate({op:'set_addendum_status',addendum_id:id,status:'cancelled',...x}));
+ if(name==='sign-addendum')return addendumStatus(id,'signed');
+ if(name==='cancel-addendum')return addendumStatus(id,'cancelled');
+ if(name==='contract-kind'){ui.contractKind=id;return render();}
+ if(name==='contract-state'){ui.contractState=id;return render();}
  if(name==='revise'){const d=data.documents.find(d=>d.id===id),v=ver(d);
  const body=d.kind==='c3a'?c3aHint+c3aFields(v):d.kind==='c29'?'':field('amount','Сумма акта с НДС, руб.','number',v.amount);
  return form('Новая версия документа',body+note('note','Содержание / основание',v.note).replace(' required','')+note('reason','Причина изменения'),x=>mutate(periodPayload('revise',{document_id:id,...x})));}
@@ -265,7 +261,7 @@ async function exportXlsx(){const {default:ExcelJS}=await import('exceljs');cons
 function login(){app.innerHTML=`<section class="login"><div class="mark">П</div><div class="eyebrow">СУ-22 · единая система ПТО</div><h1>${ui.recovery?'Новый пароль':'Вход в рабочее пространство'}</h1><p class="muted">Объекты, документы и выполнение за месяц.</p><form id="login-form">${ui.recovery?'':field('email','Электронная почта','email')}${field('password','Пароль','password')}<p class="error" id="login-error" role="alert"></p><button class="primary">${ui.recovery?'Сохранить пароль':'Войти'}</button></form><p class="muted">Доступ выдаёт администратор системы.</p></section>`;$('#login-form').onsubmit=async ev=>{ev.preventDefault();const button=ev.submitter;button.disabled=true;try{const f=Object.fromEntries(new FormData(ev.target));if(ui.recovery){await query(client.auth.updateUser({password:f.password}));ui.recovery=false;toast('Пароль сохранён');await load();}else{const result=await query(client.auth.signInWithPassword(f));session=result.session;await load();}}catch(err){$('#login-error')&&($('#login-error').textContent=errorMessage(err));}finally{button.disabled=false;}};}
 // Поиск по справочнику контрагентов: строки скрываются на месте, без перерисовки страницы.
 document.addEventListener('change',async ev=>{if(ev.target.id!=='mns-xml'||!ev.target.files.length)return;try{await importMns([...ev.target.files]);}catch(err){toast(errorMessage(err));}finally{ev.target.value='';}});
-document.addEventListener('input',ev=>{if(ev.target.id!=='party-search')return;const s=ev.target.value.trim().toLowerCase();let shown=0;for(const tr of document.querySelectorAll('tr[data-search]')){tr.hidden=!!s&&!tr.dataset.search.includes(s);if(!tr.hidden)shown++;}const none=$('#party-empty');if(none)none.hidden=shown>0;});
+document.addEventListener('input',ev=>{if(!['party-search','contract-search'].includes(ev.target.id))return;const s=ev.target.value.trim().toLowerCase();if(ev.target.id==='contract-search')ui.contractQuery=s;let shown=0;for(const tr of document.querySelectorAll('tr[data-search]')){tr.hidden=!!s&&!tr.dataset.search.includes(s);if(!tr.hidden)shown++;}for(const g of document.querySelectorAll('tr.ct-grp')){let n=g.nextElementSibling,any=false;while(n&&!n.classList.contains('ct-grp')){if(n.dataset.search!==undefined&&!n.hidden)any=true;n=n.nextElementSibling;}g.hidden=!any;}const none=$('#party-empty')||$('#contract-empty');if(none)none.hidden=shown>0;});
 // Боковая карточка на просмотре закрывается кликом мимо неё. При правке (форма с data-editing или уже что-то введено) — нет, чтобы не потерять ввод.
 dialog.addEventListener('input',()=>{dialog.dataset.dirty='1';});
 dialog.addEventListener('submit',async ev=>{const f=ev.target.closest('form.sp-move');if(!f)return;ev.preventDefault();if(ui.busy)return;ui.busy=true;const b=f.querySelector('[type=submit]');b.disabled=true;
@@ -280,7 +276,7 @@ dialog.addEventListener('click',ev=>{if(ev.target!==dialog||!/drawer/.test(dialo
 document.addEventListener('click',async ev=>{const b=ev.target.closest('[data-action]');if(!b||b.disabled||ui.busy)return;ui.busy=true;try{await action(b.dataset.action,b.dataset.id);}catch(err){toast(errorMessage(err));}finally{ui.busy=false;}});
 // Карточки конвейера — не кнопки: открываются клавишами Enter и пробел.
 document.addEventListener('keydown',ev=>{const card=ev.target.closest?.('[role="button"][data-action]');if(card&&ev.target===card&&(ev.key==='Enter'||ev.key===' ')){ev.preventDefault();card.click();}});
-document.addEventListener('change',async ev=>{if(ev.target.id==='jump'&&ev.target.value){const value=ev.target.value;return action(value.startsWith('project:')?'project':'nav',value.split(':')[1]);}if(ev.target.id==='month'&&ev.target.value){const previous=ui.month;ui.month=ev.target.value;try{await load();}catch(err){ui.month=previous;ev.target.value=previous;toast(errorMessage(err));}}});
+document.addEventListener('change',async ev=>{if(ev.target.id==='contract-object'){ui.contractObject=ev.target.value;return render();}if(ev.target.id==='jump'&&ev.target.value){const value=ev.target.value;return action(value.startsWith('project:')?'project':'nav',value.split(':')[1]);}if(ev.target.id==='month'&&ev.target.value){const previous=ui.month;ui.month=ev.target.value;try{await load();}catch(err){ui.month=previous;ev.target.value=previous;toast(errorMessage(err));}}});
 if(!url||!key||!key.startsWith('sb_publishable_'))app.innerHTML=`<section class="login"><div class="mark">П</div><h1>Подключение ещё не настроено</h1><p>Для запуска администратор должен подключить базу системы ПТО и опубликовать сборку.</p></section>`;
 else{
  client=createClient(url,key);

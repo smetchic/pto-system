@@ -1,0 +1,27 @@
+/* Раздел «Договоры»: список всех договоров и карточка-панель справа (общие классы панели — parties.css). */
+.ct-toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:16px 0 10px}.ct-toolbar .cp-search{max-width:340px}
+.ct-seg{display:inline-flex;border:1px solid var(--ln);border-radius:6px;overflow:hidden;background:var(--sf)}
+.ct-seg button{border:0;border-radius:0;background:transparent;padding:4px 10px;color:var(--mu);font-weight:500}.ct-seg button+button{border-left:1px solid var(--ln)}
+.ct-seg button.on{background:var(--hv);color:var(--ink);font-weight:600}
+.ct-sum{display:flex;gap:4px 22px;flex-wrap:wrap;margin:0 0 10px;color:var(--mu)}.ct-sum b{color:var(--ink);font-weight:600}
+.ct-sum .ct-bad,.ct-sum .ct-bad b{color:var(--er)}.ct-sum .ct-warn,.ct-sum .ct-warn b{color:var(--wa)}
+.ct-warn{color:var(--wa)}
+.ct-table td{vertical-align:top}.ct-table td small{display:block;color:var(--mu);font-size:12px}
+.ct-nw{white-space:nowrap}
+.ct-row{cursor:pointer}.ct-row:focus-visible td{background:var(--acs)}
+.ct-grp td{background:var(--bg);font-size:12px;font-weight:600;color:var(--mu);text-transform:uppercase;letter-spacing:.04em;padding:6px 12px}
+.ct-grp span{margin-left:8px;font-weight:500;letter-spacing:0}
+.ct-table tr.ct-grp:hover td{background:var(--bg)}
+.ct-dot{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px;vertical-align:1px}
+.ct-sub{color:var(--mu);font-size:12px;margin:3px 0 0}
+.ct-side{font-size:12px;align-self:center}
+.ct-term{display:grid;gap:3px;margin:4px 0 12px}.ct-term-l{display:flex;justify-content:space-between;gap:8px;font-size:12px}
+.ct-kv{display:grid;grid-template-columns:110px minmax(0,1fr);gap:3px 12px;margin:0;font-size:13px}.ct-kv dt{color:var(--mu)}.ct-kv dd{margin:0}.ct-kv .link{padding:0}
+.ct-line{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:5px 0;border-top:1px solid color-mix(in srgb,var(--ln) 60%,transparent);font-size:13px}
+.ct-line small{display:block;color:var(--mu);font-size:12px}.ct-line.off{opacity:.6}
+.ct-line-r{display:flex;flex-direction:column;align-items:flex-end;gap:3px;text-align:right;white-space:nowrap}
+.ct-acts{display:flex;gap:8px;align-items:center}.ct-acts .link{font-size:12px;padding:0;color:var(--mu)}
+.ct-ro{display:block;color:var(--ink);font-size:13px;padding:4px 0}
+.cp-work-grid select{width:100%;color:var(--ink)}
+@media(max-width:640px){.ct-kv{grid-template-columns:90px minmax(0,1fr)}.ct-toolbar .cp-search{max-width:none}}
+.ct-one{flex-direction:row;align-items:baseline;gap:12px}
