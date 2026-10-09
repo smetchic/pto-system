@@ -75,3 +75,8 @@ test('transfer to accounting needs scans; undo is offered to the one who moved a
  html=render(f,{...w,step_code:'accepted',step_ordinal:6},{events:[{...events[0],to_step:'accepted',from_step:'signed'}],files:[{version_id:'v1'}]});
  assert.match(html,/Передано в бухгалтерию/);assert.match(html,/Отменить переход/,'передачу можно отменить, пока период открыт');assert.doesNotMatch(html,/Добавить замечание/);
 });
+
+test('a closed panel is hidden: the drawer display rule applies only to an open dialog',async()=>{
+ const css=(await import('node:fs')).readFileSync(new URL('../src/conveyor.css',import.meta.url),'utf8');
+ for(const rule of css.match(/#dialog[^{]*\{[^}]*display:[^}]*\}/g)||[])assert.match(rule,/\[open\]/,rule);
+});
