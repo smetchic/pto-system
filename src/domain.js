@@ -1,9 +1,10 @@
 export const escapeHtml=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export const money=value=>Number(value||0).toLocaleString('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2});
 // Состояние документа следует из шага его комплекта (pto_document_list / pto_workflow_list).
-export const isDone=x=>['accepted','closed'].includes(x?.step_code);
-// Кто отмечает шаг маршрута. Бухгалтерия системой не пользуется: её шаги (accounting) тоже отмечает ПТО.
-export const actorRoles={pto:['head','engineer'],accounting:['head','engineer'],none:[]};
+// Последний шаг «В бухгалтерии» (код accepted): передача фиксирует принятые версии.
+export const isDone=x=>x?.step_code==='accepted';
+// Кто отмечает шаг маршрута: все шаги отмечает ПТО; после передачи в бухгалтерию (actor none) шагов нет.
+export const actorRoles={pto:['head','engineer'],none:[]};
 export const canActOn=(w,role)=>(actorRoles[w?.actor]||[]).includes(role);
 // Вносить данные и двигать комплекты: начальник ПТО — по любому объекту, инженер — по закреплённому, руководитель — никогда.
 // Это подсказка интерфейсу; решает база (pto_private.can_access).
