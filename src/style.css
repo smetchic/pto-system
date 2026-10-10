@@ -101,3 +101,7 @@ dialog.document-drawer{position:fixed;inset:0 0 0 auto;margin:0;width:var(--draw
 .pf-foot{font-size:12px;color:var(--mu)}.pf-foot.closed{color:var(--ok);font-weight:600}
 .pg:has(.pf-grid),.pg:has(.pf-band){max-width:none}
 .scale-preview{display:flex;align-items:center;width:132px;height:68px;border:1px solid var(--ln);border-radius:6px;padding:9px;background:var(--bg);white-space:nowrap;overflow:hidden}
+.member-objects{border:1px solid var(--ln);border-radius:8px;padding:8px 12px;margin:8px 0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 16px;max-height:50vh;overflow:auto}
+.member-objects legend{font-size:12px;color:var(--mu);padding:0 4px}
+.member-objects label{display:flex;gap:8px;align-items:center;margin:0;font-size:14px;color:var(--ink);text-transform:none;letter-spacing:0;font-weight:400}
+.member-objects input{width:auto;margin:0}

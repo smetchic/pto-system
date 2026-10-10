@@ -67,6 +67,9 @@ async function load(){
  if(ui.project&&!projects.some(p=>p.id===ui.project))ui.project=null;
  render();
 }
+// Галочки объектов для инженера: несколько объектов сразу.
+const objectChecks=(chosen=new Set())=>data.projects.length?`<fieldset class="member-objects"><legend>Объекты (для инженера)</legend>${[...data.projects].sort((a,b)=>String(a.name).localeCompare(String(b.name),'ru')).map(p=>`<label><input type="checkbox" name="project_ids" value="${e(p.id)}" ${chosen.has(p.id)?'checked':''}>${e(p.name)}</label>`).join('')}</fieldset>`:'';
+const checkedObjects=()=>new FormData($('#modal-form')).getAll('project_ids');
 // Временный пароль для нового сотрудника: 10 символов без похожих букв и цифр.
 const tempPassword=()=>Array.from(crypto.getRandomValues(new Uint8Array(10)),b=>'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789'[b%55]).join('');
 function prevMonth(month){const [y,m]=month.split('-').map(Number),d=new Date(Date.UTC(y,m-2,1));return d.toISOString().slice(0,7);}
@@ -356,16 +359,21 @@ async function action(name,id){
  }
  if(name==='profile'){const p=data.profiles.find(p=>p.id===id);return form('Учётная запись',field('display_name','Имя', 'text',p.display_name)+select('role','Роль',Object.entries(roleNames).sort(([a])=>a===p.role?-1:1))+select('active','Состояние',p.active?[['true','Активен'],['false','Отключён']]:[['false','Отключён'],['true','Активен']]),x=>mutate({op:'profile',user_id:id,...x}));}
  // Новый сотрудник: учётную запись создаёт функция pto-team-add (только начальник ПТО), затем имя, роль и объект — обычными командами.
- if(name==='new-member')return form('Новый сотрудник',field('display_name','Имя (как показывать в системе)')+field('email','Электронная почта для входа','email')+field('password','Временный пароль, не короче 8 символов','text',tempPassword())+select('role','Роль',[['engineer','Инженер ПТО'],['director','Руководитель'],['head','Начальник ПТО']])+(data.projects.length?select('project_id','Объект (для инженера)',[['','Без объекта'],...data.projects.map(p=>[p.id,p.name])]).replace(' required',''):'')+'<p class="muted">Сообщите сотруднику почту и временный пароль. Пароль он сменит в «Настройках».</p>',async x=>{
+ if(name==='new-member')return form('Новый сотрудник',field('display_name','Имя (как показывать в системе)')+field('email','Электронная почта для входа','email')+field('password','Временный пароль, не короче 8 символов','text',tempPassword())+select('role','Роль',[['engineer','Инженер ПТО'],['director','Руководитель'],['head','Начальник ПТО']])+objectChecks()+'<p class="muted">Сообщите сотруднику почту и временный пароль. Пароль он сменит в «Настройках».</p>',async x=>{
+  const chosen=checkedObjects();
   const {data:r,error}=await client.functions.invoke('pto-team-add',{body:{email:x.email,password:x.password,display_name:x.display_name}});
   if(error){let text=error.message;try{text=(await error.context.json()).error||text;}catch{}throw Error(text);}
   await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'profile',user_id:r.user_id,display_name:x.display_name,role:x.role,active:'true'}}));
-  if(x.project_id&&x.role==='engineer')await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'member',user_id:r.user_id,project_id:x.project_id,remove:'false'}}));
+  if(x.role==='engineer')for(const project_id of chosen)await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'member',user_id:r.user_id,project_id,remove:'false'}}));
   await load();toast('Сотрудник добавлен');});
  if(name==='password')return form('Смена пароля',field('password','Новый пароль, не короче 8 символов','password')+field('repeat','Повторите пароль','password'),async x=>{
   if(x.password.length<8)throw Error('Пароль должен быть не короче 8 символов');if(x.password!==x.repeat)throw Error('Пароли не совпадают');
   await query(client.auth.updateUser({password:x.password}));toast('Пароль изменён');});
- if(name==='member'){if(!data.projects.length)return toast('Сначала создайте объект');return form('Доступ к объекту',select('project_id','Объект',data.projects.map(p=>[p.id,p.name]))+select('remove','Действие',[['false','Предоставить доступ'],['true','Снять доступ']]),x=>mutate({op:'member',user_id:id,...x}));}
+ if(name==='member'){if(!data.projects.length)return toast('Сначала создайте объект');
+  const had=new Set(data.memberships.filter(m=>m.user_id===id).map(m=>m.project_id));
+  return form('Объекты инженера',objectChecks(had),async()=>{const now=new Set(checkedObjects());
+   for(const project_id of data.projects.map(p=>p.id))if(had.has(project_id)!==now.has(project_id))await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'member',user_id:id,project_id,remove:String(!now.has(project_id))}}));
+   await load();toast('Сохранено');});}
  if(name==='download'){const r=await query(client.storage.from('pto-documents').createSignedUrl(id,60,{download:true}));const a=document.createElement('a');a.href=r.signedUrl;a.target='_blank';a.rel='noopener';a.click();return;}
  if(name==='print')return window.print();
  if(name==='export')return exportXlsx();
