@@ -102,3 +102,19 @@ test('month tab: marks from the database — sub plan grey, «ТН устно»,
  assert.match(html,/материалы заказчика/);
  assert.doesNotMatch(html,/undefined|NaN/);
 });
+
+test('month tab: our acts at the supervisor — counts by TN status, the slowest acts hold the step, «Все наши проверены»',()=>{
+ const ctx=fixture();
+ ctx.data.documents.push({id:'d2',project_id:'p1',period_id:'per',contract_id:'c21',kind:'c2b',number:'29',workflow_id:'w21',current_version:'v2',step_code:'tn'},
+  {id:'d3',project_id:'p1',period_id:'per',contract_id:'c21',kind:'c2b',number:'30',workflow_id:'w21',current_version:'v3',step_code:'tn'});
+ ctx.data.versions.push({id:'v2',document_id:'d2',amount:'100.00',version:1},{id:'v3',document_id:'d3',amount:'50.00',version:1});
+ ctx.data.docMarks=[{document_id:'d1',tn_status:'ok'},{document_id:'d2',tn_status:'remarks',note:'нет исполнительной'}];
+ let html=objectPage(ctx);
+ assert.match(html,/у ТН 1 · замечания 1 · подписано 1 из 3 · шаг держат: № 29, № 30/);
+ assert.match(html,/data-action="acts-all-ok" data-id="w21">Все наши проверены/);
+ assert.match(html,/ТН не подписал наши акты: № 29, № 30/);
+ ctx.data.docMarks.push({document_id:'d2',tn_status:'ok'},{document_id:'d3',tn_status:'ok'});ctx.data.docMarks.splice(1,1);
+ html=objectPage(ctx);
+ assert.match(html,/подписано 3 из 3/);assert.doesNotMatch(html,/acts-all-ok|шаг держат|ТН не подписал/);
+ assert.doesNotMatch(objectPage(fixture('director')),/acts-all-ok/);
+});

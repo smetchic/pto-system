@@ -75,6 +75,14 @@ function periodPayload(op,extra={}){const p=currentPeriod();if(!p)throw Error('�
 // Отметки месяца (docs/month.md): пустое поле очищает значение; каждая запись — строка журнала.
 const blankNull=x=>Object.fromEntries(Object.entries(x).map(([k,v])=>[k,String(v).trim()===''?null:v]));
 const ordered=(list,cur)=>list.slice().sort(([a],[b])=>(b===String(cur??''))-(a===String(cur??'')));
+// «Все наши проверены»: ставит «ТН подписал» каждому нашему акту комплекта, у которого его ещё нет.
+async function actsAllOk(workflowId){
+ const list=(data.documents||[]).filter(d=>d.workflow_id===workflowId&&['c2a','c2b'].includes(d.kind)&&(data.docMarks||[]).find(m=>m.document_id===d.id)?.tn_status!=='ok');
+ if(!list.length)return toast('Все акты уже подписаны технадзором');
+ if(!confirm(`Отметить «ТН подписал» у ${list.length} ${list.length===1?'акта':'актов'}: ${list.map(d=>'№ '+d.number).join(', ')}?`))return;
+ for(const d of list)await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'set_document_mark',document_id:d.id,tn_status:'ok'}}));
+ await load();toast('Сохранено');
+}
 function subMonthForm(id){
  const c=contractOf(id),p=currentPeriod();if(!p)return toast('Откройте месяц');
  const s=(data.subMonth||[]).find(x=>x.contract_id===id&&x.period_id===p.id)||{},w=(data.workflows||[]).find(x=>x.template_code==='sub_claim'&&x.contract_id===id);
@@ -285,6 +293,7 @@ async function action(name,id){
  if(name==='sub-month')return subMonthForm(id);
  if(name==='doc-mark')return docMarkForm(id);
  if(name==='month-mark'){const p=currentPeriod();if(!p)return toast('Откройте месяц');const m=(data.monthMarks||[]).find(x=>x.period_id===p.id)||{};const key=id==='materials'?'materials_expected':'equipment_expected';return mutate({op:'set_month_marks',period_id:p.id,[key]:!m[key]});}
+ if(name==='acts-all-ok')return actsAllOk(id);
  if(name==='check-file')return checkFile(id);
  if(name==='workflow')return openPanel('wf',id);
  if(name==='expected')return openPanel('exp',id);
