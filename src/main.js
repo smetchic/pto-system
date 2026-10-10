@@ -1,7 +1,7 @@
 import {renderWorkspace} from './views.js';
 import {createClient} from '@supabase/supabase-js';
 import {escapeHtml as e,money,isDone,canWrite,kindNames,roleNames,actionNames,emptyMatrix,registerSheetRows} from './domain.js';
-import {contractCard,newContractCard,newContractPayload,addendumCard,addendumStatusCard} from './contracts.js';
+import {contractCard,newContractCard,newContractPayload,addendumCard,addendumStatusCard,partCard,partsOf,vatLabel} from './contracts.js';
 import {partyCard,contactCard,contactPayload,partyPayload,parseMnsXml,mnsPreview,mnsPreviewHtml} from './parties.js';
 import './style.css';
 import './parties.css';
@@ -53,8 +53,8 @@ async function load(){
  // Прошлый месяц: сравнение в портфеле (▲/▼ %) и «хвосты» на странице объекта — комплекты, ещё не переданные в бухгалтерию.
  // Допсоглашения в работе и «к оплате» по текущим справкам С-3а месяца — для страницы объекта.
  const c3aVersions=documents.filter(d=>d.kind==='c3a').map(d=>d.current_version).filter(Boolean);
- const [prevMatrix,prevPeriods,addenda,c3aReports]=await Promise.all([query(client.rpc('pto_register_matrix',{p_month:prevMonth(ui.month)+'-01'})).catch(()=>emptyMatrix),
-  all('pto_periods',q=>q.eq('month',prevMonth(ui.month)+'-01')),all('pto_contract_addenda'),c3aVersions.length?query(client.from('pto_c3a_report').select('*').in('version_id',c3aVersions)):[]]);
+ const [prevMatrix,prevPeriods,addenda,c3aReports,contractParts]=await Promise.all([query(client.rpc('pto_register_matrix',{p_month:prevMonth(ui.month)+'-01'})).catch(()=>emptyMatrix),
+  all('pto_periods',q=>q.eq('month',prevMonth(ui.month)+'-01')),all('pto_contract_addenda'),c3aVersions.length?query(client.from('pto_c3a_report').select('*').in('version_id',c3aVersions)):[],all('pto_contract_parts')]);
  const prevWorkflows=prevPeriods.length?await all('pto_workflow_list',q=>q.in('period_id',prevPeriods.map(p=>p.id)).neq('step_code','accepted')):[];
  const dids=documents.map(d=>d.id);
  const versions=dids.length?await all('pto_versions',q=>q.in('document_id',dids)):[];
@@ -62,7 +62,7 @@ async function load(){
  const [subMonth,monthMarks,docMarks]=await Promise.all([ids.length?all('pto_sub_month_current',q=>q.in('period_id',ids)):[],ids.length?all('pto_month_marks_current',q=>q.in('period_id',ids)):[],dids.length?all('pto_document_marks_current',q=>q.in('document_id',dids)):[]]);
  const events=await query(client.from('pto_events').select('*').order('id',{ascending:false}).limit(150));
  if(generation!==loadId)return;
- data={subMonth,monthMarks,docMarks,prevMatrix,prevPeriods,prevWorkflows,addenda,c3aReports,projects,contracts,periods,profiles,memberships,documents,allocations,register,matrix,versions,events,workflows,skips,templates,steps,parties,partyRoles,participants,partyContacts};
+ data={contractParts,subMonth,monthMarks,docMarks,prevMatrix,prevPeriods,prevWorkflows,addenda,c3aReports,projects,contracts,periods,profiles,memberships,documents,allocations,register,matrix,versions,events,workflows,skips,templates,steps,parties,partyRoles,participants,partyContacts};
  if(ui.project&&!projects.some(p=>p.id===ui.project))ui.project=null;
  render();
 }
@@ -100,7 +100,8 @@ function subMonthForm(id){
 function docMarkForm(id){
  const d=data.documents.find(x=>x.id===id);if(!d)throw Error('Документ не найден');
  const m=(data.docMarks||[]).find(x=>x.document_id===id)||{},c=data.contracts.find(x=>x.id===d.contract_id);
- form(`${kindNames[d.kind]} № ${d.number}: отметки`,`${field('part','Часть объекта','text',m.part||'',false)}
+ const parts=partsOf(data,d.contract_id).filter(p=>p.active||p.id===m.part_id);
+ form(`${kindNames[d.kind]} № ${d.number}: отметки`,`${parts.length?select('part_id','Часть договора',ordered([['','Не указана'],...parts.map(p=>[p.id,`${p.name} · ${vatLabel(p)}`])],m.part_id)):field('part','Часть объекта','text',m.part||'',false)}
   ${select('tn_status','Технадзор',ordered([['','—'],['prep','Готовится'],['tn','У ТН'],['remarks','Замечания ТН'],['ok','ТН подписал']],m.tn_status))}
   ${field('materials','в т.ч. материалы заказчика, руб.','number',m.materials??'',false)}
   ${select('original','Где оригинал',ordered([['','—'],['party',`В ${c?.party||'у заказчика'}`],['ours','У нас'],['accounting','Передан в бухгалтерию']],m.original))}
@@ -236,6 +237,19 @@ function newAddendum(id){
  contractDrawer(addendumCard({data,contract:c}),'addendum-form',async form=>{
   await mutate({op:'create_addendum',...Object.fromEntries(form)});contractModal(id);});
 }
+function partForm(c,p){
+ contractDrawer(partCard({data,contract:c,part:p}),'part-form',async form=>{
+  const x=Object.fromEntries(form);if('active' in x)x.active=x.active==='true';
+  await mutate({op:'set_contract_part',...x,vat_rate:x.vat_rate?.trim()||null,amount:x.amount?.trim()||null});contractModal(c.id);});
+}
+// «Отправлено заказчику» (шаг «На проверке»): дата; повторная отправка — с причиной.
+function sentForm(){
+ const p=currentPeriod();if(!p)return toast('Откройте месяц');
+ const m=(data.monthMarks||[]).find(x=>x.period_id===p.id)||{};
+ form(m.sent_on?'Отправлено заказчику повторно':'Отправлено заказчику',`${field('sent_on','Дата отправки','date',new Date().toISOString().slice(0,10))}
+  ${m.sent_on?note('sent_note','Причина повторной отправки (например, ТН изменил объём субподрядчика)'):''}`,
+  x=>mutate({op:'set_month_marks',period_id:p.id,sent_on:x.sent_on,sent_note:x.sent_note||''}));
+}
 function addendumStatus(id,status){
  const a=(data.addenda||[]).find(x=>x.id===id);if(!a)throw Error('Допсоглашение не найдено');
  contractDrawer(addendumStatusCard({data,contract:contractOf(a.contract_id),addendum:a,status}),'addendum-status-form',async form=>{
@@ -283,6 +297,9 @@ async function action(name,id){
  if(name==='contract')return contractModal(id);
  if(name==='edit-contract')return contractModal(id,true);
  if(name==='new-addendum')return newAddendum(id);
+ if(name==='new-part')return partForm(contractOf(id),null);
+ if(name==='edit-part'){const p=(data.contractParts||[]).find(x=>x.id===id);if(!p)throw Error('Часть не найдена');return partForm(contractOf(p.contract_id),p);}
+ if(name==='sent-customer')return sentForm();
  if(name==='sign-addendum')return addendumStatus(id,'signed');
  if(name==='cancel-addendum')return addendumStatus(id,'cancelled');
  if(name==='contract-kind'){ui.contractKind=id;return render();}

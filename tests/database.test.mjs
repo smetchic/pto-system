@@ -564,3 +564,43 @@ test('register: own forces = total − subcontractors\' acts in their prices; «
  assert.deepEqual(row.cells,{[s1]:'300.00',[s2]:'100.00'});
  assert.deepEqual(row.customer_cells,{[s1]:'450.00',[s2]:'160.00'},'отметка месяца важнее сопоставления');
 });
+test('sent to customer with a date, re-sending needs a reason; contract parts with their own VAT give registry rows per part',async()=>{
+ await as(users.head);const month='2026-12-01';
+ const pid=(await command({op:'create_project',name:'Брест'})).project_id;
+ const per=(await command({op:'open_period',project_id:pid,month})).period_id;
+ const rev=async()=>(await db.query('select revision from pto_periods where id=$1',[per])).rows[0].revision;
+ const op=async(name,extra)=>command({op:name,period_id:per,expected_revision:await rev(),...extra});
+ await command({op:'create_contract',project_id:pid,number:'Б-1',party:'Заказчик',direction:'outgoing'});
+ await command({op:'create_contract',project_id:pid,number:'Б-2',party:'Заказчик 2',direction:'outgoing'});
+ const cid=async n=>(await db.query('select id from pto_contracts where project_id=$1 and number=$2',[pid,n])).rows[0].id;
+ const [our,other]=[await cid('Б-1'),await cid('Б-2')];
+ // Отправка заказчику.
+ await command({op:'set_month_marks',period_id:per,sent_on:'2026-12-06'});
+ await assert.rejects(command({op:'set_month_marks',period_id:per,sent_on:'2026-12-09'}),/причину повторной отправки/);
+ await command({op:'set_month_marks',period_id:per,sent_on:'2026-12-09',sent_note:'ТН изменил объём субподрядчика'});
+ await command({op:'set_month_marks',period_id:per,equipment_expected:true});
+ let mm=(await db.query('select * from pto_month_marks_current where period_id=$1',[per])).rows[0];
+ assert.deepEqual([mm.sent_on.toISOString().slice(0,10),mm.first_sent_on.toISOString().slice(0,10),mm.sent_note,mm.equipment_expected],['2026-12-09','2026-12-06','ТН изменил объём субподрядчика',true]);
+ // Части договора.
+ const living=(await command({op:'set_contract_part',contract_id:our,name:'Жилая часть',vat_rate:'20',amount:'1000000.00'})).part_id;
+ const shops=(await command({op:'set_contract_part',contract_id:our,name:'Встроенные помещения',vat_rate:'0'})).part_id;
+ const foreign=(await command({op:'set_contract_part',contract_id:other,name:'Чужая часть'})).part_id;
+ await assert.rejects(command({op:'set_contract_part',contract_id:our,name:' '}),/название части/);
+ await command({op:'set_contract_part',part_id:shops,name:'Встроенные помещения (без НДС)'});
+ assert.deepEqual((await db.query('select name,vat_rate,ordinal from pto_contract_parts where contract_id=$1 order by ordinal',[our])).rows.map(r=>[r.name,r.vat_rate,r.ordinal]),[['Жилая часть','20.00',1],['Встроенные помещения (без НДС)','0.00',2]]);
+ await assert.rejects(db.query('delete from pto_contract_parts where id=$1',[living]),/permission denied/);
+ const a1=(await op('create_document',{contract_id:our,kind:'c2a',number:'1',amount:'700.00'})).document_id;
+ const a2=(await op('create_document',{contract_id:our,kind:'c2a',number:'2',amount:'200.00'})).document_id;
+ const a3=(await op('create_document',{contract_id:our,kind:'c2a',number:'3',amount:'100.00'})).document_id;
+ await assert.rejects(command({op:'set_document_mark',document_id:a1,part_id:foreign}),/не относится к договору/);
+ await command({op:'set_document_mark',document_id:a1,part_id:living});
+ await command({op:'set_document_mark',document_id:a2,part_id:shops});
+ assert.equal((await db.query('select part from pto_document_marks_current where document_id=$1',[a2])).rows[0].part,'Встроенные помещения (без НДС)');
+ await op('create_document',{contract_id:our,kind:'c3a',number:'С-3а'});
+ for(const d of [a1,a2,a3])await pass(d);
+ const rows=(await db.query('select public.pto_register_matrix($1) m',[month])).rows[0].m.rows.filter(r=>r.project_id===pid);
+ assert.deepEqual(rows.map(r=>[r.kind,r.part||'',r.total]),[['part','Жилая часть','700.00'],['part','Встроенные помещения (без НДС)','200.00'],['part','Часть не указана','100.00'],['contract','','1000.00']]);
+ assert.equal(rows[1].vat_rate,'0.00');assert.equal(rows[3].has_parts,true);
+ await as(users.director);await assert.rejects(command({op:'set_contract_part',contract_id:our,name:'Ещё'}),/Недостаточно прав/);
+ assert.equal((await db.query('select count(*) from pto_contract_parts where contract_id=$1',[our])).rows[0].count,2,'руководитель читает части');
+});

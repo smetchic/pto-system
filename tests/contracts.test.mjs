@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {contractsList,contractCard,newContractCard,newContractPayload,addendumStatusCard,contractFinished,contractGroup} from '../src/contracts.js';
+import {contractsList,contractCard,newContractCard,newContractPayload,addendumStatusCard,contractFinished,contractGroup,partCard} from '../src/contracts.js';
 
 const today='2026-10-09';
 function fixture(role='engineer'){
@@ -71,4 +71,17 @@ test('new contract and addendum status forms',()=>{
  assert.deepEqual(newContractPayload(f),{op:'create_contract',project_id:'p1',counterparty_id:'cp2',number:' 30-С ',contract_date:'',subject:'',our_role:'customer',counterparty_role:'subcontractor'});
  const cancel=addendumStatusCard({data,contract:data.contracts[0],addendum:data.addenda[0],status:'cancelled'});
  assert.match(cancel,/name="reason"/);assert.match(cancel,/name="status" value="cancelled"/);
+});
+
+test('contract card: parts of the contract with their own VAT; adding and editing only for those who edit',()=>{
+ const {data}=fixture();const c=data.contracts[0];
+ assert.match(contractCard({data,contract:c,canEdit:true,today}),/data-action="new-part"[^]*Одна часть: акты и справка С-3а на весь договор/);
+ assert.doesNotMatch(contractCard({data,contract:c,canEdit:false,today}),/Части договора/,'без частей руководитель блок не видит');
+ data.contractParts=[{id:'pt2',contract_id:c.id,name:'Встроенные помещения',vat_rate:'0.00',amount:null,ordinal:2,active:true},{id:'pt1',contract_id:c.id,name:'Жилая часть',vat_rate:'20.00',amount:'1000000.00',ordinal:1,active:true}];
+ const html=contractCard({data,contract:c,canEdit:true,today});
+ assert.match(html,/Жилая часть<\/span><span class="ct-line-r ct-one"><small>НДС 20 %<\/small>1[\s ]000[\s ]000,00[^]*Встроенные помещения<\/span><span class="ct-line-r ct-one"><small>без НДС/);
+ assert.match(html,/data-action="edit-part" data-id="pt1"/);
+ assert.doesNotMatch(contractCard({data,contract:c,canEdit:false,today}),/edit-part|new-part/);
+ const form=partCard({data,contract:c,part:data.contractParts[1]});
+ assert.match(form,/name="part_id" value="pt1"/);assert.match(form,/name="vat_rate"[^>]*value="20.00"/);assert.match(form,/data-editing/);
 });

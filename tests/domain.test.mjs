@@ -21,3 +21,9 @@ test('XLSX export preserves numbers and does not turn text into formulas',async(
  const book=new ExcelJS.Workbook(),sheet=book.addWorksheet('Реестр');sheet.addRow(['=HYPERLINK("https://example.com")',120.50]);
  const bytes=await book.xlsx.writeBuffer();const loaded=new ExcelJS.Workbook();await loaded.xlsx.load(bytes);assert.equal(loaded.worksheets[0].getCell('A1').type,ExcelJS.ValueType.String);assert.equal(loaded.worksheets[0].getCell('B1').value,120.5);
 });
+test('register export: a row per contract part with its VAT mode, then «Итого по договору»',()=>{
+ const m={columns:[],rows:[{kind:'part',project:'Брест',number:'Б-1',part:'Жилая часть',vat_rate:'20.00',total:'700.00'},{kind:'part',project:'Брест',number:'Б-1',part:'Встроенные',vat_rate:'0.00',total:'300.00'},
+  {kind:'contract',project:'Брест',number:'Б-1',total:'1000.00',own:'1000.00',subcontract:'0.00'}],total:{total:'1000.00',own:'1000.00',subcontract:'0.00'}};
+ const rows=registerSheetRows(m,'2026-12');
+ assert.deepEqual(rows.slice(2,5).map(r=>r.values),[['Брест · Б-1 · Жилая часть (НДС 20 %)',700,null,null],['Брест · Б-1 · Встроенные (без НДС)',300,null,null],['Брест · Б-1 · Итого по договору',1000,1000,0]]);
+});

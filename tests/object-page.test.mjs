@@ -118,3 +118,14 @@ test('month tab: our acts at the supervisor — counts by TN status, the slowest
  assert.match(html,/подписано 3 из 3/);assert.doesNotMatch(html,/acts-all-ok|шаг держат|ТН не подписал/);
  assert.doesNotMatch(objectPage(fixture('director')),/acts-all-ok/);
 });
+
+test('month tab: «Отправлено заказчику» on the check step, re-sending shows a rework flag with the reason',()=>{
+ const ctx=fixture();Object.assign(ctx.data.workflows[0],{step_code:'check',step_ordinal:4,step_label:'На проверке'});
+ let html=objectPage(ctx);
+ assert.match(html,/data-action="sent-customer" data-id="">Отправлено заказчику/);
+ ctx.data.monthMarks=[{period_id:'per',sent_on:'2026-10-09',first_sent_on:'2026-10-06',sent_note:'ТН изменил Мегалит'}];
+ html=objectPage(ctx);
+ assert.match(html,/у заказчика с 06\.10/);assert.match(html,/переделка: отправлено повторно 09\.10 · ТН изменил Мегалит/);
+ assert.match(objectPage({...fixture('director'),data:{...ctx.data}}),/у заказчика с 06\.10/);
+ assert.doesNotMatch(objectPage({...fixture('director'),data:{...ctx.data}}),/sent-customer/);
+});
