@@ -253,13 +253,20 @@ function objectModal(id,editing=false){
  contractDrawer(objectCard({data,project:p,canEdit,editing}),'project-form',canEdit&&editing?async form=>{
   await mutate({op:'update_project',...Object.fromEntries(form)});objectModal(id);}:null);
 }
-// Карточка сотрудника («Команда и права»): имя, роль и доступ — команда profile; объекты — member по изменённым.
-function memberModal(id,editing=false){
+// Карточка сотрудника («Команда и права»): имя, роль и доступ — команда profile; объекты — member по изменённым;
+// почта и пароль — функция pto-team-add (action update). Почты учётных записей видит только начальник ПТО.
+async function teamFn(body){const {data:r,error}=await client.functions.invoke('pto-team-add',{body});if(error){let text=error.message;try{text=(await error.context.json()).error||text;}catch{}throw Error(text);}return r;}
+let teamEmails=null;
+async function memberModal(id,editing=false){
  const u=data.profiles.find(x=>x.id===id);if(!u)throw Error('Сотрудник не найден');
  const canEdit=profile?.role==='head'&&u.id!==profile.id;
- contractDrawer(memberCard({data,person:u,canEdit,editing}),'member-form',canEdit&&editing?async form=>{
+ if(profile?.role==='head'&&!teamEmails)try{teamEmails=Object.fromEntries((await teamFn({action:'emails'})).users.map(x=>[x.id,x.email]));}catch{teamEmails={};}
+ const email=teamEmails?.[id]||'';
+ contractDrawer(memberCard({data,person:u,canEdit,editing,email}),'member-form',canEdit&&editing?async form=>{
   const x=Object.fromEntries(form),now=new Set(form.getAll('project_ids')),had=new Set(data.memberships.filter(m=>m.user_id===id).map(m=>m.project_id));
   const rpc=payload=>query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload}));
+  const newEmail=String(x.email||'').trim().toLowerCase(),pass=String(x.password||'');
+  if((newEmail&&newEmail!==email)||pass){await teamFn({action:'update',user_id:id,email:newEmail!==email?newEmail:'',password:pass});if(newEmail)teamEmails[id]=newEmail;}
   if(x.display_name.trim()!==u.display_name||x.role!==u.role||(x.active==='true')!==!!u.active)await rpc({op:'profile',user_id:id,display_name:x.display_name,role:x.role,active:x.active});
   for(const p of data.projects)if(had.has(p.id)!==now.has(p.id))await rpc({op:'member',user_id:id,project_id:p.id,remove:String(!now.has(p.id))});
   await load();toast('Сохранено');memberModal(id);}:null);
@@ -373,8 +380,7 @@ async function action(name,id){
  // Новый сотрудник: учётную запись создаёт функция pto-team-add (только начальник ПТО), затем имя, роль и объект — обычными командами.
  if(name==='new-member')return form('Новый сотрудник',field('display_name','Имя (как показывать в системе)')+field('email','Электронная почта для входа','email')+field('password','Временный пароль, не короче 8 символов','text',tempPassword())+select('role','Роль',[['engineer','Инженер ПТО'],['director','Руководитель'],['head','Начальник ПТО']])+objectChecks()+'<p class="muted">Сообщите сотруднику почту и временный пароль. Пароль он сменит в «Настройках».</p>',async x=>{
   const chosen=checkedObjects();
-  const {data:r,error}=await client.functions.invoke('pto-team-add',{body:{email:x.email,password:x.password,display_name:x.display_name}});
-  if(error){let text=error.message;try{text=(await error.context.json()).error||text;}catch{}throw Error(text);}
+  const r=await teamFn({email:x.email,password:x.password,display_name:x.display_name});if(teamEmails)teamEmails[r.user_id]=x.email.trim().toLowerCase();
   await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'profile',user_id:r.user_id,display_name:x.display_name,role:x.role,active:'true'}}));
   if(x.role==='engineer')for(const project_id of chosen)await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'member',user_id:r.user_id,project_id,remove:'false'}}));
   await load();toast('Сотрудник добавлен');});
