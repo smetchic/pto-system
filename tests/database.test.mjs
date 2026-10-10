@@ -495,3 +495,48 @@ test('signing board: expected card starts with a date or is skipped with a reaso
  await as(users.director);await assert.rejects(command({op:'workflow_skip',project_id:pid,contract_id:stroy,template_code:'sub_claim',month,reason:'работ не было'}),/ПТО/);
  assert.ok((await db.query('select * from pto_workflow_skips')).rows.length>0,'руководитель видит снятые ожидания');
 });
+
+test('month marks: subcontractor in the month, object marks, document marks and scan checks are append-only, latest wins',async()=>{
+ await as(users.head);
+ const pid=(await command({op:'create_project',name:'Месяц'})).project_id;
+ await command({op:'member',project_id:pid,user_id:users.engineer});
+ const per=(await command({op:'open_period',project_id:pid,month:'2026-09-01'})).period_id;
+ await command({op:'create_contract',project_id:pid,number:'21',party:'Трест',direction:'outgoing'});
+ await command({op:'create_contract',project_id:pid,number:'21-06',party:'ТАГКров',direction:'incoming'});
+ const cid=async n=>(await db.query('select id from pto_contracts where project_id=$1 and number=$2',[pid,n])).rows[0].id;
+ const [our,tag]=[await cid('21'),await cid('21-06')];
+ await as(users.engineer);
+ await assert.rejects(command({op:'set_sub_month',period_id:per,contract_id:our,plan:'1'}),/договор субподряда/);
+ await command({op:'set_sub_month',period_id:per,contract_id:tag,plan:'100 000,00'});
+ const revBefore=(await db.query('select revision from pto_periods where id=$1',[per])).rows[0].revision;
+ await command({op:'set_sub_month',period_id:per,contract_id:tag,tn_status:'oral',on_customer:'113607.11'});
+ let cur=(await db.query('select * from pto_sub_month_current where contract_id=$1',[tag])).rows[0];
+ assert.deepEqual([cur.expected,cur.plan,cur.tn_status,cur.on_customer],[true,'100000.00','oral','113607.11'],'непереданные поля остаются');
+ assert.equal((await db.query('select revision from pto_periods where id=$1',[per])).rows[0].revision,revBefore+1,'сумма «на заказчика» возвращает месяц на проверку');
+ await command({op:'set_sub_month',period_id:per,contract_id:tag,tn_status:'ok',target_offset:'10000',current_offset:null});
+ cur=(await db.query('select * from pto_sub_month_current where contract_id=$1',[tag])).rows[0];
+ assert.deepEqual([cur.tn_status,cur.target_offset,cur.current_offset],['ok','10000.00',null]);
+ assert.equal((await db.query('select count(*)::int n from pto_sub_month where contract_id=$1',[tag])).rows[0].n,3,'журнал: все записи сохраняются');
+ await assert.rejects(command({op:'set_sub_month',period_id:per,contract_id:tag,tn_status:'maybe'}),/статус/);
+ await command({op:'set_month_marks',period_id:per,equipment_expected:true});
+ await command({op:'set_month_marks',period_id:per,materials_expected:true});
+ assert.deepEqual((await db.query('select equipment_expected e,materials_expected m from pto_month_marks_current where period_id=$1',[per])).rows[0],{e:true,m:true});
+ // Документ: статус ТН, замечание с текстом, место оригинала, сверка скана с хэшем.
+ const d=(await command({op:'create_document',period_id:per,expected_revision:(await db.query('select revision from pto_periods where id=$1',[per])).rows[0].revision,contract_id:our,kind:'c2b',number:'27',amount:'425798.48'})).document_id;
+ await assert.rejects(command({op:'set_document_mark',document_id:d,tn_status:'remarks'}),/замечание/);
+ await command({op:'set_document_mark',document_id:d,tn_status:'remarks',note:'уточнить объём'});
+ await command({op:'set_document_mark',document_id:d,tn_status:'ok',part:'Цех — пристройка',original:'party',materials:'48210.36'});
+ assert.deepEqual((await db.query('select tn_status,part,original,materials from pto_document_marks_current where document_id=$1',[d])).rows[0],{tn_status:'ok',part:'Цех — пристройка',original:'party',materials:'48210.36'});
+ await attachFile(d);
+ const f=(await db.query('select f.id from pto_files f join pto_versions v on v.id=f.version_id where v.document_id=$1',[d])).rows[0].id;
+ await assert.rejects(command({op:'check_file',file_id:f,sha256:'abc',result:'ok'}),/SHA-256/);
+ await assert.rejects(command({op:'check_file',file_id:f,sha256:'a'.repeat(64),result:'mismatch'}),/расхождение/);
+ await command({op:'check_file',file_id:f,sha256:'a'.repeat(64),result:'ok'});
+ assert.equal((await db.query('select result from pto_file_checks_current where file_id=$1',[f])).rows[0].result,'ok');
+ // Только добавление, чтение по правам, руководитель не пишет, посторонний инженер не пишет.
+ await db.exec('reset role');await assert.rejects(db.query('update pto_sub_month set plan=1'),/append-only|запрещ|only/i);await as(users.engineer);
+ await as(users.director);assert.ok((await db.query('select * from pto_sub_month_current')).rows.length>0);
+ await assert.rejects(command({op:'set_month_marks',period_id:per,equipment_expected:false}),/прав/);
+ await as(users.outsider);await assert.rejects(command({op:'set_month_marks',period_id:per,equipment_expected:false}),/Нет доступа/);
+ assert.equal((await db.query("select count(*)::int n from pto_events where project_id=$1 and action in ('set_sub_month','set_month_marks','set_document_mark','check_file')",[pid])).rows[0].n,8,'каждая отметка в журнале объекта; читают все инженеры организации');
+});
