@@ -70,8 +70,14 @@ export function objectPage({ui,data,profile,today,now=Date.now()}){
   const reports=(data.c3aReports||[]).filter(r=>r.project_id===pid&&r.is_current);
   const rs=f=>reports.reduce((t,r)=>t+Number(r[f]||0),0);
   const cells={};for(const r of (data.matrix?.rows||[]).filter(r=>r.kind==='contract'&&r.project_id===pid))for(const [k,v] of Object.entries(r.cells||{}))cells[k]=(cells[k]||0)+Number(v);
-  const subRows=subs.map(s=>{const D=s.workflow&&!s.skip&&Number(s.workflow.acts_amount)?Number(s.workflow.acts_amount):null,F=cells[s.contract.id]??null;return {...s,D,F,G:D!==null&&F!==null?F-D:null};});
-  const active=subRows.filter(s=>!s.skip),filed=active.filter(s=>s.D!==null),passed=active.filter(s=>s.passed);
+  // Отметки месяца (pto_sub_month_current и др.): «на заказчика» из отметки, иначе из сопоставления.
+  const num=v=>v===null||v===undefined||v===''?null:Number(v);
+  const smOf=id=>(data.subMonth||[]).find(x=>x.period_id===per?.id&&x.contract_id===id)||{};
+  const dmOf=id=>(data.docMarks||[]).find(x=>x.document_id===id)||{};
+  const mm=(data.monthMarks||[]).find(x=>x.period_id===per?.id)||{};
+  const subRows=subs.map(s=>{const m=smOf(s.contract.id),D=s.workflow&&!s.skip&&Number(s.workflow.acts_amount)?Number(s.workflow.acts_amount):null,F=num(m.on_customer)??cells[s.contract.id]??null;
+   return {...s,m,D,F,G:D!==null&&F!==null?F-D:null,plan:num(m.plan),eq:num(m.equipment),oral:m.tn_status==='oral'&&!(s.workflow?.step_ordinal>=4),off:m.expected===false&&!s.workflow};});
+  const active=subRows.filter(s=>!s.skip&&!s.off),oral=active.filter(s=>s.oral),filed=active.filter(s=>s.D!==null),passed=active.filter(s=>s.passed);
   const amounts=projectAmounts(data.matrix,pid),T=reports.length?rs('smr'):Number(amounts.total);
   const D=filed.reduce((t,s)=>t+s.D,0),G=filed.reduce((t,s)=>t+(s.G||0),0),F=active.reduce((t,s)=>t+(s.F||0),0),own=T-D,work=own-G;
   const pre=filed.length<active.length;
@@ -95,16 +101,17 @@ export function objectPage({ui,data,profile,today,now=Date.now()}){
 
   // 2. Деньги: С-3а из четырёх сумм, сверка, «Из чего СМР».
   const cell=(cap,v,small,dim)=>`<div><div class="mo-cap">${cap}</div><div class="mo-big${dim?' muted':''}">${v}</div><small>${small}</small></div>`;
-  const actsSum=acts.reduce((t,d)=>t+Number(ver(d)?.amount||0),0);
+  const actsSum=acts.reduce((t,d)=>t+Number(ver(d)?.amount||0),0),mats=acts.reduce((t,d)=>t+(num(dmOf(d.id).materials)||0),0);
   const chk=reports.length?[
    [`Сумма актов = СМР в справке С-3а`,Math.abs(actsSum-rs('smr'))<0.005?'ok':'er'],
    [`СМР + оборудование − авансы = к оплате`,Math.abs(rs('smr')+rs('equipment')-rs('target_offset')-rs('current_offset')-rs('to_pay'))<0.005?'ok':'er'],
    [`«На заказчика» введено у ${active.filter(s=>s.F!==null).length} из ${active.length} субподрядчиков`,active.every(s=>s.F!==null)?'ok':'w'],
+   ...(oral.length?[[`ТН устно: ${oral.map(s=>s.contract.party||s.contract.number).join(', ')} · суммы предварительные`,'w']]:[]),
    ...(passed.length<active.length?[[`Технадзор прошли ${passed.length} из ${active.length} субподрядчиков · суммы предварительные`,'w']]:[])]:[];
   const bad=chk.filter(i=>i[1]==='er').length,warn=chk.filter(i=>i[1]==='w').length;
   const chkLine=reports.length?`<details class="mo-chk"><summary class="${bad?'neg':warn?'mo-w':'mo-ok'}">Сверка сумм: ${bad?`✗ не сходится ${bad}`:warn?'✓ сходится, есть предварительные':'✓ всё сходится'}</summary><ul>${chk.map(i=>`<li class="${i[1]==='ok'?'mo-ok':i[1]==='w'?'mo-w':'neg'}">${i[1]==='ok'?'✓':i[1]==='w'?'!':'✗'} ${e(i[0])}</li>`).join('')}</ul></details>`:'сверка сумм появится с С-3а';
   const strip=reports.length
-   ?cell(`Выполнено СМР · ${SUMST[ix]}`,money(rs('smr')),`${acts.length} ${acts.length===1?'акт':acts.length>=2&&acts.length<=4?'акта':'актов'}`)+cell('+ оборудование',money(rs('equipment')),'по справке С-3а')+cell('− зачёт авансов',money(rs('target_offset')+rs('current_offset')),`целевой ${money(rs('target_offset'))} · текущий ${money(rs('current_offset'))}`)+'<div class="mo-sep"></div>'+cell('= к оплате по С-3а',money(rs('to_pay')),chkLine)
+   ?cell(`Выполнено СМР · ${SUMST[ix]}`,money(rs('smr')),`${mats?`в т.ч. материалы заказчика ${money(mats)} · `:''}${acts.length} ${acts.length===1?'акт':acts.length>=2&&acts.length<=4?'акта':'актов'}`)+cell('+ оборудование',money(rs('equipment')),'по справке С-3а')+cell('− зачёт авансов',money(rs('target_offset')+rs('current_offset')),`целевой ${money(rs('target_offset'))} · текущий ${money(rs('current_offset'))}`)+'<div class="mo-sep"></div>'+cell('= к оплате по С-3а',money(rs('to_pay')),chkLine)
    :cell(T?`СМР · ${SUMST[ix]}`:'СМР за месяц',T?money(T):'—',T?'по актам месяца':'актов ещё нет',!T)+cell('+ оборудование','—','появится с С-3а на шаге «На проверке»',true)+cell('− зачёт авансов','—','появится с С-3а',true)+'<div class="mo-sep"></div>'+cell('= к оплате по С-3а','—',chkLine,true);
   const pos=[Math.max(0,work),Math.max(0,G),Math.max(0,D)],sumPos=pos.reduce((a,b)=>a+b,0)||1,[pw,pg,ps]=pos.map(v=>v/sumPos*100);
   const info=T?`<div class="mo-lab"><b>Из чего СМР</b><small>${pre?'предварительно':'две разбивки одной суммы'}</small></div><div class="mo-viz">
@@ -118,29 +125,36 @@ export function objectPage({ui,data,profile,today,now=Date.now()}){
   // 3–4. Документы заказчику и субподрядчики: общая сетка колонок.
   const cols='<colgroup><col><col style="width:150px"><col style="width:150px"><col style="width:130px"><col style="width:150px"><col style="width:250px"></colgroup>';
   const needC3a=live.some(k=>!k.x.expected&&['acts','tn','check'].includes(k.x.step_code))&&!kit.some(d=>d.kind==='c3a');
-  const docRow=d=>{const v=ver(d),c3a=d.kind==='c3a';
-   return `<tr class="ob-row${c3a?' mo-tot':''}" data-action="doc" data-id="${e(d.id)}" tabindex="0" role="button"><td><span class="link">${e(kindNames[d.kind])} № ${e(d.number)}</span>${v?.version>1?` <span class="muted">в.${v.version}</span>`:''}</td>
-    <td class="num">${c3a?(reports.length?money(rs('smr')):money(v?.amount)):money(v?.amount)}</td><td></td><td></td><td class="num">${c3a&&reports.length?money(rs('equipment')):'<span class="muted">—</span>'}</td><td>${d.step_label?st(d.step_label,d.step_code==='accepted'?'ok':'w'):st('Без комплекта','n')}</td></tr>`;};
+  const TN={prep:['готовится','n'],tn:['у ТН','w'],remarks:['замечания ТН','e'],ok:['ТН подписал','ok']},ORIG={party:'оригинал у заказчика',ours:'оригинал у нас',accounting:'оригинал в бухгалтерии'};
+  const docState=d=>{const m=dmOf(d.id),early=['wait','acts','tn'].includes(d.step_code);
+   const base=early&&m.tn_status?st(TN[m.tn_status][0],TN[m.tn_status][1],m.note||''):d.step_label?st(d.step_label,d.step_code==='accepted'?'ok':'w'):st('Без комплекта','n');
+   return base+(m.original?` <span class="muted">· ${ORIG[m.original]}</span>`:'');};
+  const docRow=d=>{const v=ver(d),c3a=d.kind==='c3a',m=dmOf(d.id);
+   return `<tr class="ob-row${c3a?' mo-tot':''}" data-action="doc" data-id="${e(d.id)}" tabindex="0" role="button"><td><span class="link">${e(kindNames[d.kind])} № ${e(d.number)}</span>${v?.version>1?` <span class="muted">в.${v.version}</span>`:''}${m.part?` · ${e(m.part)}`:''}${num(m.materials)?` <span class="muted">· в т.ч. материалы заказчика ${money(m.materials)}</span>`:''}</td>
+    <td class="num">${c3a?(reports.length?money(rs('smr')):money(v?.amount)):money(v?.amount)}</td><td></td><td></td><td class="num">${c3a&&reports.length?money(rs('equipment')):'<span class="muted">—</span>'}</td><td>${docState(d)}</td></tr>`;};
   // Оценка выполнения = план месяца (шаг 1): одна сумма до актов, в реестре отдельно.
   const est=(data.matrix?.rows||[]).filter(r=>r.kind==='contract'&&r.project_id===pid&&r.estimate!==null&&r.estimate!==undefined);
   const estSum=est.reduce((t,r)=>t+Number(r.estimate),0);
   const estRow=est.length||(canEdit&&ix<=1&&!acts.length)?`<tr class="ob-row${est.length?'':' mo-off'}" ${canEdit?'data-action="estimate" data-id="" tabindex="0" role="button"':''}><td>Оценка выполнения <span class="muted">план до актов, в реестре отдельно</span></td>
     <td class="num">${est.length?money(estSum):'<span class="muted">—</span>'}</td><td></td><td></td><td></td><td>${est.length?st('оценка','n'):canEdit?'<span class="link">ввести</span>':''}</td></tr>`:'';
-  const docsHtml=`<section class="ob-panel" aria-label="Документы заказчику"><div class="ob-ph"><h2>Документы заказчику</h2><span class="muted">${acts.length?`${acts.length} ${acts.length===1?'акт':acts.length>=2&&acts.length<=4?'акта':'актов'} · сумма ${money(actsSum)}`:''}</span>${canEdit?`<span class="mo-add">${btn('Новый акт','new-doc')}${btn('Справка С-3а','new-c3a')}</span>`:''}</div>
+  const docsHtml=`<section class="ob-panel" aria-label="Документы заказчику"><div class="ob-ph"><h2>Документы заказчику</h2><span class="muted">${acts.length?`${acts.length} ${acts.length===1?'акт':acts.length>=2&&acts.length<=4?'акта':'актов'} · сумма ${money(actsSum)}`:''}</span>${canEdit?`<span class="mo-marks">В месяце будет: <button class="mo-cb" role="checkbox" aria-checked="${!!mm.equipment_expected}" data-action="month-mark" data-id="equipment">оборудование</button><button class="mo-cb" role="checkbox" aria-checked="${!!mm.materials_expected}" data-action="month-mark" data-id="materials">материалы заказчика</button></span>`:''}${canEdit?`<span class="mo-add">${btn('Новый акт','new-doc')}${btn('Справка С-3а','new-c3a')}</span>`:''}</div>
    <div class="table-wrap"><table class="ob-table mo-grid">${cols}<thead><tr><th>Документ</th><th class="num">СМР</th><th></th><th></th><th class="num">Оборудование</th><th>Статус</th></tr></thead><tbody>
    ${estRow}${acts.map(docRow).join('')}${kit.filter(d=>d.kind==='c3a').map(docRow).join('')}
+   ${mm.equipment_expected&&!(reports.length&&rs('equipment'))?`<tr class="mo-off"><td>Ведомости оборудования</td><td></td><td></td><td></td><td></td><td>ожидается</td></tr>`:''}
+   ${mm.materials_expected&&!mats?`<tr class="mo-off"><td>Ведомость материалов заказчика</td><td></td><td></td><td></td><td></td><td>ожидается · для экономиста</td></tr>`:''}
    ${needC3a?`<tr class="mo-off"><td>Справка С-3а</td><td></td><td></td><td></td><td></td><td>нужна для отправки заказчику</td></tr>`:''}
    ${!acts.length&&!needC3a?`<tr class="mo-off"><td colspan="6">${per?'Акты месяца появятся на шаге «Готовятся акты».':'Отчётный месяц ещё не открыт.'}</td></tr>`:''}</tbody></table></div></section>`;
   const subState=s=>{const w=s.workflow,n=openNotes(w);
-   if(s.skip)return st('Исключён','n',s.skip.reason||'');if(!w)return st('Ждём процентовку','n');
+   if(s.skip)return st('Исключён','n',s.skip.reason||'');if(s.off)return '<span class="muted">не подаёт</span>';if(!w)return st('Ждём процентовку','n');
+   if(s.oral&&s.workflow)return st('ТН устно · '+w.step_label,'w');
    if(s.passed)return st(w.step_code==='accepted'?'В бухгалтерии':'ТН ✓ · '+w.step_label,'ok');return st(w.step_label+days(w),n.length?'e':'w',n.length?n[n.length-1].note:'');};
-  const subOpen=s=>s.workflow?`data-action="workflow" data-id="${e(s.workflow.id)}"`:(exp.find(z=>z.template_code==='sub_claim'&&z.contract_id===s.contract.id)?`data-action="expected" data-id="${e('sub_claim:'+s.contract.id)}"`:`data-action="contract" data-id="${e(s.contract.id)}"`);
-  const dash='<span class="muted">—</span>';
+  const subOpen=s=>canEdit&&per?`data-action="sub-month" data-id="${e(s.contract.id)}"`:s.workflow?`data-action="workflow" data-id="${e(s.workflow.id)}"`:(exp.find(z=>z.template_code==='sub_claim'&&z.contract_id===s.contract.id)?`data-action="expected" data-id="${e('sub_claim:'+s.contract.id)}"`:`data-action="contract" data-id="${e(s.contract.id)}"`);
+  const dash='<span class="muted">—</span>',eqSum=active.reduce((t,s)=>t+(s.eq||0),0);
   const subsHtml=`<section class="ob-panel" aria-label="Субподрядчики"><div class="ob-ph"><h2>Субподрядчики</h2><span class="muted">подали ${filed.length} из ${active.length} · прошли ТН ${passed.length}</span>${canEdit&&subs.length?`<span class="mo-add">${btn('Сопоставить «на заказчика»','allocate')}</span>`:''}</div>
    ${subs.length?`<div class="table-wrap"><table class="ob-table mo-grid">${cols}<thead><tr><th>Субподрядчик</th><th class="num">СМР, их цены</th><th class="num">На заказчика</th><th class="num">Генуслуги</th><th class="num">Оборудование</th><th>Статус</th></tr></thead><tbody>
-   ${subRows.map(s=>`<tr class="ob-row${s.skip?' mo-off':''}" ${subOpen(s)} tabindex="0" role="button"><td>${e(s.contract.party||'')} <span class="muted">№ ${e(s.contract.number)}</span></td>
-    <td class="num">${s.D===null?dash:money(s.D)}</td><td class="num">${s.F===null?dash:money(s.F)}</td><td class="num">${s.G===null?dash:`<span class="${s.G<0?'neg':''}">${money(s.G)}</span>`}</td><td class="num">${dash}</td><td>${subState(s)}</td></tr>`).join('')}
-   <tr class="mo-tot"><td>Итого</td><td class="num">${money(D)}</td><td class="num">${F?money(F):dash}</td><td class="num">${filed.some(s=>s.G!==null)?money(G):dash}</td><td class="num">${dash}</td><td></td></tr></tbody></table></div>`
+   ${subRows.slice().sort((a,b)=>(a.skip||a.off)-(b.skip||b.off)).map(s=>`<tr class="ob-row${s.skip||s.off?' mo-off':''}" ${subOpen(s)} tabindex="0" role="button"><td>${e(s.contract.party||'')} <span class="muted">№ ${e(s.contract.number)}</span></td>
+    <td class="num">${s.D!==null?money(s.D):s.plan!==null&&!s.off?`<span class="muted" title="план, уточнится по их акту">${money(s.plan)}</span>`:dash}</td><td class="num">${s.F===null||s.off?dash:`<span class="${s.oral?'mo-w':''}">${money(s.F)}</span>`}</td><td class="num">${s.G===null?dash:`<span class="${s.G<0?'neg':''}">${money(s.G)}</span>`}</td><td class="num">${s.eq===null?dash:money(s.eq)}</td><td>${subState(s)}</td></tr>`).join('')}
+   <tr class="mo-tot"><td>Итого</td><td class="num">${money(D)}</td><td class="num">${F?money(F):dash}</td><td class="num">${filed.some(s=>s.G!==null)?money(G):dash}</td><td class="num">${eqSum?money(eqSum):dash}</td><td></td></tr></tbody></table></div>`
    :'<div class="empty">Договоров субподряда на этот месяц нет.</div>'}</section>`;
 
   // 5. С-29 и закрытие месяца — по одной строке.

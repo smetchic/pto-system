@@ -48,7 +48,7 @@ test('month tab: one screen for all steps — step strip, C-3a with the sum chec
 test('month tab: «на заказчика» from the register gives general services; negative own forces are highlighted, not blocked',()=>{
  const ctx=fixture();ctx.data.matrix.rows[0].cells={s7:'400000.00'};
  let html=objectPage(ctx);
- assert.match(html,/400[\s ]000,00<\/td><td class="num"><span class="">87[\s ]600,00/);
+ assert.match(html,/400[\s ]000,00<\/span><\/td><td class="num"><span class="">87[\s ]600,00/);
  assert.match(html,/генуслуги <b class="">87[\s ]600,00/);
  ctx.data.workflows[1].acts_amount='2500000.00';html=objectPage(ctx);
  assert.match(html,/<b class="neg">-526[\s ]740,11<\/b>/);assert.match(html,/отрицательные, проверьте/);
@@ -82,4 +82,23 @@ test('other tabs: contracts grouped by side, documents grouped by kit, history f
  ctx.ui.projectTab='history';ctx.data.events=[{id:1,project_id:'p1',action:'revise',actor:'u1',created_at:'2026-10-08T10:00:00Z',detail:{reason:'исправлен объём'}},{id:2,project_id:'p1',action:'update_contract',actor:'u1',created_at:'2026-10-08T11:00:00Z',detail:{}}];
  ctx.ui.historyKind='document';html=objectPage(ctx);
  assert.match(html,/исправлен объём/);assert.doesNotMatch(html,/Изменены условия договора/);
+});
+
+test('month tab: marks from the database — sub plan grey, «ТН устно», «на заказчика» entered, month and act marks',()=>{
+ const ctx=fixture();
+ ctx.data.subMonth=[{period_id:'per',contract_id:'s7',tn_status:'oral',on_customer:'350000.00',equipment:'12000.00'},
+  {period_id:'per',contract_id:'s12',expected:true,plan:'90000.00'}];
+ ctx.data.monthMarks=[{period_id:'per',equipment_expected:true,materials_expected:false}];
+ ctx.data.docMarks=[{document_id:'d1',materials:'5000.00',original:'party'}];
+ Object.assign(ctx.data.workflows[1],{step_code:'tn',step_ordinal:3,step_label:'У технадзора'});
+ const html=objectPage(ctx);
+ assert.match(html,/data-action="sub-month" data-id="s7"/);
+ assert.match(html,/ТН устно · У технадзора/);
+ assert.match(html,/ТН устно: Мегалит · суммы предварительные/);
+ assert.match(html,/<span class="mo-w">350[\s ]000,00/);
+ assert.match(html,/title="план, уточнится по их акту">90[\s ]000,00/);
+ assert.match(html,/aria-checked="true" data-action="month-mark" data-id="equipment"/);
+ assert.match(html,/aria-checked="false" data-action="month-mark" data-id="materials"/);
+ assert.match(html,/материалы заказчика/);
+ assert.doesNotMatch(html,/undefined|NaN/);
 });

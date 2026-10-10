@@ -58,9 +58,11 @@ async function load(){
  const prevWorkflows=prevPeriods.length?await all('pto_workflow_list',q=>q.in('period_id',prevPeriods.map(p=>p.id)).neq('step_code','accepted')):[];
  const dids=documents.map(d=>d.id);
  const versions=dids.length?await all('pto_versions',q=>q.in('document_id',dids)):[];
+ // Отметки месяца (docs/month.md): субподрядчик в месяце, что будет в месяце, отметки документов. Действует последняя запись.
+ const [subMonth,monthMarks,docMarks]=await Promise.all([ids.length?all('pto_sub_month_current',q=>q.in('period_id',ids)):[],ids.length?all('pto_month_marks_current',q=>q.in('period_id',ids)):[],dids.length?all('pto_document_marks_current',q=>q.in('document_id',dids)):[]]);
  const events=await query(client.from('pto_events').select('*').order('id',{ascending:false}).limit(150));
  if(generation!==loadId)return;
- data={prevMatrix,prevPeriods,prevWorkflows,addenda,c3aReports,projects,contracts,periods,profiles,memberships,documents,allocations,register,matrix,versions,events,workflows,skips,templates,steps,parties,partyRoles,participants,partyContacts};
+ data={subMonth,monthMarks,docMarks,prevMatrix,prevPeriods,prevWorkflows,addenda,c3aReports,projects,contracts,periods,profiles,memberships,documents,allocations,register,matrix,versions,events,workflows,skips,templates,steps,parties,partyRoles,participants,partyContacts};
  if(ui.project&&!projects.some(p=>p.id===ui.project))ui.project=null;
  render();
 }
@@ -70,15 +72,56 @@ function modal(title,html,drawer=false){delete dialog.dataset.dirty;dialog.class
 function form(title,fields,submit){modal(title,`<form id="modal-form">${fields}<p id="form-error" class="error" role="alert"></p><div class="actions"><button class="primary" type="submit">Сохранить</button></div></form>`);$('#modal-form').onsubmit=async ev=>{ev.preventDefault();const button=ev.submitter;button.disabled=true;try{await submit(Object.fromEntries(new FormData(ev.target)));dialog.close();}catch(err){$('#form-error').textContent=errorMessage(err);}finally{button.disabled=false;}};}
 async function mutate(payload){const result=await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload}));await load();toast('Сохранено');return result;}
 function periodPayload(op,extra={}){const p=currentPeriod();if(!p)throw Error('Откройте месяц');return {op,period_id:p.id,expected_revision:p.revision,...extra};}
+// Отметки месяца (docs/month.md): пустое поле очищает значение; каждая запись — строка журнала.
+const blankNull=x=>Object.fromEntries(Object.entries(x).map(([k,v])=>[k,String(v).trim()===''?null:v]));
+const ordered=(list,cur)=>list.slice().sort(([a],[b])=>(b===String(cur??''))-(a===String(cur??'')));
+function subMonthForm(id){
+ const c=contractOf(id),p=currentPeriod();if(!p)return toast('Откройте месяц');
+ const s=(data.subMonth||[]).find(x=>x.contract_id===id&&x.period_id===p.id)||{},w=(data.workflows||[]).find(x=>x.template_code==='sub_claim'&&x.contract_id===id);
+ form(`${c.party||''} · № ${c.number}`,`${w?`<p><button type="button" class="link" data-action="workflow" data-id="${e(w.id)}">Процентовка: ${e(w.step_label)} →</button></p>`:''}
+  ${select('expected','В этом месяце',ordered([['true','Подаёт процентовку'],['false','Не подаёт']],s.expected===false?'false':'true'))}
+  ${field('plan','План, их цены, руб.','number',s.plan??'',false)}
+  ${select('tn_status','Технадзор',ordered([['','—'],['tn','У технадзора'],['oral','ТН устно'],['ok','ТН подписал']],s.tn_status))}
+  ${field('on_customer','На заказчика, наши цены, руб.','number',s.on_customer??'',false)}
+  ${field('equipment','Оборудование по их С-3а, руб.','number',s.equipment??'',false)}
+  ${field('target_offset','Зачёт целевого аванса, руб.','number',s.target_offset??'',false)}
+  ${field('current_offset','Зачёт текущего аванса, руб.','number',s.current_offset??'',false)}
+  <p class="muted">Каждое сохранение — запись в журнале. Изменение сумм возвращает месяц на проверку.</p>`,
+  x=>mutate({op:'set_sub_month',period_id:p.id,contract_id:id,...blankNull(x),expected:x.expected==='true'}));
+}
+function docMarkForm(id){
+ const d=data.documents.find(x=>x.id===id);if(!d)throw Error('Документ не найден');
+ const m=(data.docMarks||[]).find(x=>x.document_id===id)||{},c=data.contracts.find(x=>x.id===d.contract_id);
+ form(`${kindNames[d.kind]} № ${d.number}: отметки`,`${field('part','Часть объекта','text',m.part||'',false)}
+  ${select('tn_status','Технадзор',ordered([['','—'],['prep','Готовится'],['tn','У ТН'],['remarks','Замечания ТН'],['ok','ТН подписал']],m.tn_status))}
+  ${field('materials','в т.ч. материалы заказчика, руб.','number',m.materials??'',false)}
+  ${select('original','Где оригинал',ordered([['','—'],['party',`В ${c?.party||'у заказчика'}`],['ours','У нас'],['accounting','Передан в бухгалтерию']],m.original))}
+  ${note('note','Комментарий (для замечания ТН обязателен)').replace(' required','')}`,
+  x=>mutate({op:'set_document_mark',document_id:id,...blankNull(x),note:x.note||''}));
+}
+// Сверка скана (MVP, вручную): хэш SHA-256 считается в браузере из файла в хранилище.
+async function checkFile(id){
+ const f=(ui.docFiles||[]).find(x=>x.id===id);if(!f)throw Error('Файл не найден');
+ const r=await query(client.storage.from('pto-documents').createSignedUrl(f.path,60));
+ const buf=await (await fetch(r.signedUrl)).arrayBuffer();
+ const sha256=[...new Uint8Array(await crypto.subtle.digest('SHA-256',buf))].map(b=>b.toString(16).padStart(2,'0')).join('');
+ const d=data.documents.find(x=>x.id===ui.doc),v=d&&ver(d);
+ form(`Сверка скана: ${f.name}`,`<p class="muted">Откройте скан и сверьте с версией в системе: номер ${e(d?.number||'')}, сумма ${v?money(v.amount):'—'} руб. SHA-256: ${sha256.slice(0,8)}…${sha256.slice(-4)}</p>
+  <p><button type="button" data-action="download" data-id="${e(f.path)}">Открыть скан</button></p>
+  ${select('result','Результат',[['ok','Сверен, совпадает'],['mismatch','Есть расхождение']])}${note('note','Что не совпадает (для расхождения)').replace(' required','')}`,
+  async x=>{await mutate({op:'check_file',file_id:id,sha256,result:x.result,note:x.note||''});if(d)await docModal(d.id);});
+}
 async function docModal(id){
  const d=data.documents.find(x=>x.id===id);if(!d)throw Error('Документ не найден');ui.doc=id;ui.project=d.project_id;
  const files=await all('pto_files',q=>q.in('version_id',data.versions.filter(v=>v.document_id===id).map(v=>v.id)));
+ ui.docFiles=files;const checks=files.length?await all('pto_file_checks_current',q=>q.in('file_id',files.map(f=>f.id))):[];
+ const mark=(data.docMarks||[]).find(x=>x.document_id===id);
  const v=ver(d),p=currentPeriod();
  const report=d.kind==='c3a'?(await query(client.from('pto_c3a_report').select('*').eq('version_id',v.id)))[0]:null;
  const amountBlock=d.kind==='c29'?`<p class="muted">Версия ${v.version} · материальный отчёт, денежной суммы нет.</p>`:d.kind==='c3a'?`<p class="muted">Версия ${v.version}</p>${c3aTable(report)}`:`<div class="stats"><article><small>Версия ${v.version}</small><strong>${money(v.amount)} <small>руб.</small></strong></article></div>`;
  // Документ не переходит сам по себе: передача, подпись и принятие — шаги его комплекта.
  const editable=p?.status==='open',done=isDone(d);
- modal(`${kindNames[d.kind]} № ${d.number}`,`<p>${badge(d.step_label||'Без комплекта',done)} · ${e(projectName(d.project_id))}</p>${amountBlock}<p>${e(v.note)}</p><div class="actions">${d.workflow_id?btn('Открыть комплект','workflow',d.workflow_id,true):''}${editable&&editor(d.project_id)?btn('Новая версия','revise',id):''}</div>${editable&&editor(d.project_id)&&done?'<p class="muted">Комплект принят бухгалтерией. Новая версия вернёт его на первый шаг; принятая сумма сохранится до повторного принятия.</p>':''}<h3>Файлы текущей версии</h3>${files.filter(f=>f.version_id===v.id).map(f=>`<p>${btn(f.name,'download',f.path)}</p>`).join('')||'<p class="muted">Файлы не прикреплены.</p>'}${editable&&editor(d.project_id)&&!done?`<label class="file">Прикрепить файл (до 20 МБ)<input id="upload" type="file"></label>`:''}<h3>История версий</h3>${data.versions.filter(x=>x.document_id===id).sort((a,b)=>b.version-a.version).map(x=>`<div class="version"><b>Версия ${x.version} · ${money(x.amount)} руб.</b> ${x.id===d.accepted_version?badge('Принята',true):''}<small>${e(fmtDate(x.created_at))}</small><p>${e(x.note)}</p>${files.filter(f=>f.version_id===x.id).map(f=>btn(f.name,'download',f.path)).join('')}</div>`).join('')}`,true);
+ modal(`${kindNames[d.kind]} № ${d.number}`,`<p>${badge(d.step_label||'Без комплекта',done)} · ${e(projectName(d.project_id))}</p>${amountBlock}<p>${e(v.note)}</p>${mark?`<p class="muted">${[mark.part,mark.tn_status&&{prep:'готовится',tn:'у ТН',remarks:'замечания ТН',ok:'ТН подписал'}[mark.tn_status],mark.materials!==null&&mark.materials!==undefined?'в т.ч. материалы заказчика '+money(mark.materials):'',mark.original&&{party:'оригинал у заказчика',ours:'оригинал у нас',accounting:'оригинал в бухгалтерии'}[mark.original]].filter(Boolean).map(e).join(' · ')}</p>`:''}<div class="actions">${d.workflow_id?btn('Открыть комплект','workflow',d.workflow_id,true):''}${editable&&editor(d.project_id)&&['c2a','c2b'].includes(d.kind)?btn('Отметки','doc-mark',id):''}${editable&&editor(d.project_id)?btn('Новая версия','revise',id):''}</div>${editable&&editor(d.project_id)&&done?'<p class="muted">Комплект принят бухгалтерией. Новая версия вернёт его на первый шаг; принятая сумма сохранится до повторного принятия.</p>':''}<h3>Файлы текущей версии</h3>${files.filter(f=>f.version_id===v.id).map(f=>{const k=checks.find(x=>x.file_id===f.id);return `<p>${btn(f.name,'download',f.path)} ${k?badge(k.result==='ok'?'Сверен':'Расхождение: '+k.note,k.result==='ok'):''} ${editable&&editor(d.project_id)&&['c2a','c2b','c3a'].includes(d.kind)?btn(k?'Сверить заново':'Сверить','check-file',f.id):''}</p>`;}).join('')||'<p class="muted">Файлы не прикреплены.</p>'}${editable&&editor(d.project_id)&&!done?`<label class="file">Прикрепить файл (до 20 МБ)<input id="upload" type="file"></label>`:''}<h3>История версий</h3>${data.versions.filter(x=>x.document_id===id).sort((a,b)=>b.version-a.version).map(x=>`<div class="version"><b>Версия ${x.version} · ${money(x.amount)} руб.</b> ${x.id===d.accepted_version?badge('Принята',true):''}<small>${e(fmtDate(x.created_at))}</small><p>${e(x.note)}</p>${files.filter(f=>f.version_id===x.id).map(f=>btn(f.name,'download',f.path)).join('')}</div>`).join('')}`,true);
  if($('#upload'))$('#upload').onchange=async ev=>{const file=ev.target.files[0];if(!file)return;if(file.size>20971520)return toast('Максимальный размер файла — 20 МБ');ev.target.disabled=true;try{
  const ext=file.name.split('.').pop().replace(/[^a-zA-Z0-9]/g,'').slice(0,10);const path=`${d.project_id}/${d.id}/${v.id}/${crypto.randomUUID()}.${ext||'bin'}`;
  await query(client.storage.from('pto-documents').upload(path,file,{upsert:false,contentType:file.type||'application/octet-stream'}));
@@ -239,6 +282,10 @@ async function action(name,id){
  if(name==='revise'){const d=data.documents.find(d=>d.id===id),v=ver(d);
  const body=d.kind==='c3a'?c3aHint+c3aFields(v):d.kind==='c29'?'':field('amount','Сумма акта с НДС, руб.','number',v.amount);
  return form('Новая версия документа',body+note('note','Содержание / основание',v.note).replace(' required','')+note('reason','Причина изменения'),x=>mutate(periodPayload('revise',{document_id:id,...x})));}
+ if(name==='sub-month')return subMonthForm(id);
+ if(name==='doc-mark')return docMarkForm(id);
+ if(name==='month-mark'){const p=currentPeriod();if(!p)return toast('Откройте месяц');const m=(data.monthMarks||[]).find(x=>x.period_id===p.id)||{};const key=id==='materials'?'materials_expected':'equipment_expected';return mutate({op:'set_month_marks',period_id:p.id,[key]:!m[key]});}
+ if(name==='check-file')return checkFile(id);
  if(name==='workflow')return openPanel('wf',id);
  if(name==='expected')return openPanel('exp',id);
  if(name==='sp-mode'){if(!ui.panel)return;ui.panel.mode=id||'';return renderPanel();}
