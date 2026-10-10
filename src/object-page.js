@@ -69,8 +69,8 @@ export function objectPage({ui,data,profile,today,now=Date.now()}){
   const acts=kit.filter(d=>d.kind==='c2a'||d.kind==='c2b').sort((a,b)=>String(a.number).localeCompare(String(b.number),'ru',{numeric:true}));
   const reports=(data.c3aReports||[]).filter(r=>r.project_id===pid&&r.is_current);
   const rs=f=>reports.reduce((t,r)=>t+Number(r[f]||0),0);
-  const cells={};for(const r of (data.matrix?.rows||[]).filter(r=>r.kind==='contract'&&r.project_id===pid))for(const [k,v] of Object.entries(r.cells||{}))cells[k]=(cells[k]||0)+Number(v);
-  // Отметки месяца (pto_sub_month_current и др.): «на заказчика» из отметки, иначе из сопоставления.
+  // «на заказчика» по субподрядчикам: customer_cells реестра (до миграции 20261010230000 — cells). Отметка месяца важнее.
+  const cells={};for(const r of (data.matrix?.rows||[]).filter(r=>r.kind==='contract'&&r.project_id===pid))for(const [k,v] of Object.entries(r.customer_cells||r.cells||{}))cells[k]=(cells[k]||0)+Number(v);
   const num=v=>v===null||v===undefined||v===''?null:Number(v);
   const smOf=id=>(data.subMonth||[]).find(x=>x.period_id===per?.id&&x.contract_id===id)||{};
   const dmOf=id=>(data.docMarks||[]).find(x=>x.document_id===id)||{};

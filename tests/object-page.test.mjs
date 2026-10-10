@@ -46,7 +46,7 @@ test('month tab: one screen for all steps — step strip, C-3a with the sum chec
 });
 
 test('month tab: «на заказчика» from the register gives general services; negative own forces are highlighted, not blocked',()=>{
- const ctx=fixture();ctx.data.matrix.rows[0].cells={s7:'400000.00'};
+ const ctx=fixture();ctx.data.matrix.rows[0].cells={s7:'312400.00'};ctx.data.matrix.rows[0].customer_cells={s7:'400000.00'};
  let html=objectPage(ctx);
  assert.match(html,/400[\s ]000,00<\/span><\/td><td class="num"><span class="">87[\s ]600,00/);
  assert.match(html,/генуслуги <b class="">87[\s ]600,00/);
