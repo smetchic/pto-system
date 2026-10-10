@@ -27,8 +27,10 @@ const DAY=86400000;
 export const daysOnStep=(w,now)=>{const t=w.step_since||w.updated_at||w.created_at;return t?Math.max(0,Math.floor((now-new Date(t).getTime())/DAY)):0;};
 const monthEnd=month=>{const [y,m]=month.split('-').map(Number);return new Date(Date.UTC(y,m,0)).toISOString().slice(0,10);};
 export const activeIn=(c,month)=>(!c.contract_date||c.contract_date<=monthEnd(month))&&(!c.current_end_date||c.current_end_date>=month+'-01');
-export const oursContract=c=>c.direction==='outgoing'&&['contractor','subcontractor',undefined,null,''].includes(c.our_role);
-export const subContract=c=>c.direction==='incoming'&&['customer',undefined,null,''].includes(c.our_role);
+// Справочные договоры (МПС с заказчиком, трёхсторонние) и непроверенные после загрузки в «Подписании» и месяце не участвуют.
+const working=c=>!['mps_customer','mps_su22_sub'].includes(c.contract_type)&&c.checked!==false;
+export const oursContract=c=>c.direction==='outgoing'&&['contractor','subcontractor',undefined,null,''].includes(c.our_role)&&working(c);
+export const subContract=c=>c.direction==='incoming'&&['customer',undefined,null,''].includes(c.our_role)&&working(c);
 
 // «Ждём объёмы»: действующие в месяце договоры без комплекта и объекты без С-29. Вычисляется; в базе только снятые ожидания (skips).
 export function expectedCards({projects,contracts,workflows,skips=[]},month){
@@ -50,7 +52,7 @@ export function expectedCards({projects,contracts,workflows,skips=[]},month){
 // Субподрядчики месяца для нашей процентовки: прошёл технадзор, исключён или ещё нет.
 export function subsOf(data,projectId,month){
  const ws=data.workflows||[],skips=data.skips||[];
- return (data.contracts||[]).filter(c=>c.project_id===projectId&&c.direction==='incoming'&&activeIn(c,month)).map(c=>{
+ return (data.contracts||[]).filter(c=>c.project_id===projectId&&c.direction==='incoming'&&working(c)&&activeIn(c,month)).map(c=>{
   const w=ws.find(x=>x.template_code==='sub_claim'&&x.contract_id===c.id),skip=skips.find(s=>s.template_code==='sub_claim'&&s.contract_id===c.id);
   return {contract:c,workflow:w,skip,passed:!!w&&w.step_ordinal>=3};
  });
