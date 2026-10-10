@@ -84,16 +84,28 @@ export function objectPage({ui,data,profile,today,now=Date.now()}){
   const SUMST=['оценка','предварительно','предварительно','предварительно','проверено','зафиксировано'];
 
   // 1. Полоса процентовки: шаг, шкала, «Ваш ход», что держит шаг.
+  // Статус ТН по каждому нашему акту (pto_document_marks): без отметки — «готовится» на шаге актов, «у ТН» на шаге ТН.
+  // Шаг держат самые отстающие акты. Учитывается, только когда отметки ТН уже ставят.
+  const RANK={prep:0,tn:1,remarks:1,ok:2};
+  const tnOf=x=>{const list=acts.filter(d=>d.workflow_id===x.id);
+   if(!['acts','tn'].includes(x.step_code)||!list.some(d=>dmOf(d.id).tn_status))return null;
+   const rows=list.map(d=>({d,t:dmOf(d.id).tn_status||(x.step_code==='acts'?'prep':'tn')}));
+   const n=t=>rows.filter(r=>r.t===t).length,low=Math.min(...rows.map(r=>RANK[r.t]));
+   return {rows,n,all:low===2,hold:low<2?rows.filter(r=>RANK[r.t]===low).map(r=>'№ '+r.d.number):[]};};
   const stepsBar=x=>{const cur=ixOf(x),dates=x.step_dates||{};
    return `<div class="ob-steps" aria-label="Шаги маршрута">${COLUMNS.map(([c,l],i)=>`<span class="${i<cur?'d':i===cur?'c':''}">${e(l)}${i<cur&&dates[c]?' '+dm(dates[c]):''}</span>`).join('')}</div>`;};
   const blocked=x=>{if(x.expected||x.step_code!=='tn')return '';const why=[];
    const left=subs.filter(s=>!s.passed&&!s.skip).map(s=>s.contract.party||s.contract.number);if(left.length)why.push('не прошли технадзор: '+left.join(', '));
+   const t=tnOf(x);if(t&&!t.all)why.push('ТН не подписал наши акты: '+t.hold.join(', '));
    if(!docs.some(d=>d.workflow_id===x.id&&d.kind==='c3a'))why.push('нет справки С-3а');
    return why.length?`<span class="ob-why">Отправить заказчику нельзя: ${e(why.join('; '))}.</span>`:'';};
   const stepCard=({c,x,skip})=>{
    if(!x)return skip?`<section class="ob-panel mo-step"><div><div class="mo-cap">Процентовка за ${e(monthName(month))}</div><b>Снята</b></div><div class="mo-turn"><span class="muted">дог. № ${e(c.number)} · ${e(c.party||'')} · ${e(skip.reason||'без причины')}</span></div></section>`:'';
    const n=openNotes(x),flag=n.length?`<span class="ob-flag" title="${e(n[n.length-1].note)}">⚑ ${e(n[n.length-1].note)}</span>`:'';
-   const counts=x.expected?'':`<span class="muted">актов ${kit.filter(d=>d.workflow_id===x.id&&d.kind!=='c3a'&&d.kind!=='c29').length} · субподряд: прошли ТН ${passed.length} из ${active.length}</span>`;
+   const t=x.expected?null:tnOf(x);
+   const ourActs=t?[[t.n('prep'),'готовится'],[t.n('tn'),'у ТН'],[t.n('remarks'),'замечания']].filter(([k])=>k).map(([k,l])=>`${l} ${k}`).concat(`подписано ${t.n('ok')} из ${t.rows.length}`).join(' · ')+(t.hold.length?` · шаг держат: ${t.hold.join(', ')}`:''):`актов ${kit.filter(d=>d.workflow_id===x.id&&d.kind!=='c3a'&&d.kind!=='c29').length}`;
+   const allOk=t&&!t.all&&canEdit?`<button class="btn" data-action="acts-all-ok" data-id="${e(x.id)}">Все наши проверены</button>`:'';
+   const counts=x.expected?'':`<span class="muted">${ourActs} · субподряд: прошли ТН ${passed.length} из ${active.length}</span>${allOk}`;
    return `<section class="ob-panel mo-step ob-click" ${open(x)} tabindex="0" role="button" aria-label="Процентовка по договору № ${e(c.number)}">
     <div><div class="mo-cap">Процентовка за ${e(monthName(month))}${ours.length>1?` · дог. № ${e(c.number)}`:''}</div><b class="mo-now">${e(COLUMNS[ixOf(x)][1])}</b></div>
     <div class="mo-right">${stepsBar(x)}<div class="mo-turn">${turn(x)}${counts}${blocked(x)}${flag}</div></div></section>`;};
