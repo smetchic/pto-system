@@ -15,11 +15,33 @@ const rolePills=(data,id)=>{const roles=partyRoles(data,id);return roles.length?
 // Текст для поиска по строке: названия, УНП, адрес, руководитель, ОКПО и роли.
 export const partySearchText=(data,c)=>[c.short_name,c.full_name,c.unp,c.address,c.director_name,c.okpo,...partyRoles(data,c.id).map(r=>partyRoleNames[r])].join(' ').toLowerCase();
 
-export function partiesList({data,canEdit}){
- const rows=(data.parties||[]).map(c=>`<tr data-search="${e(partySearchText(data,c))}"><td><button class="link" data-action="party" data-id="${e(c.id)}"><b>${e(c.short_name)}</b></button><small>${e(c.full_name)}</small></td><td>${e(c.unp)}</td><td>${rolePills(data,c.id)}</td><td>${statusPill(c)||'—'}</td><td>${e(c.address||'')}</td><td class="num">${contractsOf(data,c.id).length||''}</td></tr>`).join('');
+// Буква для алфавита: первая буква собственного названия — после открывающей кавычки (ООО "ТАГКров" → Т),
+// без кавычек — после формы собственности (ООО, ОАО, УП, ЧУП…).
+const FORMS=/^(?:(?:ООО|ОАО|ЗАО|АО|ПАО|ОДО|СООО|ИООО|ИУП|ЧУП|ЧТУП|ЧСУП|ЧП|УП|РУП|КУП|КПУП|ГП|ГУ|ИП|ТОО|Филиал|Частное|Государственное|Унитарное|Коммунальное|Республиканское|производственное|торговое|предприятие)\s+)+/i;
+export function partyLetter(name){
+ const s=String(name||'').trim(),q=s.search(/["«“„']/);
+ const own=(q>=0?s.slice(q):s.replace(FORMS,'')).replace(/^[^0-9A-Za-zА-Яа-яЁё]+/,'');
+ const ch=(own[0]||'').toUpperCase();
+ return /[А-ЯЁ]/.test(ch)?(ch==='Ё'?'Е':ch):/[A-Z]/.test(ch)?'A–Z':/[0-9]/.test(ch)?'0–9':'#';
+}
+const ALPHABET=[...'АБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЭЮЯ','A–Z','0–9'];
+// Объекты контрагента: по договорам и по участию в объекте без договора.
+export const partyProjects=(data,id)=>[...new Set([...contractsOf(data,id).map(c=>c.project_id),...(data.participants||[]).filter(x=>x.counterparty_id===id).map(x=>x.project_id)])];
+
+export function partiesList({data,canEdit,ui={}}){
+ const letter=ui.partyLetter||'',project=ui.partyProject||'';
+ const all=(data.parties||[]).map(c=>({c,l:partyLetter(c.short_name),p:partyProjects(data,c.id)}));
+ const scoped=all.filter(x=>!project||x.p.includes(project));
+ const have=new Set(scoped.map(x=>x.l));
+ const list=scoped.filter(x=>!letter||x.l===letter).sort((a,b)=>ALPHABET.indexOf(a.l)-ALPHABET.indexOf(b.l)||String(a.c.short_name).replace(/^[^"«“„']*["«“„']/,'').localeCompare(String(b.c.short_name).replace(/^[^"«“„']*["«“„']/,''),'ru'));
+ const objects=p=>p.map(id=>projectOf(data,id)?.name).filter(Boolean).sort((a,b)=>a.localeCompare(b,'ru')).join(', ');
+ const rows=list.map(({c,p})=>`<tr data-search="${e(partySearchText(data,c))}"><td><button class="link" data-action="party" data-id="${e(c.id)}"><b>${e(c.short_name)}</b></button><small>${e(c.full_name)}</small></td><td>${e(c.unp)}</td><td>${rolePills(data,c.id)}</td><td>${statusPill(c)||'—'}</td><td>${e(objects(p))}</td><td class="num">${contractsOf(data,c.id).length||''}</td></tr>`).join('');
+ const projects=[...(data.projects||[])].sort((a,b)=>String(a.name).localeCompare(String(b.name),'ru'));
+ const letters=`<div class="cp-letters" role="group" aria-label="Первая буква названия"><button type="button" class="${letter?'':'on'}" data-action="party-letter" data-id="">Все</button>${ALPHABET.map(l=>`<button type="button" class="${l===letter?'on':''}" data-action="party-letter" data-id="${e(l)}" ${have.has(l)||l===letter?'':'disabled'}>${e(l)}</button>`).join('')}</div>`;
  return `<div class="heading"><div><h1>Контрагенты</h1><div class="muted">Единый справочник организаций. Одна организация может иметь несколько ролей.</div></div><div class="actions">${canEdit?'<button data-action="mns-xml" data-id="">Загрузить XML МНС</button><input id="mns-xml" type="file" accept=".xml,text/xml,application/xml" multiple hidden><button class="primary" data-action="new-party" data-id="">Добавить контрагента</button>':''}</div></div>
- <div class="cp-toolbar"><input id="party-search" class="cp-search" type="search" autocomplete="off" placeholder="Поиск по названию, УНП или роли"></div>
- <section class="table-wrap"><table class="cp-table"><thead><tr><th>Контрагент</th><th>УНП</th><th>Роли</th><th>Статус</th><th>Адрес</th><th class="num">Договоров</th></tr></thead><tbody>${rows}<tr id="party-empty" ${rows?'hidden':''}><td colspan="6"><div class="empty cp-empty">Контрагенты не найдены.</div></td></tr></tbody></table></section>`;
+ <div class="cp-toolbar"><input id="party-search" class="cp-search" type="search" autocomplete="off" placeholder="Поиск по названию, УНП или роли"><select id="party-project" class="cp-project" aria-label="Объект"><option value="">Все объекты</option>${projects.map(x=>`<option value="${e(x.id)}" ${x.id===project?'selected':''}>${e(x.name)}</option>`).join('')}</select></div>
+ ${letters}
+ <section class="table-wrap"><table class="cp-table"><thead><tr><th>Контрагент</th><th>УНП</th><th>Роли</th><th>Статус</th><th>Объекты</th><th class="num">Договоров</th></tr></thead><tbody>${rows}<tr id="party-empty" ${rows?'hidden':''}><td colspan="6"><div class="empty cp-empty">Контрагенты не найдены.</div></td></tr></tbody></table></section>`;
 }
 
 const hidden=(name,value='')=>`<input type="hidden" name="${e(name)}" value="${e(value)}">`;

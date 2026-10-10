@@ -204,3 +204,16 @@ test('settings offer text size and mark the current one',()=>{
  for(const scale of ['100','115','130'])assert.match(html,new RegExp(`data-action="text-scale" data-id="${scale}"`));
  assert.match(html,/data-id="115" aria-pressed="true"/);
 });
+
+test('counterparties: letter from the own name after the quote or legal form; filter by object and letter',async()=>{
+ const {partiesList,partyLetter}=await import('../src/parties.js');
+ assert.deepEqual(['ООО "ТАГКров"','Филиал "УПТК государственного предприятия "Трест','ОАО «Спецавтоматика»','ЧУП Ёлка','ООО "М8"'].map(partyLetter),['Т','У','С','Е','М']);
+ const data={projects:[{id:'a',name:'Брест'},{id:'b',name:'Пружаны'}],parties:[{id:'1',short_name:'ООО "ТАГКров"',full_name:'',unp:'1'},{id:'2',short_name:'ОАО "Альфа"',full_name:'',unp:'2'},{id:'3',short_name:'УП "Тест"',full_name:'',unp:'3'}],
+  contracts:[{counterparty_id:'1',project_id:'a'},{counterparty_id:'2',project_id:'b'}],participants:[{counterparty_id:'3',project_id:'b'}],partyRoles:[]};
+ const names=html=>[...html.matchAll(/data-action="party" data-id="(\d)"/g)].map(m=>m[1]);
+ assert.deepEqual(names(partiesList({data,canEdit:true})),['2','1','3'],'по алфавиту собственного названия');
+ assert.deepEqual(names(partiesList({data,canEdit:true,ui:{partyLetter:'Т'}})),['1','3']);
+ assert.deepEqual(names(partiesList({data,canEdit:true,ui:{partyProject:'b'}})),['2','3'],'объект — по договору или участию');
+ const html=partiesList({data,canEdit:true,ui:{partyProject:'b'}});
+ assert.match(html,/data-id="Т" >Т|data-id="Т"\s*>Т/);assert.match(html,/data-id="Б" disabled/);
+});
