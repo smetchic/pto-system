@@ -4,13 +4,14 @@ import {escapeHtml as e,money,canWrite} from './domain.js';
 import {objectColor,activeIn,expectedCards,openNotes} from './conveyor.js';
 import {termPassed} from './object-page.js';
 import {engineerName} from './portfolio.js';
+import {contractTypes,referenceType} from './contracts-import.js';
 
 // Наша роль по договору, как её называют в ПТО.
 export const ourSide={contractor:'мы генподрядчик',subcontractor:'мы субподрядчик',customer:'мы генподрядчик',buyer:'мы покупатель',service_customer:'мы заказчик услуг'};
 const sideNames={customer:'Заказчик',general_contractor:'Генподрядчик',subcontractor:'Субподрядчик',supplier:'Поставщик',service_provider:'Исполнитель услуг'};
 // Группы списка: с заказчиком, субподряда, поставка и услуги.
-export const contractGroup=c=>c.direction==='outgoing'?'out':['customer',null,undefined,''].includes(c.our_role)?'in':'other';
-const GROUPS=[['out','С заказчиком'],['in','Субподряда'],['other','Поставка и услуги']];
+export const contractGroup=c=>referenceType(c)?'ref':c.direction==='outgoing'?'out':['customer',null,undefined,''].includes(c.our_role)?'in':'other';
+const GROUPS=[['out','С заказчиком'],['in','Субподряда'],['other','Поставка и услуги'],['ref','Справочно: договоры МПС с заказчиком и трёхсторонние']];
 // Новый договор: пара ролей сторон, которую принимает create_contract.
 export const contractKinds=[
  ['contractor:customer','С заказчиком, мы генподрядчик'],
@@ -50,10 +51,10 @@ export function contractsList({data,ui,profile,today}){
  const q=ui.contractQuery||'',kind=ui.contractKind||'all',state=ui.contractState||'act',obj=ui.contractObject||'',month=ui.month;
  const expected=expectedCards(data,month);
  const all=(data.contracts||[]).filter(c=>(!obj||c.project_id===obj)&&(kind==='all'||contractGroup(c)===kind)&&(state==='any'||(state==='act')!==contractFinished(data,c,today)));
- const canAdd=['head','engineer'].includes(profile?.role)&&(data.projects||[]).some(p=>canWrite(profile,data.memberships,p.id));
+ const canAdd=['head','engineer'].includes(profile?.role)&&(data.projects||[]).some(p=>canWrite(profile,data.memberships,p.id)),canImport=profile?.role==='head';
  const row=c=>{const p=projectOf(data,c.project_id),drafts=draftsOf(data,c),text=searchText(data,c);
   return `<tr class="ct-row" data-search="${e(text)}" ${q&&!text.includes(q)?'hidden':''} data-action="contract" data-id="${e(c.id)}" tabindex="0" role="button">
- <td class="ct-nw"><b>№ ${e(c.number)}</b><small>${c.contract_date?'от '+e(day(c.contract_date)):''}</small></td>
+ <td class="ct-nw"><b>№ ${e(c.number)}</b><small>${c.contract_date?'от '+e(day(c.contract_date)):''}${c.checked===false?' · <span class="ct-warn">не проверен</span>':''}</small></td>
  <td class="ct-nw"><i class="ct-dot" style="background:${objectColor(data.projects||[],c.project_id)}"></i>${e(p?.name||'')}<small>${e(engineerName(data,c.project_id)||'')}</small></td>
  <td>${e(c.party||'')}<small>${e([sideNames[c.counterparty_role],ourSide[c.our_role]].filter(Boolean).join(' · '))}</small></td>
  <td class="num">${has(c.current_amount)?money(c.current_amount):'<span class="muted">—</span>'}<small>${c.amount_addendum_number?'по ДС № '+e(c.amount_addendum_number):'по договору'}${drafts.length?` · <span class="ct-warn">ДС № ${drafts.map(a=>e(a.number)).join(', ')} в работе</span>`:''}</small></td>
@@ -66,9 +67,9 @@ export function contractsList({data,ui,profile,today}){
  const out=live.filter(c=>contractGroup(c)==='out'),sub=live.filter(c=>contractGroup(c)==='in');
  const late=live.filter(c=>expired(c,today)).length,ds=live.filter(c=>draftsOf(data,c).length).length;
  const monthLabel=new Date(month+'-01T12:00:00Z').toLocaleDateString('ru-RU',{month:'long',timeZone:'Europe/Minsk'});
- return `<div class="ob"><div class="heading"><div><h1>Договоры</h1><div class="muted">Все договоры организации. Стоимость и срок считаются по подписанным допсоглашениям.</div></div><div class="actions">${canAdd?'<button class="primary" data-action="new-contract" data-id="">Добавить договор</button>':''}</div></div>
+ return `<div class="ob"><div class="heading"><div><h1>Договоры</h1><div class="muted">Все договоры организации. Стоимость и срок считаются по подписанным допсоглашениям.</div></div><div class="actions">${canImport?'<button data-action="contracts-json" data-id="">Загрузить из файла</button><input id="contracts-json" type="file" accept=".json,application/json" hidden>':''}${canAdd?'<button class="primary" data-action="new-contract" data-id="">Добавить договор</button>':''}</div></div>
  <div class="ct-toolbar"><input id="contract-search" class="cp-search" type="search" autocomplete="off" placeholder="Поиск по номеру, стороне или объекту" aria-label="Поиск договора" value="${e(q)}">
- ${seg('contract-kind',kind,[['all','Все'],['out','С заказчиком'],['in','Субподряда'],['other','Поставка и услуги']])}
+ ${seg('contract-kind',kind,[['all','Все'],['out','С заказчиком'],['in','Субподряда'],['other','Поставка и услуги'],['ref','Справочно']])}
  ${seg('contract-state',state,[['act','Действующие'],['done','Завершённые'],['any','Все']])}
  <select id="contract-object" aria-label="Объект"><option value="">Все объекты</option>${(data.projects||[]).map(p=>`<option value="${e(p.id)}" ${p.id===obj?'selected':''}>${e(p.name)}</option>`).join('')}</select></div>
  <div class="ct-sum"><span>С заказчиком <b>${out.length}</b> на <b>${money(sumOf(out))}</b></span><span>Субподряда <b>${sub.length}</b> на <b>${money(sumOf(sub))}</b></span>${late?`<span class="ct-bad">Срок истёк <b>${late}</b></span>`:''}${ds?`<span class="ct-warn">ДС в работе <b>${ds}</b></span>`:''}</div>
@@ -132,7 +133,12 @@ export function contractCard({data,contract:c,canEdit,editing=false,today}){
   ${t===null?'':`<div class="ct-term"><div class="ct-term-l"><span class="${t>=90&&!contractFinished(data,c,today)?'neg':''}">прошло ${t} % срока</span><span class="muted">${e(day(c.work_start_date||c.contract_date))} — ${e(day(c.current_end_date))}</span></div><div class="ob-track"><i style="left:${t}%"></i></div></div>`}
   <dl class="ct-kv">${c.subject?`<dt>Предмет</dt><dd>${e(c.subject)}</dd>`:''}<dt>Срок</dt><dd>${c.current_end_date||c.work_start_date?`${e(day(c.work_start_date)||'…')} — ${e(day(c.current_end_date)||'…')} <span class="muted">${c.term_addendum_number?'по ДС № '+e(c.term_addendum_number):'по договору'}</span>`:'<span class="muted">не указан</span>'}</dd>
   ${parent?`<dt>К договору</dt><dd><button type="button" class="link" data-action="contract" data-id="${e(parent.id)}">№ ${e(parent.number)}</button> <span class="muted">${e(parent.party||'')}</span></dd>`:''}
-  <dt>Инженер</dt><dd>${e(engineerName(data,c.project_id)||'—')}</dd></dl>
+  <dt>Инженер</dt><dd>${e(engineerName(data,c.project_id)||'—')}</dd>
+  ${c.contract_type?`<dt>Вид</dt><dd>${e(contractTypes[c.contract_type]||c.contract_type)}</dd>`:''}
+  ${c.advance_current_percent||c.advance_target_amount?`<dt>Аванс</dt><dd>${[c.advance_current_percent?`текущий ${e(Number(c.advance_current_percent))} %`:'',c.advance_target_amount?`целевой ${money(c.advance_target_amount)}`:''].filter(Boolean).join(' · ')}</dd>`:''}
+  ${c.replaced_by||c.note?`<dt>Примечание</dt><dd>${e([c.replaced_by?'заменён: '+c.replaced_by:'',c.note].filter(Boolean).join(' · '))}</dd>`:''}
+  ${(c.files||[]).length?`<dt>Сканы</dt><dd>${c.files.map(f=>`<small class="ct-path">${e(f.path)}</small>`).join('')}</dd>`:''}</dl>
+  ${c.checked===false?`<div class="ct-unchecked"><span class="ct-warn">Не проверен: загружен из реестра или имени файла. В «Подписании» и месяце не участвует, пока не отмечен.</span>${canEdit?`<button type="button" class="cp-small" data-action="contract-checked" data-id="${e(c.id)}">Проверен</button>`:''}</div>`:''}
   ${terms.length?`<section class="cp-block"><div class="cp-block-head"><h3>Условия договора</h3>${has(c.vat_rate)?`<span class="muted">НДС ${e(c.vat_rate)} %</span>`:''}</div>${terms.map(([label,v,vat])=>`<div class="ct-line"><span>${label}</span><span class="ct-line-r ct-one">${has(vat)?`<small>НДС ${money(vat)}</small>`:''}${money(v)}</span></div>`).join('')}</section>`:''}
   ${partsBlock(data,c,canEdit)}
   <section class="cp-block"><div class="cp-block-head"><h3>Допсоглашения</h3>${canEdit?`<button type="button" class="cp-small" data-action="new-addendum" data-id="${e(c.id)}">+ Допсоглашение</button>`:''}</div>${addenda.length?addenda.map(a=>addendumLine(a,canEdit)).join(''):'<div class="cp-no-data">Допсоглашений нет.</div>'}</section>

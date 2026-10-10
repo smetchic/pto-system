@@ -25,3 +25,10 @@
 .cp-work-grid select{width:100%;color:var(--ink)}
 @media(max-width:640px){.ct-kv{grid-template-columns:90px minmax(0,1fr)}.ct-toolbar .cp-search{max-width:none}}
 .ct-one{flex-direction:row;align-items:baseline;gap:12px}
+/* Загрузка договоров из файла: объекты с галочками, договоры объекта по раскрытию. */
+.ci-list{display:flex;flex-direction:column;gap:4px;max-height:60vh;overflow:auto;margin:8px 0}
+.ci-obj summary{display:flex;gap:12px;align-items:baseline;padding:6px 4px;cursor:pointer;border-bottom:1px solid var(--ln)}
+.ci-obj summary label{display:flex;flex-direction:row;gap:8px;align-items:center;min-width:300px;margin:0;font-size:14px;color:var(--ink);text-transform:none;letter-spacing:0;font-weight:400}.ci-obj summary input{width:auto;margin:0}
+.ci-table{width:100%;font-size:13px}.ci-table td{padding:4px 6px;vertical-align:top}.ci-table small{display:block}
+.ct-path{display:block;word-break:break-all;color:var(--mu)}
+.ct-unchecked{display:flex;gap:12px;align-items:center;justify-content:space-between;margin:8px 0;padding:8px 10px;border:1px solid var(--ln);border-radius:6px}

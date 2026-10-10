@@ -2,6 +2,7 @@ import {renderWorkspace} from './views.js';
 import {createClient} from '@supabase/supabase-js';
 import {escapeHtml as e,money,isDone,canWrite,kindNames,roleNames,actionNames,emptyMatrix,registerSheetRows} from './domain.js';
 import {contractCard,newContractCard,newContractPayload,addendumCard,addendumStatusCard,partCard,partsOf,vatLabel} from './contracts.js';
+import {parseContractsFile,previewContracts,previewHtml} from './contracts-import.js';
 import {partyCard,contactCard,contactPayload,partyPayload,parseMnsXml,mnsPreview,mnsPreviewHtml} from './parties.js';
 import './style.css';
 import './parties.css';
@@ -167,6 +168,20 @@ async function importMns(files){
  modal('Загрузка сведений МНС',mnsPreviewHtml(preview)+`<p id="form-error" class="error" role="alert"></p><div class="actions">${todo.length?btn(`Сохранить (${todo.length})`,'mns-apply','',true):'<span class="muted">Изменений нет.</span>'}</div>`);
  ui.mnsRows=preview.map(p=>p.row);
 }
+// Загрузка договоров (pto-contracts v1): предпросмотр по объектам, загружаются отмеченные объекты.
+async function importContracts(file){
+ const items=parseContractsFile(await file.text()),groups=previewContracts(data,items);
+ ui.contractsImport=groups;
+ modal('Загрузка договоров',previewHtml(groups)+`<p id="form-error" class="error" role="alert"></p><div class="actions">${btn('Загрузить отмеченные объекты','ci-apply','',true)}</div>`,true);
+}
+async function applyContractsImport(){
+ const chosen=new Set([...document.querySelectorAll('.ci-check:checked')].map(x=>x.value));
+ const contracts=(ui.contractsImport||[]).filter(g=>chosen.has(g.object)).flatMap(g=>g.items.filter(x=>x.state!=='skip').map(({state,problems,confidence,check,...x})=>x));
+ if(!contracts.length)return toast('Отметьте хотя бы один объект');
+ const r=await mutate({op:'import_contracts',contracts});ui.contractsImport=null;dialog.close();
+ const skipped=r.skipped||[];
+ modal('Договоры загружены',`<p>Новых договоров ${r.created}, дополнено ${r.updated}, новых объектов ${r.projects}, новых контрагентов ${r.parties}, допсоглашений ${r.addenda}, частей договора ${r.parts}.</p>${r.addenda_skipped?`<p class="muted">ДС без номера или даты не загружены: ${r.addenda_skipped}.</p>`:''}${skipped.length?`<h3>Не загружены (${skipped.length})</h3>${skipped.map(x=>`<p>${e(x.key)}<small class="neg"> · ${e(x.reason)}</small></p>`).join('')}`:''}`);
+}
 // Справка С-3а: СМР с НДС = сумма актов комплекта (считает база); вводятся только выделенный НДС, оборудование и зачёт авансов.
 const c3aHint='<p class="muted">СМР с НДС за период не вводится: это сумма актов С-2 договора за месяц (текущие версии). После изменения акта создайте новую версию справки. «К оплате» и накопительные колонки считаются автоматически.</p>';
 // Боковая панель «Подписания» (signing-panel.js): шаг, комплект, замечания, история; команды — по формам панели.
@@ -287,6 +302,9 @@ async function action(name,id){
  }
  if(name==='mns-apply'){const r=await mutate({op:'import_counterparties',checked_at:new Date().toLocaleDateString('sv-SE',{timeZone:'Europe/Minsk'}),rows:ui.mnsRows||[]});ui.mnsRows=null;dialog.close();return toast(`Сведения МНС загружены: новых ${r.created}, обновлено ${r.updated}, без изменений ${r.unchanged}.`);}
  if(name==='mns-xml')return $('#mns-xml')?.click();
+ if(name==='contracts-json')return $('#contracts-json')?.click();
+ if(name==='ci-apply')return applyContractsImport();
+ if(name==='contract-checked'){await mutate({op:'set_contract_checked',contract_id:id,checked:true});return contractModal(id);}
  if(name==='party'||name==='new-party')return partyModal(name==='party'?id:null);
  if(name==='party-edit')return partyModal(id,true);
  if(name==='copy')return copyText(id);
@@ -333,7 +351,8 @@ async function action(name,id){
 async function exportXlsx(){const {default:ExcelJS}=await import('exceljs');const book=new ExcelJS.Workbook();book.creator='СУ-22 · ПТО';const sheet=book.addWorksheet('Реестр',{views:[{state:'frozen',xSplit:1,ySplit:2}]});const lines=registerSheetRows(data.matrix,ui.month);for(const line of lines){const row=sheet.addRow(line.values);if(line.bold)row.font={bold:true};}const width=lines[1].values.length;sheet.columns.forEach((c,i)=>{c.width=i?22:58;if(i)c.numFmt='#,##0.00;[Red]-#,##0.00';});sheet.autoFilter={from:{row:2,column:1},to:{row:2,column:width}};const buffer=await book.xlsx.writeBuffer();const link=document.createElement('a');link.href=URL.createObjectURL(new Blob([buffer],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));link.download=`Реестр_ПТО_${ui.month}.xlsx`;link.click();setTimeout(()=>URL.revokeObjectURL(link.href),10000);}
 function login(){app.innerHTML=`<section class="login"><div class="mark">П</div><div class="eyebrow">СУ-22 · единая система ПТО</div><h1>${ui.recovery?'Новый пароль':'Вход в рабочее пространство'}</h1><p class="muted">Объекты, документы и выполнение за месяц.</p><form id="login-form">${ui.recovery?'':field('email','Электронная почта','email')}${field('password','Пароль','password')}<p class="error" id="login-error" role="alert"></p><button class="primary">${ui.recovery?'Сохранить пароль':'Войти'}</button></form><p class="muted">Доступ выдаёт администратор системы.</p></section>`;$('#login-form').onsubmit=async ev=>{ev.preventDefault();const button=ev.submitter;button.disabled=true;try{const f=Object.fromEntries(new FormData(ev.target));if(ui.recovery){await query(client.auth.updateUser({password:f.password}));ui.recovery=false;toast('Пароль сохранён');await load();}else{const result=await query(client.auth.signInWithPassword(f));session=result.session;await load();}}catch(err){$('#login-error')&&($('#login-error').textContent=errorMessage(err));}finally{button.disabled=false;}};}
 // Поиск по справочнику контрагентов: строки скрываются на месте, без перерисовки страницы.
-document.addEventListener('change',async ev=>{if(ev.target.id!=='mns-xml'||!ev.target.files.length)return;try{await importMns([...ev.target.files]);}catch(err){toast(errorMessage(err));}finally{ev.target.value='';}});
+document.addEventListener('change',async ev=>{if(ev.target.id==='contracts-json'&&ev.target.files.length){try{await importContracts(ev.target.files[0]);}catch(err){toast(errorMessage(err));}finally{ev.target.value='';}return;}
+ if(ev.target.id!=='mns-xml'||!ev.target.files.length)return;try{await importMns([...ev.target.files]);}catch(err){toast(errorMessage(err));}finally{ev.target.value='';}});
 document.addEventListener('input',ev=>{if(!['party-search','contract-search'].includes(ev.target.id))return;const s=ev.target.value.trim().toLowerCase();if(ev.target.id==='contract-search')ui.contractQuery=s;let shown=0;for(const tr of document.querySelectorAll('tr[data-search]')){tr.hidden=!!s&&!tr.dataset.search.includes(s);if(!tr.hidden)shown++;}for(const g of document.querySelectorAll('tr.ct-grp')){let n=g.nextElementSibling,any=false;while(n&&!n.classList.contains('ct-grp')){if(n.dataset.search!==undefined&&!n.hidden)any=true;n=n.nextElementSibling;}g.hidden=!any;}const none=$('#party-empty')||$('#contract-empty');if(none)none.hidden=shown>0;});
 // Боковая карточка на просмотре закрывается кликом мимо неё. При правке (форма с data-editing или уже что-то введено) — нет, чтобы не потерять ввод.
 dialog.addEventListener('input',()=>{dialog.dataset.dirty='1';});

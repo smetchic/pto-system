@@ -604,3 +604,36 @@ test('sent to customer with a date, re-sending needs a reason; contract parts wi
  await as(users.director);await assert.rejects(command({op:'set_contract_part',contract_id:our,name:'Ещё'}),/Недостаточно прав/);
  assert.equal((await db.query('select count(*) from pto_contract_parts where contract_id=$1',[our])).rows[0].count,2,'руководитель читает части');
 });
+test('contracts import: objects, counterparties by UNP, unchecked contracts, addenda, parts; existing contract only gets empty fields',async()=>{
+ await as(users.head);
+ const pid=(await command({op:'create_project',name:'Импорт'})).project_id;
+ await command({op:'create_contract',project_id:pid,number:'7',party:'Ручной',direction:'incoming',subject:'введено вручную'});
+ const item=(x)=>({our_role:'customer',counterparty_role:'subcontractor',addenda:[],parts:[],files:[],...x});
+ const r=await command({op:'import_contracts',contracts:[
+  item({key:'ИМПОРТ/07',object:'Импорт',number:'7',subject:'из файла',amount:'1000.00',work_end:'2026-12-31',checked:false}),
+  item({key:'НОВЫЙ/01',object:'Новый объект',number:'1',unp:'123456789',party:'ООО «Ромашка»',party_full_name:'Общество «Ромашка»',type:'su22_sub',checked:false,
+   amount:'500.00',files:[{type:'contract',path:'НОВЫЙ/01/Договор.pdf'}],parts:[{name:'Жилая',vat_rate:'20',amount:'300.00'},{name:'Встроенные',vat_rate:'0',amount:'200.00'}],
+   addenda:[{number:'1',date:'2026-05-01',amount_after:'600.00',signed:null},{number:'2',date:null},{number:'3',date:'2026-06-01',signed:false}]}),
+  item({key:'НОВЫЙ/00',object:'Новый объект',number:'00',our_role:'subcontractor',counterparty_role:'general_contractor',party:'МПС',type:'su22_mps',checked:true}),
+  item({key:'НОВЫЙ/02',object:'Новый объект',number:'2',party:'Без УНП',parent_number:'00',type:'su22_sub',checked:true}),
+  item({key:'НОВЫЙ/bad',object:'Новый объект',number:'3',party:'Плохой',our_role:'customer',counterparty_role:'customer'})]});
+ assert.deepEqual([r.projects,r.parties,r.created,r.updated,r.addenda,r.addenda_skipped,r.parts],[1,1,3,1,2,1,2]);
+ assert.deepEqual(r.skipped.map(x=>[x.key,x.reason]),[['НОВЫЙ/bad','несовместимые роли сторон']]);
+ const manual=(await db.query("select * from pto_contracts where project_id=$1 and number='7'",[pid])).rows[0];
+ assert.deepEqual([manual.subject,manual.initial_amount,manual.source_key,manual.checked],['введено вручную','1000.00','ИМПОРТ/07',true],'ручное не перезаписано, пустое заполнено, отметка «проверен» не снята');
+ const np=(await db.query("select id from pto_projects where name='Новый объект'")).rows[0].id;
+ const c1=(await db.query("select * from pto_contract_list where project_id=$1 and number='1'",[np])).rows[0];
+ assert.deepEqual([c1.checked,c1.contract_type,c1.files[0].path,c1.current_amount,c1.party],[false,'su22_sub','НОВЫЙ/01/Договор.pdf','600.00','ООО «Ромашка»']);
+ assert.deepEqual((await db.query('select number,status from pto_contract_addenda where contract_id=$1 order by number',[c1.id])).rows.map(x=>[x.number,x.status]),[['1','signed'],['3','draft']]);
+ assert.equal((await db.query('select count(*)::int n from pto_contract_parts where contract_id=$1',[c1.id])).rows[0].n,2);
+ const c2=(await db.query("select c.parent_contract_id,p.number from pto_contracts c join pto_contracts p on p.id=c.parent_contract_id where c.source_key='НОВЫЙ/02'")).rows[0];
+ assert.equal(c2.number,'00','основной договор найден по номеру');
+ // Повторная загрузка того же файла ничего не дублирует.
+ const again=await command({op:'import_contracts',contracts:[item({key:'НОВЫЙ/01',object:'Новый объект',number:'1',unp:'123456789',party:'ООО «Ромашка»',addenda:[{number:'1',date:'2026-05-01'}]})]});
+ assert.deepEqual([again.created,again.updated,again.addenda,again.projects,again.parties],[0,1,0,0,0]);
+ await command({op:'member',project_id:np,user_id:users.engineer});
+ await as(users.engineer);
+ await assert.rejects(command({op:'import_contracts',contracts:[]}),/начальник ПТО/);
+ await command({op:'set_contract_checked',contract_id:c1.id,checked:true});
+ assert.equal((await db.query('select checked from pto_contracts where id=$1',[c1.id])).rows[0].checked,true);
+});
