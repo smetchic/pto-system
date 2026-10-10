@@ -183,18 +183,18 @@ test('subcontract prices, allocation limits, NaN, and stale source version guard
  assert.equal((await db.query('select template_code from pto_workflow_list where id=$1',[(await docRow(incoming)).workflow_id])).rows[0].template_code,'sub_claim');
  await pass(incoming);
  await assert.rejects(run('allocate',{outgoing_document:doc,incoming_document:incoming,amount:'NaN',note:'Проверка'}));
- // Субподряд больше выполнения допустим: собственные силы отрицательны и только подсвечиваются (Паркинг, дог. №265).
+ // «На заказчика» больше выполнения допустимо. Субподряд в реестре — акты субподрядчика в их ценах (D), а не сопоставление.
  await run('allocate',{outgoing_document:doc,incoming_document:incoming,amount:'200',note:'Проверка'});
- let neg=(await db.query('select * from pto_register')).rows[0];assert.equal(Number(neg.total)-Number(neg.subcontract),-70);
+ let neg=(await db.query('select * from pto_register')).rows[0];assert.equal(Number(neg.subcontract),40);
  await run('allocate',{outgoing_document:doc,incoming_document:incoming,amount:'50',note:'Стоимость сопоставленных работ на заказчика'});
- let r=(await db.query('select * from pto_register')).rows[0];assert.equal(Number(r.total),130);assert.equal(Number(r.subcontract),50);
+ let r=(await db.query('select * from pto_register')).rows[0];assert.equal(Number(r.total),130);assert.equal(Number(r.subcontract),40);
  await unlock(materials);await run('revise',{document_id:materials,reason:'Обновлены основания'});await pass(materials);
  await run('review');await run('close');
  await run('reopen',{reason:'Уточнение субподрядчика'});
  await as(users.head);await unlock(incoming);await run('revise',{document_id:incoming,amount:'45',reason:'Корректировка'});await pass(incoming);
  await assert.rejects(run('review'),/распределение субподряда/);
  const before=(await db.query('select data from pto_snapshots order by created_at desc limit 1')).rows[0].data;
- assert.equal(Number(before.register[0].total),130);assert.equal(Number(before.register[0].subcontract),50);
+ assert.equal(Number(before.register[0].total),130);assert.equal(Number(before.register[0].subcontract),40);
 });
 test('all public tables have RLS, definer functions are private, and anonymous execute is denied',async()=>{
  await db.exec('reset role');
@@ -539,4 +539,28 @@ test('month marks: subcontractor in the month, object marks, document marks and 
  await assert.rejects(command({op:'set_month_marks',period_id:per,equipment_expected:false}),/прав/);
  await as(users.outsider);await assert.rejects(command({op:'set_month_marks',period_id:per,equipment_expected:false}),/Нет доступа/);
  assert.equal((await db.query("select count(*)::int n from pto_events where project_id=$1 and action in ('set_sub_month','set_month_marks','set_document_mark','check_file')",[pid])).rows[0].n,8,'каждая отметка в журнале объекта; читают все инженеры организации');
+});
+test('register: own forces = total − subcontractors\' acts in their prices; «на заказчика» from the month mark, else from the allocation',async()=>{
+ await as(users.head);const month='2026-11-01';
+ const pid=(await command({op:'create_project',name:'Лида'})).project_id;
+ const per=(await command({op:'open_period',project_id:pid,month})).period_id;
+ const rev=async()=>(await db.query('select revision from pto_periods where id=$1',[per])).rows[0].revision;
+ const op=async(name,extra)=>command({op:name,period_id:per,expected_revision:await rev(),...extra});
+ const contract=async(number,party,direction)=>{await command({op:'create_contract',project_id:pid,number,party,direction});return (await db.query('select id from pto_contracts where project_id=$1 and number=$2',[pid,number])).rows[0].id;};
+ const [our,s1,s2]=[await contract('Л-1','Заказчик','outgoing'),await contract('Л-С1','Каменщик','incoming'),await contract('Л-С2','Электрик','incoming')];
+ const a1=(await op('create_document',{contract_id:s1,kind:'c2a',number:'к1',amount:'300.00'})).document_id;
+ const a2=(await op('create_document',{contract_id:s2,kind:'c2a',number:'э1',amount:'100.00'})).document_id;
+ await pass(a1);await pass(a2);
+ const out=(await op('create_document',{contract_id:our,kind:'c2a',number:'1',amount:'1000.00'})).document_id;
+ await op('create_document',{contract_id:our,kind:'c3a',number:'С-3а 1'});await pass(out);
+ await op('allocate',{outgoing_document:out,incoming_document:a1,amount:'450.00',note:'На заказчика'});
+ await op('allocate',{outgoing_document:out,incoming_document:a2,amount:'120.00',note:'На заказчика'});
+ await command({op:'set_sub_month',period_id:per,contract_id:s2,on_customer:'160.00'});
+ const reg=(await db.query('select * from pto_register where period_id=$1',[per])).rows[0];
+ assert.deepEqual([reg.total,reg.subcontract],['1000.00','400.00'],'субподряд = Σ актов субподрядчиков, а не сопоставление 570');
+ const m=(await db.query('select public.pto_register_matrix($1) m',[month])).rows[0].m;
+ const row=m.rows.find(r=>r.kind==='contract'&&r.contract_id===our);
+ assert.deepEqual([row.total,row.own,row.subcontract],['1000.00','600.00','400.00'],'генуслуги входят в свои силы');
+ assert.deepEqual(row.cells,{[s1]:'300.00',[s2]:'100.00'});
+ assert.deepEqual(row.customer_cells,{[s1]:'450.00',[s2]:'160.00'},'отметка месяца важнее сопоставления');
 });
