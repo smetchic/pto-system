@@ -19,9 +19,9 @@ export const moveOf=w=>w.template_code==='sub_claim'&&w.step_code==='check'&&!w.
 export const sayMove=m=>m?(m.mark?`отметить «${m.v}»`:m.v[0].toLowerCase()+m.v.slice(1)):'';
 export const turnOf=w=>sayMove(moveOf(w));
 export const openNotes=w=>Array.isArray(w?.open_notes)?w.open_notes:[];
-// Цвет объекта: назначается по порядку объектов; красный и оранжевый заняты тревогами.
+// Цвет объекта: выбранный в карточке объекта, иначе по порядку объектов; красный и оранжевый заняты тревогами.
 export const OBJECT_COLORS=['#2e5bd8','#0e8a80','#7446c2','#3d8a2c','#a83e85','#56677d','#1f7fae','#8a6d1f','#5b4fc4','#2f7a5a'];
-export const objectColor=(projects,id)=>{const i=projects.findIndex(p=>p.id===id);return OBJECT_COLORS[(i<0?0:i)%OBJECT_COLORS.length];};
+export const objectColor=(projects,id)=>{const i=projects.findIndex(p=>p.id===id);return projects[i]?.color||OBJECT_COLORS[(i<0?0:i)%OBJECT_COLORS.length];};
 
 const DAY=86400000;
 export const daysOnStep=(w,now)=>{const t=w.step_since||w.updated_at||w.created_at;return t?Math.max(0,Math.floor((now-new Date(t).getTime())/DAY)):0;};

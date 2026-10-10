@@ -1,7 +1,7 @@
 // Раздел «Договоры» (Ещё → Договоры): все договоры организации и боковая карточка договора.
 // Здесь только разметка из данных; запись — команды pto_command (create_contract, update_contract, create_addendum, set_addendum_status).
 import {escapeHtml as e,money,canWrite} from './domain.js';
-import {objectColor,activeIn,expectedCards,openNotes} from './conveyor.js';
+import {objectColor,OBJECT_COLORS,activeIn,expectedCards,openNotes} from './conveyor.js';
 import {termPassed} from './object-page.js';
 import {engineerName} from './portfolio.js';
 import {contractTypes,referenceType} from './contracts-import.js';
@@ -213,7 +213,8 @@ export function objectCard({data,project:p,canEdit,editing=false}){
  if(canEdit&&editing)return `<form id="project-form" class="cp-drawer-shell ob" autocomplete="off" data-editing>${head(p.name,`<div class="ct-sub">${dot}Объект</div>`)}
  <div class="cp-drawer-content">${section('Объект',`<div class="cp-work-grid"><div class="wide">${input('name','Краткое название',p.name,'text','required maxlength="120"')}</div>
   <div class="wide">${input('full_name','Полное наименование',p.full_name||'','text','maxlength="500"')}</div><div class="wide">${input('address','Адрес',p.address||'')}</div></div>`)}
-  <p class="cp-hint">Краткое название видно в Портфеле, «Подписании» и реестрах. Ответственного инженера назначают в «Команда и права».</p>
+  ${section('Цвет объекта',`<div class="ob-colors" role="radiogroup" aria-label="Цвет объекта">${OBJECT_COLORS.map(c=>`<label class="ob-color" title="${c}"><input type="radio" name="color" value="${c}" ${c===objectColor(data.projects||[],p.id)?'checked':''}><i style="background:${c}"></i></label>`).join('')}</div>`)}
+  <p class="cp-hint">Краткое название и цвет видны в Портфеле, «Подписании» и реестрах. Ответственного инженера назначают в «Команда и права».</p>
   <input type="hidden" name="project_id" value="${e(p.id)}"></div>
  <div class="cp-drawer-foot"><p id="contract-error" class="error" role="alert"></p><button type="button" data-action="object-card" data-id="${e(p.id)}">Отмена</button><button class="primary" type="submit">Сохранить</button></div></form>`;
  const list=(data.contracts||[]).filter(c=>c.project_id===p.id);
