@@ -67,6 +67,8 @@ async function load(){
  if(ui.project&&!projects.some(p=>p.id===ui.project))ui.project=null;
  render();
 }
+// Временный пароль для нового сотрудника: 10 символов без похожих букв и цифр.
+const tempPassword=()=>Array.from(crypto.getRandomValues(new Uint8Array(10)),b=>'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789'[b%55]).join('');
 function prevMonth(month){const [y,m]=month.split('-').map(Number),d=new Date(Date.UTC(y,m-2,1));return d.toISOString().slice(0,7);}
 function render(){app.innerHTML=renderWorkspace({ui,data,profile});}
 function modal(title,html,drawer=false){delete dialog.dataset.dirty;dialog.classList.remove('proc-drawer','cp-drawer');dialog.classList.toggle('document-drawer',drawer);dialog.innerHTML=`<div class="row"><h2>${e(title)}</h2>${btn('Закрыть','dismiss')}</div>${html}`;if(!dialog.open)dialog.showModal();}
@@ -352,6 +354,16 @@ async function action(name,id){
  return form('Сопоставить субподряд',select('outgoing_document','Исходящий акт',opts('outgoing'))+select('incoming_document','Входящий акт субподрядчика',opts('incoming'))+field('amount','Сумма в ценах предъявления заказчику, руб.','number')+note('note','Основание сопоставления работ'),x=>mutate(periodPayload('allocate',x)));
  }
  if(name==='profile'){const p=data.profiles.find(p=>p.id===id);return form('Учётная запись',field('display_name','Имя', 'text',p.display_name)+select('role','Роль',Object.entries(roleNames).sort(([a])=>a===p.role?-1:1))+select('active','Состояние',p.active?[['true','Активен'],['false','Отключён']]:[['false','Отключён'],['true','Активен']]),x=>mutate({op:'profile',user_id:id,...x}));}
+ // Новый сотрудник: учётную запись создаёт функция pto-team-add (только начальник ПТО), затем имя, роль и объект — обычными командами.
+ if(name==='new-member')return form('Новый сотрудник',field('display_name','Имя (как показывать в системе)')+field('email','Электронная почта для входа','email')+field('password','Временный пароль, не короче 8 символов','text',tempPassword())+select('role','Роль',[['engineer','Инженер ПТО'],['director','Руководитель'],['head','Начальник ПТО']])+(data.projects.length?select('project_id','Объект (для инженера)',[['','Без объекта'],...data.projects.map(p=>[p.id,p.name])]).replace(' required',''):'')+'<p class="muted">Сообщите сотруднику почту и временный пароль. Пароль он сменит в «Настройках».</p>',async x=>{
+  const {data:r,error}=await client.functions.invoke('pto-team-add',{body:{email:x.email,password:x.password,display_name:x.display_name}});
+  if(error){let text=error.message;try{text=(await error.context.json()).error||text;}catch{}throw Error(text);}
+  await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'profile',user_id:r.user_id,display_name:x.display_name,role:x.role,active:'true'}}));
+  if(x.project_id&&x.role==='engineer')await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'member',user_id:r.user_id,project_id:x.project_id,remove:'false'}}));
+  await load();toast('Сотрудник добавлен');});
+ if(name==='password')return form('Смена пароля',field('password','Новый пароль, не короче 8 символов','password')+field('repeat','Повторите пароль','password'),async x=>{
+  if(x.password.length<8)throw Error('Пароль должен быть не короче 8 символов');if(x.password!==x.repeat)throw Error('Пароли не совпадают');
+  await query(client.auth.updateUser({password:x.password}));toast('Пароль изменён');});
  if(name==='member'){if(!data.projects.length)return toast('Сначала создайте объект');return form('Доступ к объекту',select('project_id','Объект',data.projects.map(p=>[p.id,p.name]))+select('remove','Действие',[['false','Предоставить доступ'],['true','Снять доступ']]),x=>mutate({op:'member',user_id:id,...x}));}
  if(name==='download'){const r=await query(client.storage.from('pto-documents').createSignedUrl(id,60,{download:true}));const a=document.createElement('a');a.href=r.signedUrl;a.target='_blank';a.rel='noopener';a.click();return;}
  if(name==='print')return window.print();
