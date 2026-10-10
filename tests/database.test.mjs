@@ -647,6 +647,11 @@ test('object card: head edits name, full name and address; duplicate name and en
  assert.deepEqual([p.name,p.full_name,p.address],['Правка-2','Новое полное','']);
  const ev=(await db.query("select detail from pto_events where project_id=$1 and action='update_project'",[a])).rows[0].detail;
  assert.deepEqual([ev.before.name,ev.after.name],['Правка','Правка-2']);
+ await command({op:'update_project',project_id:a,name:'Правка-2',full_name:'Новое полное',color:'#7446C2'});
+ assert.equal((await db.query('select color from pto_projects where id=$1',[a])).rows[0].color,'#7446c2');
+ await command({op:'update_project',project_id:a,name:'Правка-2',full_name:'Новое полное'});
+ assert.equal((await db.query('select color from pto_projects where id=$1',[a])).rows[0].color,'#7446c2','без поля цвет не меняется');
+ await assert.rejects(command({op:'update_project',project_id:a,name:'Правка-2',full_name:'x',color:'red'}),/Неверный цвет/);
  await assert.rejects(command({op:'update_project',project_id:a,name:'занято',full_name:'x'}),/уже есть/);
  await assert.rejects(command({op:'update_project',project_id:a,name:'',full_name:'x'}),/Краткое название/);
  await command({op:'member',project_id:a,user_id:users.engineer});

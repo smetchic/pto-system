@@ -1,4 +1,5 @@
-// Добавление сотрудника в «Команда и права»: учётную запись создаёт только начальник ПТО.
+// Учётные записи в «Команда и права»: создаёт и правит только начальник ПТО.
+// action create (по умолчанию) — новый сотрудник; emails — почты всех учётных записей для карточек; update — новая почта и/или пароль.
 // Создаётся вход по почте и временному паролю (почта подтверждена, письмо не отправляется); имя, роль, активность
 // и объект задаёт затем приложение обычными командами pto_command (op profile и member). Пароль сотрудник меняет в «Настройках».
 import {createClient} from 'npm:@supabase/supabase-js@2.45.4';
@@ -18,8 +19,24 @@ Deno.serve(async req=>{
   if(me?.role!=='head'||!me.active)return json({error:'Добавлять сотрудников может начальник ПТО'},403);
 
   const body=await req.json().catch(()=>({}));
+  const action=String(body.action||'create');
   const email=String(body.email||'').trim().toLowerCase(),password=String(body.password||''),name=String(body.display_name||'').trim();
-  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return json({error:'Укажите электронную почту'},400);
+  const emailOk=/^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if(action==='emails'){
+   const {data,error}=await admin.auth.admin.listUsers({page:1,perPage:1000});
+   if(error)return json({error:error.message},400);
+   return json({users:data.users.map(u=>({id:u.id,email:u.email||''}))});
+  }
+  if(action==='update'){
+   const id=String(body.user_id||''),change:{email?:string,email_confirm?:boolean,password?:string}={};
+   if(email){if(!emailOk.test(email))return json({error:'Укажите электронную почту'},400);change.email=email;change.email_confirm=true;}
+   if(password){if(password.length<8)return json({error:'Пароль — не короче 8 символов'},400);change.password=password;}
+   if(!id||!Object.keys(change).length)return json({error:'Нечего менять'},400);
+   const {error}=await admin.auth.admin.updateUserById(id,change);
+   if(error)return json({error:/already|registered|exists/i.test(error.message)?'Сотрудник с такой почтой уже есть':error.message},400);
+   return json({user_id:id});
+  }
+  if(!emailOk.test(email))return json({error:'Укажите электронную почту'},400);
   if(password.length<8)return json({error:'Временный пароль — не короче 8 символов'},400);
   if(name.length<1||name.length>120)return json({error:'Укажите имя'},400);
 

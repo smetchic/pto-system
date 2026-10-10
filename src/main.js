@@ -1,7 +1,7 @@
 import {renderWorkspace} from './views.js';
 import {createClient} from '@supabase/supabase-js';
 import {escapeHtml as e,money,isDone,canWrite,kindNames,roleNames,actionNames,emptyMatrix,registerSheetRows} from './domain.js';
-import {contractCard,newContractCard,newContractPayload,addendumCard,addendumStatusCard,partCard,partsOf,vatLabel,objectCard} from './contracts.js';
+import {contractCard,newContractCard,newContractPayload,addendumCard,addendumStatusCard,partCard,partsOf,vatLabel,objectCard,memberCard} from './contracts.js';
 import {parseContractsFile,previewContracts,previewHtml} from './contracts-import.js';
 import {partyCard,contactCard,contactPayload,partyPayload,parseMnsXml,mnsPreview,mnsPreviewHtml} from './parties.js';
 import './style.css';
@@ -253,6 +253,24 @@ function objectModal(id,editing=false){
  contractDrawer(objectCard({data,project:p,canEdit,editing}),'project-form',canEdit&&editing?async form=>{
   await mutate({op:'update_project',...Object.fromEntries(form)});objectModal(id);}:null);
 }
+// Карточка сотрудника («Команда и права»): имя, роль и доступ — команда profile; объекты — member по изменённым;
+// почта и пароль — функция pto-team-add (action update). Почты учётных записей видит только начальник ПТО.
+async function teamFn(body){const {data:r,error}=await client.functions.invoke('pto-team-add',{body});if(error){let text=error.message;try{text=(await error.context.json()).error||text;}catch{}throw Error(text);}return r;}
+let teamEmails=null;
+async function memberModal(id,editing=false){
+ const u=data.profiles.find(x=>x.id===id);if(!u)throw Error('Сотрудник не найден');
+ const canEdit=profile?.role==='head'&&u.id!==profile.id;
+ if(profile?.role==='head'&&!teamEmails)try{teamEmails=Object.fromEntries((await teamFn({action:'emails'})).users.map(x=>[x.id,x.email]));}catch{teamEmails={};}
+ const email=teamEmails?.[id]||'';
+ contractDrawer(memberCard({data,person:u,canEdit,editing,email}),'member-form',canEdit&&editing?async form=>{
+  const x=Object.fromEntries(form),now=new Set(form.getAll('project_ids')),had=new Set(data.memberships.filter(m=>m.user_id===id).map(m=>m.project_id));
+  const rpc=payload=>query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload}));
+  const newEmail=String(x.email||'').trim().toLowerCase(),pass=String(x.password||'');
+  if((newEmail&&newEmail!==email)||pass){await teamFn({action:'update',user_id:id,email:newEmail!==email?newEmail:'',password:pass});if(newEmail)teamEmails[id]=newEmail;}
+  if(x.display_name.trim()!==u.display_name||x.role!==u.role||(x.active==='true')!==!!u.active)await rpc({op:'profile',user_id:id,display_name:x.display_name,role:x.role,active:x.active});
+  for(const p of data.projects)if(had.has(p.id)!==now.has(p.id))await rpc({op:'member',user_id:id,project_id:p.id,remove:String(!now.has(p.id))});
+  await load();toast('Сохранено');memberModal(id);}:null);
+}
 function newContract(){
  contractDrawer(newContractCard({data,profile,projectId:ui.route==='project'?ui.project:''}),'new-contract-form',async form=>{
   const payload=newContractPayload(form);await mutate(payload);
@@ -299,6 +317,8 @@ async function action(name,id){
  if(name==='text-scale'){const scale=Number(id);if(!textScales.includes(scale))return;ui.textScale=scale;try{localStorage.setItem('pto-text-scale',id);}catch{}applyTextScale();render();await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'set_text_scale',text_scale:scale}}));profile.text_scale=scale;return toast('Размер текста сохранён в профиле');}
  if(name==='theme'){if(!['light','dark','system'].includes(id))return;ui.theme=id;try{localStorage.setItem('pto-theme',id);}catch{}applyTheme();render();await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'set_theme',theme:id}}));profile.theme=id;return toast('Тема сохранена в профиле');}
  if(name==='object-card')return objectModal(id);
+ if(name==='member-card')return memberModal(id);
+ if(name==='edit-member')return memberModal(id,true);
  if(name==='edit-object')return objectModal(id,true);
  if(name==='project'){if(dialog.open)dialog.close();ui.project=id;ui.route='project';ui.projectTab='month';ui.historyKind='';ui.more=false;return render();}
  if(name==='new-project')return form('Новый объект',field('name','Короткое название')+field('full_name','Полное наименование объекта')+field('address','Адрес','text','',false),async x=>{const r=await mutate({op:'create_project',...x});ui.project=r.project_id;ui.route='project';render();});
@@ -357,23 +377,16 @@ async function action(name,id){
  if(!opts('incoming').length||!opts('outgoing').length)return toast('Нужны принятые исходящий и входящий акты.');
  return form('Сопоставить субподряд',select('outgoing_document','Исходящий акт',opts('outgoing'))+select('incoming_document','Входящий акт субподрядчика',opts('incoming'))+field('amount','Сумма в ценах предъявления заказчику, руб.','number')+note('note','Основание сопоставления работ'),x=>mutate(periodPayload('allocate',x)));
  }
- if(name==='profile'){const p=data.profiles.find(p=>p.id===id);return form('Учётная запись',field('display_name','Имя', 'text',p.display_name)+select('role','Роль',Object.entries(roleNames).sort(([a])=>a===p.role?-1:1))+select('active','Состояние',p.active?[['true','Активен'],['false','Отключён']]:[['false','Отключён'],['true','Активен']]),x=>mutate({op:'profile',user_id:id,...x}));}
  // Новый сотрудник: учётную запись создаёт функция pto-team-add (только начальник ПТО), затем имя, роль и объект — обычными командами.
  if(name==='new-member')return form('Новый сотрудник',field('display_name','Имя (как показывать в системе)')+field('email','Электронная почта для входа','email')+field('password','Временный пароль, не короче 8 символов','text',tempPassword())+select('role','Роль',[['engineer','Инженер ПТО'],['director','Руководитель'],['head','Начальник ПТО']])+objectChecks()+'<p class="muted">Сообщите сотруднику почту и временный пароль. Пароль он сменит в «Настройках».</p>',async x=>{
   const chosen=checkedObjects();
-  const {data:r,error}=await client.functions.invoke('pto-team-add',{body:{email:x.email,password:x.password,display_name:x.display_name}});
-  if(error){let text=error.message;try{text=(await error.context.json()).error||text;}catch{}throw Error(text);}
+  const r=await teamFn({email:x.email,password:x.password,display_name:x.display_name});if(teamEmails)teamEmails[r.user_id]=x.email.trim().toLowerCase();
   await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'profile',user_id:r.user_id,display_name:x.display_name,role:x.role,active:'true'}}));
   if(x.role==='engineer')for(const project_id of chosen)await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'member',user_id:r.user_id,project_id,remove:'false'}}));
   await load();toast('Сотрудник добавлен');});
  if(name==='password')return form('Смена пароля',field('password','Новый пароль, не короче 8 символов','password')+field('repeat','Повторите пароль','password'),async x=>{
   if(x.password.length<8)throw Error('Пароль должен быть не короче 8 символов');if(x.password!==x.repeat)throw Error('Пароли не совпадают');
   await query(client.auth.updateUser({password:x.password}));toast('Пароль изменён');});
- if(name==='member'){if(!data.projects.length)return toast('Сначала создайте объект');
-  const had=new Set(data.memberships.filter(m=>m.user_id===id).map(m=>m.project_id));
-  return form('Объекты инженера',objectChecks(had),async()=>{const now=new Set(checkedObjects());
-   for(const project_id of data.projects.map(p=>p.id))if(had.has(project_id)!==now.has(project_id))await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'member',user_id:id,project_id,remove:String(!now.has(project_id))}}));
-   await load();toast('Сохранено');});}
  if(name==='download'){const r=await query(client.storage.from('pto-documents').createSignedUrl(id,60,{download:true}));const a=document.createElement('a');a.href=r.signedUrl;a.target='_blank';a.rel='noopener';a.click();return;}
  if(name==='print')return window.print();
  if(name==='export')return exportXlsx();
