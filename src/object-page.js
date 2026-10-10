@@ -105,7 +105,10 @@ export function objectPage({ui,data,profile,today,now=Date.now()}){
    const t=x.expected?null:tnOf(x);
    const ourActs=t?[[t.n('prep'),'готовится'],[t.n('tn'),'у ТН'],[t.n('remarks'),'замечания']].filter(([k])=>k).map(([k,l])=>`${l} ${k}`).concat(`подписано ${t.n('ok')} из ${t.rows.length}`).join(' · ')+(t.hold.length?` · шаг держат: ${t.hold.join(', ')}`:''):`актов ${kit.filter(d=>d.workflow_id===x.id&&d.kind!=='c3a'&&d.kind!=='c29').length}`;
    const allOk=t&&!t.all&&canEdit?`<button class="btn" data-action="acts-all-ok" data-id="${e(x.id)}">Все наши проверены</button>`:'';
-   const counts=x.expected?'':`<span class="muted">${ourActs} · субподряд: прошли ТН ${passed.length} из ${active.length}</span>${allOk}`;
+   // «Отправлено заказчику» — событие внутри шага «На проверке» (pto_month_marks: дата, первая дата, причина повторной отправки).
+   const sent=x.step_code!=='check'?'':mm.sent_on?`<span class="mo-ok">у заказчика с ${dm(mm.first_sent_on||mm.sent_on)}</span>${mm.first_sent_on&&mm.first_sent_on!==mm.sent_on?`<span class="ob-flag" title="${e(mm.sent_note||'')}">⚑ переделка: отправлено повторно ${dm(mm.sent_on)}${mm.sent_note?' · '+e(mm.sent_note):''}</span>`:''}${canEdit?`<button class="btn" data-action="sent-customer" data-id="">Отправлено повторно</button>`:''}`
+    :canEdit?`<button class="btn" data-action="sent-customer" data-id="">Отправлено заказчику</button>`:'<span class="muted">заказчику ещё не отправлено</span>';
+   const counts=x.expected?'':`<span class="muted">${ourActs} · субподряд: прошли ТН ${passed.length} из ${active.length}</span>${allOk}${sent}`;
    return `<section class="ob-panel mo-step ob-click" ${open(x)} tabindex="0" role="button" aria-label="Процентовка по договору № ${e(c.number)}">
     <div><div class="mo-cap">Процентовка за ${e(monthName(month))}${ours.length>1?` · дог. № ${e(c.number)}`:''}</div><b class="mo-now">${e(COLUMNS[ixOf(x)][1])}</b></div>
     <div class="mo-right">${stepsBar(x)}<div class="mo-turn">${turn(x)}${counts}${blocked(x)}${flag}</div></div></section>`;};

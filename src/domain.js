@@ -17,7 +17,7 @@ export const actionNames={workflow_advance:'Комплект передан на
 // Реестр за месяц считает база (pto_register_matrix); суммы приходят строками и здесь не складываются.
 export const emptyMatrix={columns:[],rows:[],total:{total:'0.00',own:'0.00',subcontract:'0.00',cells:{}}};
 export const matrixOf=value=>value&&!Array.isArray(value)&&Array.isArray(value.rows)?value:emptyMatrix;
-export const rowLabel=r=>r.kind==='project'?`Итого по объекту ${r.project}`:`${r.project} · ${r.number} · Итого по договору`;
+export const rowLabel=r=>r.kind==='project'?`Итого по объекту ${r.project}`:r.kind==='part'?`${r.project} · ${r.number} · ${r.part}${r.vat_rate===null||r.vat_rate===undefined?'':Number(r.vat_rate)===0?' (без НДС)':` (НДС ${Number(r.vat_rate)} %)`}`:`${r.project} · ${r.number} · Итого по договору`;
 const cellNumber=value=>value===undefined||value===null||value===''?null:Number(value);
 export function registerSheetRows(value,month){
  const m=matrixOf(value),line=r=>[cellNumber(r.total),cellNumber(r.own),cellNumber(r.subcontract),...m.columns.map(c=>cellNumber(r.cells?.[c.id]))];

@@ -58,6 +58,7 @@ small{font-size:12px}p{margin:8px 0 14px}.muted,small{color:var(--mu)}td small,.
 .section-title{display:flex;justify-content:space-between;align-items:center;gap:16px;margin:26px 0 8px}.section-title h2{margin:0}.section-title>span{font-size:12px}
 .empty{padding:24px 12px;color:var(--mu);text-align:center;border:1px dashed var(--ln);border-radius:8px}
 .table-wrap{overflow:auto;max-width:100%;margin-top:12px}table{font-size:13px}td{vertical-align:top}tr.total{font-weight:600}.total td{border-top:2px solid var(--ln)}
+tr.part td{color:var(--mu);border-top:0}tr.part td:first-child{padding-left:20px}
 .link{border:0;background:none!important;color:var(--ac);padding:0;text-align:left;font-weight:500}.link:hover{text-decoration:underline}.back{display:inline-block;color:var(--mu);margin-bottom:14px}
 .badge{display:inline-block;padding:1px 8px;border-radius:5px;font-size:12px;font-weight:500;background:var(--acs);color:var(--ac)}.badge.good{background:var(--hv);color:var(--ok)}
 #hd .nav-item{display:flex;align-items:center;gap:12px;height:36px;min-height:36px;padding:0 8px;border:0;background:transparent;border-radius:6px;color:var(--mu);text-align:left}

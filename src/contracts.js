@@ -134,6 +134,7 @@ export function contractCard({data,contract:c,canEdit,editing=false,today}){
   ${parent?`<dt>К договору</dt><dd><button type="button" class="link" data-action="contract" data-id="${e(parent.id)}">№ ${e(parent.number)}</button> <span class="muted">${e(parent.party||'')}</span></dd>`:''}
   <dt>Инженер</dt><dd>${e(engineerName(data,c.project_id)||'—')}</dd></dl>
   ${terms.length?`<section class="cp-block"><div class="cp-block-head"><h3>Условия договора</h3>${has(c.vat_rate)?`<span class="muted">НДС ${e(c.vat_rate)} %</span>`:''}</div>${terms.map(([label,v,vat])=>`<div class="ct-line"><span>${label}</span><span class="ct-line-r ct-one">${has(vat)?`<small>НДС ${money(vat)}</small>`:''}${money(v)}</span></div>`).join('')}</section>`:''}
+  ${partsBlock(data,c,canEdit)}
   <section class="cp-block"><div class="cp-block-head"><h3>Допсоглашения</h3>${canEdit?`<button type="button" class="cp-small" data-action="new-addendum" data-id="${e(c.id)}">+ Допсоглашение</button>`:''}</div>${addenda.length?addenda.map(a=>addendumLine(a,canEdit)).join(''):'<div class="cp-no-data">Допсоглашений нет.</div>'}</section>
  </div>
  <div class="cp-drawer-foot"><span class="cp-foot-note">${c.created_at?'Внесён '+e(day(c.created_at)):''}</span>${canEdit?`<button class="primary" type="button" data-action="edit-contract" data-id="${e(c.id)}">Изменить</button>`:''}</div></form>`;
@@ -160,6 +161,24 @@ export function newContractPayload(form){
 }
 
 // Допсоглашение: новое (проект или подписанное) и отмена с причиной — формы в той же панели.
+// Части договора (ССР) со своей ставкой НДС: акты и С-3а по частям, комплект и статус общие (бриф, раздел 2).
+export const partsOf=(data,contractId)=>(data.contractParts||[]).filter(p=>p.contract_id===contractId).sort((a,b)=>a.ordinal-b.ordinal);
+export const vatLabel=p=>!has(p.vat_rate)?'НДС не указан':Number(p.vat_rate)===0?'без НДС':`НДС ${Number(p.vat_rate)} %`;
+function partsBlock(data,c,canEdit){
+ const parts=partsOf(data,c.id);
+ if(!parts.length&&!canEdit)return '';
+ return `<section class="cp-block"><div class="cp-block-head"><h3>Части договора</h3>${canEdit?`<button type="button" class="cp-small" data-action="new-part" data-id="${e(c.id)}">+ Часть</button>`:''}</div>${parts.length?parts.map(p=>`<div class="ct-line${p.active?'':' muted'}"${canEdit?` data-action="edit-part" data-id="${e(p.id)}" role="button" tabindex="0"`:''}><span>${e(p.name)}${p.active?'':' · не действует'}</span><span class="ct-line-r ct-one"><small>${e(vatLabel(p))}</small>${has(p.amount)?money(p.amount):''}</span></div>`).join(''):'<div class="cp-no-data">Одна часть: акты и справка С-3а на весь договор.</div>'}</section>`;
+}
+export function partCard({data,contract:c,part:p}){
+ return `<form id="part-form" class="cp-drawer-shell ob" autocomplete="off" data-editing>${head(p?`Часть договора № ${c.number}`:`Новая часть договора № ${c.number}`,subLine(data,c))}
+ <div class="cp-drawer-content"><div class="cp-work-grid">
+  <div class="wide">${input('name','Название (как в ССР)',p?.name||'','text','required maxlength="200"')}</div>
+  ${amount('vat_rate','Ставка НДС, % (0 — без НДС)',p?.vat_rate)}${amount('amount','Стоимость части, руб.',p?.amount)}
+  ${p?`<div class="wide"><label>Состояние<select name="active"><option value="true">Действует</option><option value="false" ${p.active?'':'selected'}>Не действует</option></select></label></div>`:''}</div>
+  <p class="cp-hint">Акт и справку С-3а относят к части в карточке документа («Отметки»). В реестре строка на каждую часть и «Итого по договору».</p>
+  <input type="hidden" name="${p?'part_id':'contract_id'}" value="${e(p?p.id:c.id)}"></div>
+ <div class="cp-drawer-foot"><p id="contract-error" class="error" role="alert"></p><button type="button" data-action="contract" data-id="${e(c.id)}">Отмена</button><button class="primary" type="submit">Сохранить</button></div></form>`;
+}
 export function addendumCard({data,contract:c}){
  return `<form id="addendum-form" class="cp-drawer-shell ob" autocomplete="off" data-editing>${head(`Допсоглашение к договору № ${c.number}`,subLine(data,c))}
  <div class="cp-drawer-content"><div class="cp-work-grid">
