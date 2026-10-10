@@ -75,7 +75,10 @@ test('negative own forces are shown and highlighted, not hidden',()=>{
  ctx.data.matrix.rows[0].own=ctx.data.matrix.total.own='-224.58';
  for(const route of ['register','objects']){ctx.ui.route=route;ctx.ui.portfolioView='table';
   assert.match(renderWorkspace(ctx),/class="num neg"[^>]*>-224,58</,route);}
- ctx.ui.route='project';ctx.ui.projectTab='month';assert.match(renderWorkspace(ctx),/class="neg"[^>]*>(≈ )?-224,58</);
+ // На вкладке «Месяц» своими силами = всего − субподряд в их ценах (docs/month.md).
+ ctx.data.contracts.push({id:'sc',project_id:'object',number:'С-1',party:'Суб',direction:'incoming'});
+ ctx.data.workflows.push({id:'sw',template_code:'sub_claim',project_id:'object',period_id:'period',contract_id:'sc',step_code:'check',step_label:'На проверке',step_ordinal:4,acts_amount:'324.58',open_notes:[]});
+ ctx.ui.route='project';ctx.ui.projectTab='month';assert.match(renderWorkspace(ctx),/class="neg"[^>]*>-224,58</);
 });
 
 test('register renders the database matrix: sub-contract columns, object subtotal and total without client sums',()=>{
@@ -99,7 +102,7 @@ test('register shows the operative estimate separately and marks the basis of ac
  assert.match(html,/Оценка, предв\./);assert.match(html,/<td class="num muted">150,00</);
  assert.match(html,/по актам, С-3а не принята/);
  ctx.data.matrix.rows[0].basis='c3a';assert.match(renderWorkspace(ctx),/Итого по договору · по С-3а/);
- ctx.ui.route='project';ctx.ui.projectTab='month';assert.match(renderWorkspace(ctx),/Оценка выполнения<\/b><span>150,00 · предварительно/);
+ ctx.ui.route='project';ctx.ui.projectTab='month';assert.match(renderWorkspace(ctx),/Оценка выполнения[^]*?150,00/);
 });
 
 test('contracts tab shows computed current price and term and opens the contract card',()=>{
