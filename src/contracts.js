@@ -205,3 +205,23 @@ export function addendumStatusCard({data,contract:c,addendum:a,status}){
   <input type="hidden" name="addendum_id" value="${e(a.id)}"><input type="hidden" name="status" value="${status}"></div>
  <div class="cp-drawer-foot"><p id="contract-error" class="error" role="alert"></p><button type="button" data-action="contract" data-id="${e(c.id)}">Назад</button><button class="primary" type="submit">${cancel?'Отменить ДС':'Подтвердить'}</button></div></form>`;
 }
+
+// Карточка объекта в «Ещё → Объекты»: просмотр и правка названия, полного наименования и адреса (правит начальник ПТО).
+// Инженер назначается в «Команда и права»; работа по объекту — на его странице («Открыть объект»).
+export function objectCard({data,project:p,canEdit,editing=false}){
+ const dot=`<i class="ct-dot" style="background:${objectColor(data.projects||[],p.id)}"></i>`;
+ if(canEdit&&editing)return `<form id="project-form" class="cp-drawer-shell ob" autocomplete="off" data-editing>${head(p.name,`<div class="ct-sub">${dot}Объект</div>`)}
+ <div class="cp-drawer-content">${section('Объект',`<div class="cp-work-grid"><div class="wide">${input('name','Краткое название',p.name,'text','required maxlength="120"')}</div>
+  <div class="wide">${input('full_name','Полное наименование',p.full_name||'','text','maxlength="500"')}</div><div class="wide">${input('address','Адрес',p.address||'')}</div></div>`)}
+  <p class="cp-hint">Краткое название видно в Портфеле, «Подписании» и реестрах. Ответственного инженера назначают в «Команда и права».</p>
+  <input type="hidden" name="project_id" value="${e(p.id)}"></div>
+ <div class="cp-drawer-foot"><p id="contract-error" class="error" role="alert"></p><button type="button" data-action="object-card" data-id="${e(p.id)}">Отмена</button><button class="primary" type="submit">Сохранить</button></div></form>`;
+ const list=(data.contracts||[]).filter(c=>c.project_id===p.id);
+ const count=g=>list.filter(c=>contractGroup(c)===g).length,unchecked=list.filter(c=>c.checked===false).length;
+ const counts=GROUPS.map(([g,label])=>[label.replace(/:.*$/,''),count(g)]).filter(([,n])=>n);
+ return `<div class="cp-drawer-shell ob">${head(p.name,`<div class="ct-sub">${dot}Объект</div>`)}
+ <div class="cp-drawer-content"><dl class="ct-kv"><dt>Полное наименование</dt><dd>${e(p.full_name||'—')}</dd><dt>Адрес</dt><dd>${p.address?e(p.address):'<span class="muted">не указан</span>'}</dd>
+  <dt>Инженер</dt><dd>${e(engineerName(data,p.id)||'—')}</dd>
+  <dt>Договоры</dt><dd>${list.length?counts.map(([label,n])=>`${e(label)}: ${n}`).join(' · ')+(unchecked?` <span class="ct-warn">не проверено: ${unchecked}</span>`:''):'<span class="muted">нет</span>'}</dd></dl></div>
+ <div class="cp-drawer-foot"><span class="cp-foot-note">${p.created_at?'Внесён '+e(day(p.created_at)):''}</span><button type="button" data-action="project" data-id="${e(p.id)}">Открыть объект</button>${canEdit?`<button class="primary" type="button" data-action="edit-object" data-id="${e(p.id)}">Изменить</button>`:''}</div></div>`;
+}

@@ -89,5 +89,5 @@ export function objectListPage({data,profile}){
  const add=profile?.role==='head'?`<button class="primary" data-action="new-project" data-id="">Добавить объект</button>`:'';
  const list=data.projects||[];
  return `<div class="heading"><div><h1>Объекты</h1><div class="muted">Справочник объектов. Ответственного инженера назначает начальник ПТО в разделе «Команда и права».</div></div><div class="actions">${add}</div></div>`+
- (list.length?`<div class="table-wrap"><table><thead><tr><th>Объект</th><th>Полное наименование</th><th>Адрес</th><th>Инженер</th></tr></thead><tbody>${list.map(p=>`<tr><td><button class="link" data-action="project" data-id="${e(p.id)}">${e(p.name)}</button></td><td>${e(p.full_name||'')}</td><td>${e(p.address||'')}</td><td>${e(engineerName(data,p.id))}</td></tr>`).join('')}</tbody></table></div>`:`<div class="empty">Пока нет объектов.</div>`);
+ (list.length?`<div class="table-wrap"><table><thead><tr><th>Объект</th><th>Полное наименование</th><th>Адрес</th><th>Инженер</th></tr></thead><tbody>${list.map(p=>`<tr><td><button class="link" data-action="object-card" data-id="${e(p.id)}">${e(p.name)}</button></td><td>${e(p.full_name||'')}</td><td>${e(p.address||'')}</td><td>${e(engineerName(data,p.id))}</td></tr>`).join('')}</tbody></table></div>`:`<div class="empty">Пока нет объектов.</div>`);
 }

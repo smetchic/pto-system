@@ -1,7 +1,7 @@
 import {renderWorkspace} from './views.js';
 import {createClient} from '@supabase/supabase-js';
 import {escapeHtml as e,money,isDone,canWrite,kindNames,roleNames,actionNames,emptyMatrix,registerSheetRows} from './domain.js';
-import {contractCard,newContractCard,newContractPayload,addendumCard,addendumStatusCard,partCard,partsOf,vatLabel} from './contracts.js';
+import {contractCard,newContractCard,newContractPayload,addendumCard,addendumStatusCard,partCard,partsOf,vatLabel,objectCard} from './contracts.js';
 import {parseContractsFile,previewContracts,previewHtml} from './contracts-import.js';
 import {partyCard,contactCard,contactPayload,partyPayload,parseMnsXml,mnsPreview,mnsPreviewHtml} from './parties.js';
 import './style.css';
@@ -241,6 +241,13 @@ function contractModal(id,editing=false){
  contractDrawer(contractCard({data,contract:c,canEdit,editing,today:todayKey()}),'contract-form',canEdit&&editing?async form=>{
   await mutate({op:'update_contract',...Object.fromEntries(form)});contractModal(id);}:null);
 }
+// Карточка объекта («Ещё → Объекты»): боковая панель, правит начальник ПТО.
+function objectModal(id,editing=false){
+ const p=data.projects.find(x=>x.id===id);if(!p)throw Error('Объект не найден');
+ const canEdit=['head','admin'].includes(profile?.role);
+ contractDrawer(objectCard({data,project:p,canEdit,editing}),'project-form',canEdit&&editing?async form=>{
+  await mutate({op:'update_project',...Object.fromEntries(form)});objectModal(id);}:null);
+}
 function newContract(){
  contractDrawer(newContractCard({data,profile,projectId:ui.route==='project'?ui.project:''}),'new-contract-form',async form=>{
   const payload=newContractPayload(form);await mutate(payload);
@@ -285,7 +292,9 @@ async function action(name,id){
  // Тема хранится в профиле; в браузере — только копия для первой отрисовки до загрузки профиля.
  if(name==='text-scale'){const scale=Number(id);if(!textScales.includes(scale))return;ui.textScale=scale;try{localStorage.setItem('pto-text-scale',id);}catch{}applyTextScale();render();await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'set_text_scale',text_scale:scale}}));profile.text_scale=scale;return toast('Размер текста сохранён в профиле');}
  if(name==='theme'){if(!['light','dark','system'].includes(id))return;ui.theme=id;try{localStorage.setItem('pto-theme',id);}catch{}applyTheme();render();await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'set_theme',theme:id}}));profile.theme=id;return toast('Тема сохранена в профиле');}
- if(name==='project'){ui.project=id;ui.route='project';ui.projectTab='month';ui.historyKind='';ui.more=false;return render();}
+ if(name==='object-card')return objectModal(id);
+ if(name==='edit-object')return objectModal(id,true);
+ if(name==='project'){if(dialog.open)dialog.close();ui.project=id;ui.route='project';ui.projectTab='month';ui.historyKind='';ui.more=false;return render();}
  if(name==='new-project')return form('Новый объект',field('name','Короткое название')+field('full_name','Полное наименование объекта')+field('address','Адрес','text','',false),async x=>{const r=await mutate({op:'create_project',...x});ui.project=r.project_id;ui.route='project';render();});
  if(name==='new-contract')return newContract();
  if(name==='open-period')return mutate({op:'open_period',project_id:ui.project,month:ui.month+'-01'});
