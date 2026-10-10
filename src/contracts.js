@@ -226,3 +226,22 @@ export function objectCard({data,project:p,canEdit,editing=false}){
   <dt>Договоры</dt><dd>${list.length?counts.map(([label,n])=>`${e(label)}: ${n}`).join(' · ')+(unchecked?` <span class="ct-warn">не проверено: ${unchecked}</span>`:''):'<span class="muted">нет</span>'}</dd></dl></div>
  <div class="cp-drawer-foot"><span class="cp-foot-note">${p.created_at?'Внесён '+e(day(p.created_at)):''}</span><button type="button" data-action="project" data-id="${e(p.id)}">Открыть объект</button>${canEdit?`<button class="primary" type="button" data-action="edit-object" data-id="${e(p.id)}">Изменить</button>`:''}</div></div>`;
 }
+
+// Карточка сотрудника в «Команда и права»: просмотр и правка имени, роли, доступа и объектов (правит начальник ПТО, себя — нет).
+const memberRoles={head:'Начальник ПТО',engineer:'Инженер ПТО',director:'Руководитель'};
+export function memberCard({data,person:u,canEdit,editing=false}){
+ const own=new Set((data.memberships||[]).filter(m=>m.user_id===u.id).map(m=>m.project_id));
+ const projects=[...(data.projects||[])].sort((a,b)=>String(a.name).localeCompare(String(b.name),'ru'));
+ const scope=u.role==='head'?'Все объекты':u.role==='director'?'Просмотр всех объектов':projects.filter(p=>own.has(p.id)).map(p=>p.name).join(', ')||'не назначены';
+ if(canEdit&&editing)return `<form id="member-form" class="cp-drawer-shell ob" autocomplete="off" data-editing>${head(u.display_name,`<div class="ct-sub">Сотрудник</div>`)}
+ <div class="cp-drawer-content">${section('Учётная запись',`<div class="cp-work-grid"><div class="wide">${input('display_name','Имя',u.display_name,'text','required maxlength="120"')}</div>
+  <label>Роль<select name="role">${Object.entries(memberRoles).map(([k,v])=>`<option value="${k}" ${k===u.role?'selected':''}>${v}</option>`).join('')}</select></label>
+  <label>Доступ<select name="active"><option value="true" ${u.active?'selected':''}>Активен</option><option value="false" ${u.active?'':'selected'}>Отключён</option></select></label></div>`)}
+  ${section('Объекты инженера',`<div class="member-objects">${projects.map(p=>`<label><input type="checkbox" name="project_ids" value="${e(p.id)}" ${own.has(p.id)?'checked':''}>${e(p.name)}</label>`).join('')||'<span class="muted">Объектов пока нет.</span>'}</div>`)}
+  <p class="cp-hint">Начальник ПТО и руководитель видят все объекты; объекты нужны инженеру. Отключённый сотрудник не может войти.</p>
+  <input type="hidden" name="user_id" value="${e(u.id)}"></div>
+ <div class="cp-drawer-foot"><p id="contract-error" class="error" role="alert"></p><button type="button" data-action="member-card" data-id="${e(u.id)}">Отмена</button><button class="primary" type="submit">Сохранить</button></div></form>`;
+ return `<div class="cp-drawer-shell ob">${head(u.display_name,`<div class="ct-sub">${e(memberRoles[u.role]||u.role)}</div>`)}
+ <div class="cp-drawer-content"><dl class="ct-kv"><dt>Роль</dt><dd>${e(memberRoles[u.role]||u.role)}</dd><dt>Доступ</dt><dd>${u.active?'Активен':'<span class="ct-warn">Отключён</span>'}</dd><dt>Объекты</dt><dd>${e(scope)}</dd></dl></div>
+ <div class="cp-drawer-foot"><span class="cp-foot-note"></span>${canEdit?`<button class="primary" type="button" data-action="edit-member" data-id="${e(u.id)}">Изменить</button>`:''}</div></div>`;
+}
