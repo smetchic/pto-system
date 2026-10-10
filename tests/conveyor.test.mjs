@@ -31,3 +31,12 @@ test('object colours avoid red and orange and are stable by object order',()=>{
  for(const c of OBJECT_COLORS){const [r,g,b]=[1,3,5].map(i=>parseInt(c.slice(i,i+2),16));assert.ok(!(r>180&&g<140&&b<100),c);}
  assert.equal(objectColor([{id:'x'},{id:'y'}],'y'),OBJECT_COLORS[1]);
 });
+
+test('in each column our claims come first, then subcontractors, then С-29',async()=>{
+ const {conveyorPage}=await import('../src/conveyor.js');
+ const w=(id,template_code)=>({id,template_code,step_code:'tn',step_label:'У технадзора',project_id:'a',project:'А',contract_id:'k'+id,contract_number:id,party:'X',open_notes:[]});
+ const data={projects:[{id:'a',name:'А'}],contracts:[],workflows:[w('1','c29'),w('2','sub_claim'),w('3','claim'),w('4','sub_claim')],skips:[],memberships:[],profiles:[]};
+ const html=conveyorPage({ui:{},data,profile:{role:'head'},month:'2026-10',now:Date.parse('2026-10-10')});
+ const kinds=[...html.matchAll(/<span class="cv-kind">([^<]+)<\/span>/g)].map(m=>m[1]);
+ assert.deepEqual(kinds,['Наша','Субподряд','Субподряд','С-29']);
+});

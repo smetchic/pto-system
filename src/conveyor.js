@@ -5,6 +5,7 @@ import {escapeHtml as e,money,canWrite} from './domain.js';
 export const COLUMNS=[['wait','Ждём объёмы'],['acts','Готовятся акты'],['tn','У технадзора'],['check','На проверке'],['signed','Проверено'],['accepted','В бухгалтерии']];
 export const columnOf=w=>COLUMNS.some(([c])=>c===w.step_code)?w.step_code:'acts';
 export const KIND={claim:'Наша',sub_claim:'Субподряд',c29:'С-29'};
+const KIND_ORDER={claim:0,sub_claim:1,c29:2};
 // Действие перехода с шага: кнопка в панели и строка «Ваш ход» на карточке. mark — отметка факта («отметить «…»»).
 export const MOVES={
  claim:{wait:{v:'Объёмы сданы',mark:true,past:'Объёмы сданы'},acts:{v:'Передать технадзору',past:'Передано технадзору'},tn:{v:'Отправить заказчику',past:'Отправлено заказчику'},
@@ -93,7 +94,8 @@ export function conveyorPage({ui,data,profile,month,now=Date.now()}){
  };
  const plural=n=>{const m=n%10,h=n%100;return n+' '+(m===1&&h!==11?'документ':m>=2&&m<=4&&(h<12||h>14)?'документа':'документов');};
  const column=([code,label],i)=>{
-  const items=shown.filter(x=>x.column===code),sum=items.filter(x=>!x.expected&&x.money).reduce((t,x)=>t+Number(x.acts_amount||0),0);
+  // В колонке: сначала наши процентовки, затем субподрядчики, затем С-29 (решение пользователя 10.10.2026); внутри вида порядок прежний.
+  const items=shown.filter(x=>x.column===code).map((x,n)=>[x,n]).sort(([a,i],[b,j])=>(KIND_ORDER[a.template_code]??9)-(KIND_ORDER[b.template_code]??9)||i-j).map(([x])=>x),sum=items.filter(x=>!x.expected&&x.money).reduce((t,x)=>t+Number(x.acts_amount||0),0);
   const body=items.map(card).join('')||'<div class="cv-empty">Пусто</div>';
   return `<section class="cv-stage"><div class="cv-head">${e(label)}</div><div class="cv-metric">${sum?`<b>${money(sum)}</b> `:''}<span>${plural(items.length)}</span></div>
    <div class="cv-rail"><i class="${items.some(problem)?'bad':''}">${i+1}</i></div><div class="cv-lane">${body}</div></section>`;
