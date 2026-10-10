@@ -1,7 +1,7 @@
 import {renderWorkspace} from './views.js';
 import {createClient} from '@supabase/supabase-js';
 import {escapeHtml as e,money,isDone,canWrite,kindNames,roleNames,actionNames,emptyMatrix,registerSheetRows} from './domain.js';
-import {contractCard,newContractCard,newContractPayload,addendumCard,addendumStatusCard,partCard,partsOf,vatLabel} from './contracts.js';
+import {contractCard,newContractCard,newContractPayload,addendumCard,addendumStatusCard,partCard,partsOf,vatLabel,objectCard} from './contracts.js';
 import {parseContractsFile,previewContracts,previewHtml} from './contracts-import.js';
 import {partyCard,contactCard,contactPayload,partyPayload,parseMnsXml,mnsPreview,mnsPreviewHtml} from './parties.js';
 import './style.css';
@@ -67,6 +67,8 @@ async function load(){
  if(ui.project&&!projects.some(p=>p.id===ui.project))ui.project=null;
  render();
 }
+// Временный пароль для нового сотрудника: 10 символов без похожих букв и цифр.
+const tempPassword=()=>Array.from(crypto.getRandomValues(new Uint8Array(10)),b=>'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789'[b%55]).join('');
 function prevMonth(month){const [y,m]=month.split('-').map(Number),d=new Date(Date.UTC(y,m-2,1));return d.toISOString().slice(0,7);}
 function render(){app.innerHTML=renderWorkspace({ui,data,profile});}
 function modal(title,html,drawer=false){delete dialog.dataset.dirty;dialog.classList.remove('proc-drawer','cp-drawer');dialog.classList.toggle('document-drawer',drawer);dialog.innerHTML=`<div class="row"><h2>${e(title)}</h2>${btn('Закрыть','dismiss')}</div>${html}`;if(!dialog.open)dialog.showModal();}
@@ -241,6 +243,13 @@ function contractModal(id,editing=false){
  contractDrawer(contractCard({data,contract:c,canEdit,editing,today:todayKey()}),'contract-form',canEdit&&editing?async form=>{
   await mutate({op:'update_contract',...Object.fromEntries(form)});contractModal(id);}:null);
 }
+// Карточка объекта («Ещё → Объекты»): боковая панель, правит начальник ПТО.
+function objectModal(id,editing=false){
+ const p=data.projects.find(x=>x.id===id);if(!p)throw Error('Объект не найден');
+ const canEdit=['head','admin'].includes(profile?.role);
+ contractDrawer(objectCard({data,project:p,canEdit,editing}),'project-form',canEdit&&editing?async form=>{
+  await mutate({op:'update_project',...Object.fromEntries(form)});objectModal(id);}:null);
+}
 function newContract(){
  contractDrawer(newContractCard({data,profile,projectId:ui.route==='project'?ui.project:''}),'new-contract-form',async form=>{
   const payload=newContractPayload(form);await mutate(payload);
@@ -277,6 +286,7 @@ async function action(name,id){
  if(name==='nav'){ui.route=id;ui.more=false;return render();}
  if(name==='more'){ui.more=!ui.more;return render();}
  if(name==='wide'){ui.wide=!ui.wide;try{localStorage.setItem('pto-wide',String(ui.wide));}catch{}return render();}
+ if(name==='party-letter'){ui.partyLetter=id||'';return render();}
  if(name==='portfolio-view'){ui.portfolioView=id;return render();}
  if(name==='project-tab'){ui.projectTab=id;if(ui.route!=='project')ui.route='project';return render();}
  if(name==='history-kind'){ui.historyKind=id||'';return render();}
@@ -285,7 +295,9 @@ async function action(name,id){
  // Тема хранится в профиле; в браузере — только копия для первой отрисовки до загрузки профиля.
  if(name==='text-scale'){const scale=Number(id);if(!textScales.includes(scale))return;ui.textScale=scale;try{localStorage.setItem('pto-text-scale',id);}catch{}applyTextScale();render();await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'set_text_scale',text_scale:scale}}));profile.text_scale=scale;return toast('Размер текста сохранён в профиле');}
  if(name==='theme'){if(!['light','dark','system'].includes(id))return;ui.theme=id;try{localStorage.setItem('pto-theme',id);}catch{}applyTheme();render();await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'set_theme',theme:id}}));profile.theme=id;return toast('Тема сохранена в профиле');}
- if(name==='project'){ui.project=id;ui.route='project';ui.projectTab='month';ui.historyKind='';ui.more=false;return render();}
+ if(name==='object-card')return objectModal(id);
+ if(name==='edit-object')return objectModal(id,true);
+ if(name==='project'){if(dialog.open)dialog.close();ui.project=id;ui.route='project';ui.projectTab='month';ui.historyKind='';ui.more=false;return render();}
  if(name==='new-project')return form('Новый объект',field('name','Короткое название')+field('full_name','Полное наименование объекта')+field('address','Адрес','text','',false),async x=>{const r=await mutate({op:'create_project',...x});ui.project=r.project_id;ui.route='project';render();});
  if(name==='new-contract')return newContract();
  if(name==='open-period')return mutate({op:'open_period',project_id:ui.project,month:ui.month+'-01'});
@@ -343,6 +355,16 @@ async function action(name,id){
  return form('Сопоставить субподряд',select('outgoing_document','Исходящий акт',opts('outgoing'))+select('incoming_document','Входящий акт субподрядчика',opts('incoming'))+field('amount','Сумма в ценах предъявления заказчику, руб.','number')+note('note','Основание сопоставления работ'),x=>mutate(periodPayload('allocate',x)));
  }
  if(name==='profile'){const p=data.profiles.find(p=>p.id===id);return form('Учётная запись',field('display_name','Имя', 'text',p.display_name)+select('role','Роль',Object.entries(roleNames).sort(([a])=>a===p.role?-1:1))+select('active','Состояние',p.active?[['true','Активен'],['false','Отключён']]:[['false','Отключён'],['true','Активен']]),x=>mutate({op:'profile',user_id:id,...x}));}
+ // Новый сотрудник: учётную запись создаёт функция pto-team-add (только начальник ПТО), затем имя, роль и объект — обычными командами.
+ if(name==='new-member')return form('Новый сотрудник',field('display_name','Имя (как показывать в системе)')+field('email','Электронная почта для входа','email')+field('password','Временный пароль, не короче 8 символов','text',tempPassword())+select('role','Роль',[['engineer','Инженер ПТО'],['director','Руководитель'],['head','Начальник ПТО']])+(data.projects.length?select('project_id','Объект (для инженера)',[['','Без объекта'],...data.projects.map(p=>[p.id,p.name])]).replace(' required',''):'')+'<p class="muted">Сообщите сотруднику почту и временный пароль. Пароль он сменит в «Настройках».</p>',async x=>{
+  const {data:r,error}=await client.functions.invoke('pto-team-add',{body:{email:x.email,password:x.password,display_name:x.display_name}});
+  if(error){let text=error.message;try{text=(await error.context.json()).error||text;}catch{}throw Error(text);}
+  await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'profile',user_id:r.user_id,display_name:x.display_name,role:x.role,active:'true'}}));
+  if(x.project_id&&x.role==='engineer')await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'member',user_id:r.user_id,project_id:x.project_id,remove:'false'}}));
+  await load();toast('Сотрудник добавлен');});
+ if(name==='password')return form('Смена пароля',field('password','Новый пароль, не короче 8 символов','password')+field('repeat','Повторите пароль','password'),async x=>{
+  if(x.password.length<8)throw Error('Пароль должен быть не короче 8 символов');if(x.password!==x.repeat)throw Error('Пароли не совпадают');
+  await query(client.auth.updateUser({password:x.password}));toast('Пароль изменён');});
  if(name==='member'){if(!data.projects.length)return toast('Сначала создайте объект');return form('Доступ к объекту',select('project_id','Объект',data.projects.map(p=>[p.id,p.name]))+select('remove','Действие',[['false','Предоставить доступ'],['true','Снять доступ']]),x=>mutate({op:'member',user_id:id,...x}));}
  if(name==='download'){const r=await query(client.storage.from('pto-documents').createSignedUrl(id,60,{download:true}));const a=document.createElement('a');a.href=r.signedUrl;a.target='_blank';a.rel='noopener';a.click();return;}
  if(name==='print')return window.print();
@@ -368,7 +390,7 @@ dialog.addEventListener('click',ev=>{if(ev.target!==dialog||!/drawer/.test(dialo
 document.addEventListener('click',async ev=>{const b=ev.target.closest('[data-action]');if(!b||b.disabled||ui.busy)return;ui.busy=true;try{await action(b.dataset.action,b.dataset.id);}catch(err){toast(errorMessage(err));}finally{ui.busy=false;}});
 // Карточки конвейера — не кнопки: открываются клавишами Enter и пробел.
 document.addEventListener('keydown',ev=>{const card=ev.target.closest?.('[role="button"][data-action]');if(card&&ev.target===card&&(ev.key==='Enter'||ev.key===' ')){ev.preventDefault();card.click();}});
-document.addEventListener('change',async ev=>{if(ev.target.id==='contract-object'){ui.contractObject=ev.target.value;return render();}if(ev.target.id==='jump'&&ev.target.value){const value=ev.target.value;return action(value.startsWith('project:')?'project':'nav',value.split(':')[1]);}if(ev.target.id==='month'&&ev.target.value){const previous=ui.month;ui.month=ev.target.value;try{await load();}catch(err){ui.month=previous;ev.target.value=previous;toast(errorMessage(err));}}});
+document.addEventListener('change',async ev=>{if(ev.target.id==='contract-object'){ui.contractObject=ev.target.value;return render();}if(ev.target.id==='party-project'){ui.partyProject=ev.target.value;ui.partyLetter='';return render();}if(ev.target.id==='jump'&&ev.target.value){const value=ev.target.value;return action(value.startsWith('project:')?'project':'nav',value.split(':')[1]);}if(ev.target.id==='month'&&ev.target.value){const previous=ui.month;ui.month=ev.target.value;try{await load();}catch(err){ui.month=previous;ev.target.value=previous;toast(errorMessage(err));}}});
 if(!url||!key||!key.startsWith('sb_publishable_'))app.innerHTML=`<section class="login"><div class="mark">П</div><h1>Подключение ещё не настроено</h1><p>Для запуска администратор должен подключить базу системы ПТО и опубликовать сборку.</p></section>`;
 else{
  client=createClient(url,key);

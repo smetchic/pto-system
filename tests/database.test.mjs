@@ -637,3 +637,19 @@ test('contracts import: objects, counterparties by UNP, unchecked contracts, add
  await command({op:'set_contract_checked',contract_id:c1.id,checked:true});
  assert.equal((await db.query('select checked from pto_contracts where id=$1',[c1.id])).rows[0].checked,true);
 });
+
+test('object card: head edits name, full name and address; duplicate name and engineer are rejected; event keeps before/after',async()=>{
+ await as(users.head);
+ const a=(await command({op:'create_project',name:'Правка',full_name:'Старое полное',address:'Минск'})).project_id;
+ await command({op:'create_project',name:'Занято'});
+ await command({op:'update_project',project_id:a,name:' Правка-2 ',full_name:'Новое полное',address:''});
+ const p=(await db.query('select name,full_name,address from pto_projects where id=$1',[a])).rows[0];
+ assert.deepEqual([p.name,p.full_name,p.address],['Правка-2','Новое полное','']);
+ const ev=(await db.query("select detail from pto_events where project_id=$1 and action='update_project'",[a])).rows[0].detail;
+ assert.deepEqual([ev.before.name,ev.after.name],['Правка','Правка-2']);
+ await assert.rejects(command({op:'update_project',project_id:a,name:'занято',full_name:'x'}),/уже есть/);
+ await assert.rejects(command({op:'update_project',project_id:a,name:'',full_name:'x'}),/Краткое название/);
+ await command({op:'member',project_id:a,user_id:users.engineer});
+ await as(users.engineer);
+ await assert.rejects(command({op:'update_project',project_id:a,name:'Инженер',full_name:'x'}),/начальник ПТО/);
+});
