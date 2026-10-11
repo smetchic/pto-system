@@ -101,5 +101,3 @@
 .mo-cb[aria-checked="true"]::before{border-color:var(--ac)}
 .ob-steps span.d{border-top-color:var(--ok)}
 .mo-now{color:var(--ac)}
-.mo-cb::before{border-radius:3px;display:grid;place-items:center;font-size:11px;line-height:1;color:var(--onac);font-weight:700}
-.mo-cb[aria-checked="true"]::before{content:"✓";background:var(--ac);box-shadow:none}
