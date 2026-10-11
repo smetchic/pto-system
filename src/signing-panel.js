@@ -1,17 +1,18 @@
 // Боковая панель «Подписания» (docs/conveyor.md, раздел «Боковая панель»): что есть по шагу и форма следующего действия.
 // Чистая функция: данные приходят из main.js, команды отправляет main.js по формам с data-op.
 import {escapeHtml as e,money,kindNames} from './domain.js';
+import {engineerName} from './portfolio.js';
 import {COLUMNS,KIND,moveOf,sayMove,openNotes,objectColor,subsOf,canMoveCard,daysOnStep} from './conveyor.js';
 
-const KIND_LONG={claim:'Наша процентовка заказчику',sub_claim:'Процентовка субподрядчика',c29:'С-29, расход материалов'};
+const KIND_LONG={claim:'Процентовка СУ-22 заказчику',sub_claim:'Процентовка субподрядчика',c29:'С-29, расход материалов'};
 const REASONS=['работ не было','нет ДС на новые сметы','подаст в следующем месяце'];
 const SOURCES={claim:['заказчик','технадзор','ПТО','бухгалтерия'],sub_claim:['ПТО','технадзор','бухгалтерия'],c29:['ПТО','прораб','бухгалтерия']};
 // Что значит шаг и что вводится при переходе (docs/conveyor.md, «Что вводится при переходе»).
 const ABOUT={
  claim:{wait:'Прораб сдал объёмы за месяц. С этой даты считается, сколько ПТО готовит акты.',acts:'Акты С-2а готовы и переданы технадзору на защиту.',
-  tn:'Технадзор подтвердил нашу часть и всех субподрядчиков месяца, комплект собран. С этого шага нужна справка С-3а.',check:'Вводится только дата подписания. Сумма в реестре становится «подписана».',
+  tn:'Технадзор подтвердил часть СУ-22 и всех субподрядчиков месяца, комплект собран. С этого шага нужна справка С-3а.',check:'Вводится только дата подписания. Сумма в реестре становится «подписана».',
   signed:'Оригиналы передаются в бухгалтерию, сканы прикладываются при передаче. Сумма фиксируется.'},
- sub_claim:{wait:'Субподрядчик подал процентовку технадзору и защищает её сам.',tn:'Технадзор подписал объёмы субподрядчика; после этого он засчитывается в нашей процентовке.',
+ sub_claim:{wait:'Субподрядчик подал процентовку технадзору и защищает её сам.',tn:'Технадзор подписал объёмы субподрядчика; после этого он засчитывается в процентовке СУ-22.',
   received:'Субподрядчик принёс подписанные технадзором объёмы и комплект. С этой даты ПТО проверяет.',check:'ПТО проверило комплект. Субподрядчику сообщают нести бумагу на подпись.',
   signed:'Бумага подписана с обеих сторон и передана в бухгалтерию со сканами. Сумма фиксируется.'},
  c29:{wait:'Акты месяца готовы, можно формировать С-29.',acts:'ПТО сформировало нормативный расход; прораб вносит фактический.',tn:'Прораб вернул С-29 с фактическим расходом и объяснениями отклонений.',
@@ -56,8 +57,7 @@ export function blockedReason(x,{data,files=[],month}){
 
 export function signingPanel({x,data,profile,mode='',events=[],files=[],month,now=Date.now()}){
  const projects=data.projects||[],color=objectColor(projects,x.project_id),name=x.project||projects.find(p=>p.id===x.project_id)?.name||'';
- const ids=(data.memberships||[]).filter(m=>m.project_id===x.project_id).map(m=>m.user_id);
- const eng=(data.profiles||[]).find(p=>ids.includes(p.id)&&p.role==='engineer')?.display_name||'';
+ const eng=engineerName(data,x.project_id);
  const today=new Date(now).toLocaleDateString('sv-SE',{timeZone:'Europe/Minsk'});
  const can=canMoveCard(x,{profile,data}),tpl=x.template_code,steps=(data.steps||[]).filter(s=>s.template_code===tpl);
  const label=code=>steps.find(s=>s.code===code)?.label||COLUMNS.find(c=>c[0]===code)?.[1]||code||'';
@@ -79,12 +79,12 @@ export function signingPanel({x,data,profile,mode='',events=[],files=[],month,no
  if(x.step_code==='accepted')move=`<div class="sp-move done"><h3>Передано в бухгалтерию ${e(day(dates.signed))}</h3><p>Сумма зафиксирована. Дальше шагов нет: бухгалтерия системой не пользуется.</p></div>`;
  else if(!can)move=`<div class="sp-move done"><h3>Следующий шаг: ${e(sayMove(m))}</h3><p>Делает ${e(eng||'инженер объекта')} или начальник ПТО.</p></div>`;
  else if(mode==='step')move=form(x.expected?'start':m.received?'received':'advance',m.v,ABOUT[tpl][key],(FIELDS[tpl][key]||[['date','Дата']]).map(f=>input(f,x,today)).join(''),m.v);
- else if(mode==='skip')move=form('skip',skipWord,tpl==='sub_claim'?'Субподрядчик переносится в следующий месяц, наша процентовка его больше не ждёт.':'Карточка уходит с доски; причина остаётся в истории.',
+ else if(mode==='skip')move=form('skip',skipWord,tpl==='sub_claim'?'Субподрядчик переносится в следующий месяц, процентовка СУ-22 его больше не ждёт.':'Карточка уходит с доски; причина остаётся в истории.',
   `<label for="sp-reason">Причина</label><select id="sp-reason" name="reason">${REASONS.map(r=>`<option>${r}</option>`).join('')}</select><label for="sp-note">Пояснение</label><textarea id="sp-note" name="note" placeholder="необязательно"></textarea>`,skipWord);
  else move=`<div class="sp-move"><h3>Ваш ход: ${e(sayMove(m))}</h3><p>${blocked?`<span class="sp-why">${e(m.v)} нельзя: ${e(blocked)}.</span>`:e(ABOUT[tpl][key]||'')}</p>
   <div class="sp-btns"><button class="primary" data-action="sp-mode" data-id="step"${blocked?' disabled':''}>${e(m.v)}</button>${x.expected?`<button data-action="sp-mode" data-id="skip">${skipWord}</button>`:''}</div></div>`;
 
- // Технадзор: субподрядчики месяца для нашей процентовки.
+ // Технадзор: субподрядчики месяца для процентовки СУ-22.
  let tn='';
  if(tpl==='claim'&&!x.expected&&['acts','tn'].includes(x.step_code)){
   const subs=subsOf(data,x.project_id,month);
@@ -93,7 +93,7 @@ export function signingPanel({x,data,profile,mode='',events=[],files=[],month,no
     const n=s.contract.party||s.contract.number;
     const right=s.skip?`исключён: ${e(s.skip.reason)}`:s.passed?`подтвердил ${e(day(s.workflow.step_dates?.tn))}`:s.workflow?'у технадзора':can?`ждём процентовку <button class="link" data-action="sp-mode" data-id="exclude:${e(s.contract.id)}">Исключить из месяца</button>`:'ждём процентовку';
     return `<li class="${s.skip?'ex':s.passed?'':'no'}"><span class="m">${s.skip?'–':s.passed?'✓':'—'}</span><span class="t">${e(n)}</span><span class="r">${right}</span></li>`;}).join('')}</ul>
-    ${mode.startsWith('exclude:')?form('exclude','Исключить из месяца','Субподрядчик переносится в следующий месяц; наша процентовка его больше не ждёт.',`<label for="sp-reason">Причина</label><select id="sp-reason" name="reason">${REASONS.map(r=>`<option>${r}</option>`).join('')}</select>`,'Исключить',` data-contract="${e(mode.slice(8))}"`):''}</div>`;}
+    ${mode.startsWith('exclude:')?form('exclude','Исключить из месяца','Субподрядчик переносится в следующий месяц; процентовка СУ-22 его больше не ждёт.',`<label for="sp-reason">Причина</label><select id="sp-reason" name="reason">${REASONS.map(r=>`<option>${r}</option>`).join('')}</select>`,'Исключить',` data-contract="${e(mode.slice(8))}"`):''}</div>`;}
  }
 
  // Комплект: документы; при передаче в бухгалтерию — сканы.

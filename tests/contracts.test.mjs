@@ -29,17 +29,19 @@ function fixture(role='engineer'){
 
 test('contracts: groups, finished vs active, filters by kind and object, search keeps state',()=>{
  const {data,profile,ui}=fixture();
- assert.equal(contractGroup(data.contracts[0]),'out');assert.equal(contractGroup(data.contracts[1]),'in');assert.equal(contractGroup(data.contracts[3]),'other');
+ assert.equal(contractGroup(data.contracts[0],data),'2');assert.equal(contractGroup(data.contracts[1],data),'3','на объекте есть договор с генподрядчиком');assert.equal(contractGroup(data.contracts[2],data),'1');
  assert.equal(contractFinished(data,data.contracts[2],today),true,'срок прошёл, комплекта нет');
  assert.equal(contractFinished(data,data.contracts[1],today),false,'срок истёк, но комплект месяца идёт');
  let html=contractsList({data,ui,profile,today});
- assert.match(html,/С заказчиком<span>1/);assert.match(html,/Субподряда<span>1/);assert.match(html,/Поставка и услуги/);
+ assert.match(html,/Уровень 2 · Генподрядчик — Субподрядчик<\/span><span class="ct-grp-n">2/);assert.match(html,/Уровень 3 · Субподрядчик — Исполнитель<\/span><span class="ct-grp-n">1/);
  assert.doesNotMatch(html,/data-id="c3"/,'по умолчанию только действующие');
- assert.match(html,/ДС № 5 в работе/);assert.match(html,/Истёк 30\.09\.2026/);assert.match(html,/У технадзора/);
+ assert.match(html,/ДС № 5 в работе/);assert.match(html,/30\.09\.2026<small>срок истёк<\/small>/);assert.doesNotMatch(html,/У технадзора|прошло/,'без состояния месяца и доли срока');
+ assert.doesNotMatch(html,/мы генподрядчик|мы субподрядчик/,'роль видна по заголовку группы');
+ assert.ok(html.indexOf('data-id="c1"')<html.indexOf('data-id="c4"'),'внутри группы по дате, без даты в конце');
  assert.match(html,/Паркинг &lt;b&gt;/);assert.match(html,/data-action="new-contract"/);
  assert.match(html,/13[\s ]166[\s ]000,00/);
  html=contractsList({data,ui:{...ui,contractState:'done'},profile,today});assert.match(html,/data-id="c3"/);assert.doesNotMatch(html,/data-id="c1"/);
- html=contractsList({data,ui:{...ui,contractKind:'in'},profile,today});assert.doesNotMatch(html,/data-id="c1"/);assert.match(html,/data-id="c2"/);
+ html=contractsList({data,ui:{...ui,contractKind:'3'},profile,today});assert.doesNotMatch(html,/data-id="c1"/);assert.match(html,/data-id="c2"/);
  html=contractsList({data,ui:{...ui,contractObject:'p2'},profile,today});assert.doesNotMatch(html,/data-id="c1"/);
  html=contractsList({data,ui:{...ui,contractQuery:'мегалит'},profile,today});
  assert.match(html,/hidden data-action="contract" data-id="c1"/);assert.doesNotMatch(html,/hidden data-action="contract" data-id="c2"/);assert.match(html,/value="мегалит"/);
@@ -51,12 +53,12 @@ test('contract card: amount by addendum, marks, party link; edit only for the ob
  let html=contractCard({data,contract:c,canEdit:true,today});
  assert.match(html,/Закрыть ×/);assert.match(html,/по ДС № 4 от 12\.08\.2026/);assert.match(html,/Действует до 30\.12\.2026/);
  assert.match(html,/ДС № 5 в работе, в цене не учтено/);assert.match(html,/data-action="party" data-id="cp1"/);
- assert.match(html,/data-action="sign-addendum" data-id="a5"/);assert.match(html,/data-action="edit-contract"/);assert.match(html,/Надя/);
+ assert.match(html,/data-action="edit-addendum" data-id="a5"/);assert.doesNotMatch(html,/sign-addendum|>Подписано</,'подписано = скан, без кнопки');assert.match(html,/data-action="edit-contract"/);assert.match(html,/Надя/);
  assert.doesNotMatch(html,/data-editing/,'просмотр закрывается кликом мимо');
  const ro=contractCard({data,contract:c,canEdit:false,today});
- assert.doesNotMatch(ro,/edit-contract|sign-addendum|new-addendum/);
+ assert.doesNotMatch(ro,/edit-contract|edit-addendum|new-addendum/);
  html=contractCard({data,contract:c,canEdit:true,editing:true,today});
- for(const k of ['number','contract_date','subject','parent_contract_id','initial_amount','vat_rate','vat_amount','smr_amount','smr_vat_amount','pnr_amount','pnr_vat_amount','equipment_amount','equipment_vat_amount','work_start_date','work_end_date','contract_id'])
+ for(const k of ['number','contract_date','subject','parent_contract_id','initial_amount','vat_rate','vat_amount','smr_amount','smr_vat_amount','pnr_amount','pnr_vat_amount','equipment_amount','equipment_vat_amount','work_start_date','work_end_date','contract_id','project_id','counterparty_id','chain_level','our_side','party_side','advance_current_percent','advance_target_amount','note','checked'])
   assert.match(html,new RegExp(`name="${k}"`),k);
  assert.match(html,/data-editing/);assert.match(html,/value="12410000\.00"/);
  assert.match(contractCard({data,contract:data.contracts[1],canEdit:true,today}),/Срок истёк 30\.09\.2026, работы продолжаются/);
@@ -69,7 +71,7 @@ test('new contract and addendum status forms',()=>{
  assert.match(html,/<option value="p1" selected>Пружаны/);assert.doesNotMatch(html,/value="p2"/,'инженер создаёт только на своём объекте');
  const f=new FormData();for(const [k,v] of Object.entries({project_id:'p1',kind:'customer:subcontractor',counterparty_id:'cp2',number:' 30-С ',contract_date:'',subject:''}))f.append(k,v);
  assert.deepEqual(newContractPayload(f),{op:'create_contract',project_id:'p1',counterparty_id:'cp2',number:' 30-С ',contract_date:'',subject:'',our_role:'customer',counterparty_role:'subcontractor'});
- const cancel=addendumStatusCard({data,contract:data.contracts[0],addendum:data.addenda[0],status:'cancelled'});
+ const cancel=addendumStatusCard({data,contract:data.contracts[0],addendum:data.addenda[0]});
  assert.match(cancel,/name="reason"/);assert.match(cancel,/name="status" value="cancelled"/);
 });
 

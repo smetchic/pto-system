@@ -1,10 +1,11 @@
 // Экран «Подписание» (docs/conveyor.md): общие колонки для всех маршрутов, карточка открывает боковую панель, кнопки шага на карточке нет.
 // Шаги в базе называются одинаково во всех маршрутах (миграция 20261008220000): колонка = код шага.
 import {escapeHtml as e,money,canWrite} from './domain.js';
+import {engineerName} from './portfolio.js';
 
 export const COLUMNS=[['wait','Ждём объёмы'],['acts','Готовятся акты'],['tn','У технадзора'],['check','На проверке'],['signed','Проверено'],['accepted','В бухгалтерии']];
 export const columnOf=w=>COLUMNS.some(([c])=>c===w.step_code)?w.step_code:'acts';
-export const KIND={claim:'Наша',sub_claim:'Субподряд',c29:'С-29'};
+export const KIND={claim:'СУ-22',sub_claim:'Субподряд',c29:'С-29'};
 const KIND_ORDER={claim:0,sub_claim:1,c29:2};
 // Действие перехода с шага: кнопка в панели и строка «Ваш ход» на карточке. mark — отметка факта («отметить «…»»).
 export const MOVES={
@@ -20,8 +21,9 @@ export const moveOf=w=>w.template_code==='sub_claim'&&w.step_code==='check'&&!w.
 export const sayMove=m=>m?(m.mark?`отметить «${m.v}»`:m.v[0].toLowerCase()+m.v.slice(1)):'';
 export const turnOf=w=>sayMove(moveOf(w));
 export const openNotes=w=>Array.isArray(w?.open_notes)?w.open_notes:[];
-// Цвет объекта: выбранный в карточке объекта, иначе по порядку объектов; красный и оранжевый заняты тревогами.
-export const OBJECT_COLORS=['#2e5bd8','#0e8a80','#7446c2','#3d8a2c','#a83e85','#56677d','#1f7fae','#8a6d1f','#5b4fc4','#2f7a5a'];
+// Цвет объекта: выбранный в карточке объекта, иначе по порядку объектов; красный и оранжевый заняты тревогами (решение 11.10.2026).
+export const OBJECT_COLORS=['#1f6feb','#0ea5e9','#0d9488','#16a34a','#65a30d','#d4a00b','#db2777','#c026d3','#9333ea','#4f46e5','#475569','#b45309'];
+export const COLOR_NAMES={'#1f6feb':'синий','#0ea5e9':'голубой','#0d9488':'бирюзовый','#16a34a':'зелёный','#65a30d':'салатовый','#d4a00b':'жёлтый','#db2777':'розовый','#c026d3':'сиреневый','#9333ea':'фиолетовый','#4f46e5':'индиго','#475569':'графит','#b45309':'коричневый'};
 export const objectColor=(projects,id)=>{const i=projects.findIndex(p=>p.id===id);return projects[i]?.color||OBJECT_COLORS[(i<0?0:i)%OBJECT_COLORS.length];};
 
 const DAY=86400000;
@@ -29,18 +31,30 @@ export const daysOnStep=(w,now)=>{const t=w.step_since||w.updated_at||w.created_
 const monthEnd=month=>{const [y,m]=month.split('-').map(Number);return new Date(Date.UTC(y,m,0)).toISOString().slice(0,10);};
 export const activeIn=(c,month)=>(!c.contract_date||c.contract_date<=monthEnd(month))&&(!c.current_end_date||c.current_end_date>=month+'-01');
 // Справочные договоры (МПС с заказчиком, трёхсторонние) и непроверенные после загрузки в «Подписании» и месяце не участвуют.
-const working=c=>!['mps_customer','mps_su22_sub'].includes(c.contract_type)&&c.checked!==false;
+const working=c=>!reference(c)&&c.checked!==false;
+// Справочный договор: трёхсторонний (уровень 4) или договор уровня 1, где СУ-22 не сторона. До миграции уровней — по виду из файла.
+export const reference=c=>c?.chain_level?c.chain_level===4||(c.chain_level===1&&!c.our_side):['mps_customer','mps_su22_sub'].includes(c?.contract_type);
+// Договор субподряда СУ-22 (уровень 2 или 3, СУ-22 заказчик работ), без трёхсторонних и услуг.
+export const subKind=c=>c.direction==='incoming'&&['customer',undefined,null,''].includes(c.our_role)&&!reference(c);
+// Подаёт ли субподрядчик в этом месяце: отметка месяца (галочка на вкладке «Месяц»), иначе — действует по сроку и проверен.
+export function subExpected(data,c,month){
+ const per=(data.periods||[]).find(p=>p.project_id===c.project_id&&String(p.month||month).slice(0,7)===month);
+ const m=per&&(data.subMonth||[]).find(x=>x.period_id===per.id&&x.contract_id===c.id);
+ if(m&&m.expected!==null&&m.expected!==undefined)return m.expected;
+ return activeIn(c,month)&&c.checked!==false;
+}
 export const oursContract=c=>c.direction==='outgoing'&&['contractor','subcontractor',undefined,null,''].includes(c.our_role)&&working(c);
-export const subContract=c=>c.direction==='incoming'&&['customer',undefined,null,''].includes(c.our_role)&&working(c);
+export const subContract=c=>subKind(c)&&working(c);
 
 // «Ждём объёмы»: действующие в месяце договоры без комплекта и объекты без С-29. Вычисляется; в базе только снятые ожидания (skips).
-export function expectedCards({projects,contracts,workflows,skips=[]},month){
+export function expectedCards(data,month){
+ const {projects=[],contracts=[],workflows=[],skips=[]}=data;
  const has=(t,key,id)=>workflows.some(w=>w.template_code===t&&w[key]===id);
  const skipped=(t,cid)=>skips.some(s=>s.template_code===t&&s.contract_id===cid);
  const out=[];
- for(const c of contracts.filter(c=>activeIn(c,month))){
-  if(oursContract(c)&&!has('claim','contract_id',c.id)&&!skipped('claim',c.id))out.push({expected:true,template_code:'claim',step_code:'wait',project_id:c.project_id,contract_id:c.id,contract_number:c.number,party:c.party,note:'прораб не сдал объёмы'});
-  else if(subContract(c)&&!has('sub_claim','contract_id',c.id)&&!skipped('sub_claim',c.id))out.push({expected:true,template_code:'sub_claim',step_code:'wait',project_id:c.project_id,contract_id:c.id,contract_number:c.number,party:c.party,note:'ждём процентовку'});
+ for(const c of contracts.filter(c=>activeIn(c,month)||(subKind(c)&&subExpected(data,c,month)))){
+  if(oursContract(c)&&activeIn(c,month)&&!has('claim','contract_id',c.id)&&!skipped('claim',c.id))out.push({expected:true,template_code:'claim',step_code:'wait',project_id:c.project_id,contract_id:c.id,contract_number:c.number,party:c.party,note:'прораб не сдал объёмы'});
+  else if(subKind(c)&&subExpected(data,c,month)&&!has('sub_claim','contract_id',c.id)&&!skipped('sub_claim',c.id))out.push({expected:true,template_code:'sub_claim',step_code:'wait',project_id:c.project_id,contract_id:c.id,contract_number:c.number,party:c.party,note:'ждём процентовку'});
  }
  for(const p of projects){
   const base=contracts.find(c=>c.project_id===p.id&&oursContract(c)&&activeIn(c,month));
@@ -50,13 +64,16 @@ export function expectedCards({projects,contracts,workflows,skips=[]},month){
  return out.map(x=>({...x,key:`${x.template_code}:${x.contract_id}`}));
 }
 
-// Субподрядчики месяца для нашей процентовки: прошёл технадзор, исключён или ещё нет.
-export function subsOf(data,projectId,month){
- const ws=data.workflows||[],skips=data.skips||[];
- return (data.contracts||[]).filter(c=>c.project_id===projectId&&c.direction==='incoming'&&working(c)&&activeIn(c,month)).map(c=>{
+// Субподрядчики месяца для процентовки СУ-22: прошёл технадзор, исключён или ещё нет.
+// По умолчанию — те, кто подаёт в этом месяце (галочка или действует по сроку и проверен); all — все договоры субподряда объекта.
+export function subsOf(data,projectId,month,{all=false}={}){
+ const ws=data.workflows||[],skips=data.skips||[],today=new Date().toLocaleDateString('sv-SE',{timeZone:'Europe/Minsk'});
+ const rows=(data.contracts||[]).filter(c=>c.project_id===projectId&&subKind(c)).map(c=>{
   const w=ws.find(x=>x.template_code==='sub_claim'&&x.contract_id===c.id),skip=skips.find(s=>s.template_code==='sub_claim'&&s.contract_id===c.id);
-  return {contract:c,workflow:w,skip,passed:!!w&&w.step_ordinal>=3};
+  return {contract:c,workflow:w,skip,passed:!!w&&w.step_ordinal>=3,expected:!!w||subExpected(data,c,month),
+   expired:!!c.current_end_date&&c.current_end_date<(month+'-01'>today?month+'-01':today),unchecked:c.checked===false};
  });
+ return all?rows:rows.filter(r=>r.expected);
 }
 
 export function canMoveCard(x,{profile,data}){
@@ -67,10 +84,10 @@ export function canMoveCard(x,{profile,data}){
 
 export function conveyorPage({ui,data,profile,month,now=Date.now()}){
  const projects=data.projects||[],workflows=data.workflows||[];
- const engineer=pid=>{const ids=(data.memberships||[]).filter(m=>m.project_id===pid).map(m=>m.user_id);return (data.profiles||[]).find(p=>ids.includes(p.id)&&p.role==='engineer')?.display_name||'';};
+ const engineer=pid=>engineerName(data,pid);
  const projectName=pid=>projects.find(p=>p.id===pid)?.name||'';
  const kindOk=x=>!ui.flowKind||x.template_code===ui.flowKind;
- const all=[...workflows.map(w=>({...w,column:columnOf(w)})),...expectedCards({projects,contracts:data.contracts||[],workflows,skips:data.skips||[]},month).map(x=>({...x,column:'wait'}))];
+ const all=[...workflows.map(w=>({...w,column:columnOf(w)})),...expectedCards({...data,projects,workflows},month).map(x=>({...x,column:'wait'}))];
  const shown=all.filter(x=>kindOk(x)&&(!ui.flowProject||x.project_id===ui.flowProject));
  const problem=x=>openNotes(x).length>0;
 
@@ -94,15 +111,16 @@ export function conveyorPage({ui,data,profile,month,now=Date.now()}){
  };
  const plural=n=>{const m=n%10,h=n%100;return n+' '+(m===1&&h!==11?'документ':m>=2&&m<=4&&(h<12||h>14)?'документа':'документов');};
  const column=([code,label],i)=>{
-  // В колонке: сначала наши процентовки, затем субподрядчики, затем С-29 (решение пользователя 10.10.2026); внутри вида порядок прежний.
+  // В колонке: сначала процентовки СУ-22, затем субподрядчики, затем С-29 (решение пользователя 10.10.2026); внутри вида порядок прежний.
   const items=shown.filter(x=>x.column===code).map((x,n)=>[x,n]).sort(([a,i],[b,j])=>(KIND_ORDER[a.template_code]??9)-(KIND_ORDER[b.template_code]??9)||i-j).map(([x])=>x),sum=items.filter(x=>!x.expected&&x.money).reduce((t,x)=>t+Number(x.acts_amount||0),0);
   const body=items.map(card).join('')||'<div class="cv-empty">Пусто</div>';
   return `<section class="cv-stage"><div class="cv-head">${e(label)}</div><div class="cv-metric">${sum?`<b>${money(sum)}</b> `:''}<span>${plural(items.length)}</span></div>
    <div class="cv-rail"><i class="${items.some(problem)?'bad':''}">${i+1}</i></div><div class="cv-lane">${body}</div></section>`;
  };
  const counts={};for(const x of all)if(kindOk(x)&&x.column!=='accepted'){const c=counts[x.project_id]||(counts[x.project_id]={n:0,bad:false});c.n++;if(problem(x))c.bad=true;}
- const kinds=`<div class="cv-seg" role="group" aria-label="Что показывать">${[['','Все'],['claim','Наша'],['sub_claim','Субподряд'],['c29','С-29']].map(([k,l])=>`<button class="${(ui.flowKind||'')===k?'on':''}" data-action="flow-kind" data-id="${k}">${l}</button>`).join('')}</div>`;
- const chips=`<div class="cv-chips"><button class="cv-chip ${ui.flowProject?'':'on'}" data-action="flow-filter" data-id="">Все объекты</button>${projects.map(p=>`<button class="cv-chip ${ui.flowProject===p.id?'on':''}" data-action="flow-filter" data-id="${e(ui.flowProject===p.id?'':p.id)}" style="--oc:${objectColor(projects,p.id)}"><i class="cv-od"></i>${e(p.name)}<span class="cv-c">${counts[p.id]?.n||0}</span>${counts[p.id]?.bad?'<i class="cv-rd" aria-label="есть замечания"></i>':''}</button>`).join('')}</div>`;
+ const kinds=`<div class="cv-seg" role="group" aria-label="Что показывать">${[['','Все'],['claim','СУ-22'],['sub_claim','Субподряд'],['c29','С-29']].map(([k,l])=>`<button class="${(ui.flowKind||'')===k?'on':''}" data-action="flow-kind" data-id="${k}">${l}</button>`).join('')}</div>`;
+ // Объекты в одну строку: все серые, выбранный — заливкой своего цвета; без карточек — бледнее (решение 11.10.2026).
+ const chips=`<div class="cv-chips" role="group" aria-label="Объекты"><button class="cv-chip ${ui.flowProject?'':'on all'}" data-action="flow-filter" data-id="" aria-pressed="${!ui.flowProject}">Все</button>${projects.map(p=>`<button class="cv-chip ${ui.flowProject===p.id?'on':''}${counts[p.id]?.n?'':' none'}" data-action="flow-filter" data-id="${e(ui.flowProject===p.id?'':p.id)}" style="--oc:${objectColor(projects,p.id)}" title="${e(p.name)}" aria-pressed="${ui.flowProject===p.id}"><span class="cv-n">${e(p.name)}</span><span class="cv-c">${counts[p.id]?.n||0}</span>${counts[p.id]?.bad?'<i class="cv-rd" aria-label="есть замечания"></i>':''}</button>`).join('')}</div>`;
  return `<div class="cv-top"><h1>Подписание</h1>${kinds}</div>${chips}<div class="cv-board">${COLUMNS.map(column).join('')}</div>
   <div class="cv-legend"><span>Полоска и цвет названия: объект.</span><span>Красный уголок: замечание.</span><span>«Ваш ход» видит тот, кто делает следующий шаг; шаг делается в карточке справа.</span></div>`;
 }

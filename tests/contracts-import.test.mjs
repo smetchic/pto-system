@@ -5,6 +5,7 @@ import {expectedCards} from '../src/conveyor.js';
 
 const file={format:'pto-contracts',version:1,contracts:[
  {key:'ПРУЖАНЫ/03_32 ТОПАГРОБЕЛ',object:'ПРУЖАНЫ',type:'mps_su22_sub',kind:'customer:subcontractor',counterparty:{unp:'690845186',name:'ООО «ТОПАГРОБЕЛ»',full_name:'Общество «ТОПАГРОБЕЛ»'},
+  parties:[{side:'МПС',role_title:'Генподрядчик',name:'Трест'},{side:'СУ-22',role_title:'Субподрядчик',name:'СУ-22'},{side:'other',role_title:'Субподрядчик',name:'ООО «ТОПАГРОБЕЛ»'}],
   number:'32',date:'2026-03-16',amount_with_vat:'353264.30',vat_amount:'58877.38',parts:[{name:'Договор',vat_mode:'vat',vat_rate:20,amount_with_vat:'353264.30'}],
   work_start:'2026-03-16',work_end:'2026-04',parent:{number:'21'},confidence:'high',check:[],files:[{type:'contract',path:'ПРУЖАНЫ/03_32/Договор.pdf'}],
   addenda:[{number:'1',date:'2026-03-20',amount_with_vat_after:'432863.48',signed:null},{number:'2',date:null,signed:null}]},

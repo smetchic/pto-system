@@ -12,9 +12,9 @@ function fixture(role='engineer'){
   profiles:[profile],memberships:[{project_id:'p1',user_id:'u1'}],
   periods:[{id:'per',project_id:'p1',status:'open',revision:3,reviewed_revision:1}],
   contracts:[
-   {id:'c21',project_id:'p1',number:'21',party:'Трест',direction:'outgoing',our_role:'subcontractor',current_amount:'18640000.00',amount_addendum_number:'3',work_start_date:'2026-01-01',current_end_date:'2026-12-30'},
-   {id:'s7',project_id:'p1',number:'7-С',party:'Мегалит',direction:'incoming',our_role:'customer'},
-   {id:'s12',project_id:'p1',number:'12-С',party:'Стройэлектро',direction:'incoming',our_role:'customer'}],
+   {id:'c21',project_id:'p1',number:'21',party:'Трест',direction:'outgoing',our_role:'subcontractor',counterparty_role:'general_contractor',current_amount:'18640000.00',amount_addendum_number:'3',work_start_date:'2026-01-01',current_end_date:'2026-12-30'},
+   {id:'s7',project_id:'p1',number:'7-С',party:'Мегалит',direction:'incoming',our_role:'customer',counterparty_role:'subcontractor'},
+   {id:'s12',project_id:'p1',number:'12-С',party:'Стройэлектро',direction:'incoming',our_role:'customer',counterparty_role:'subcontractor'}],
   workflows:[wf('w21','claim','tn',{contract_id:'c21',contract_number:'21',party:'Трест',acts_amount:'1973259.89',step_dates:{wait:'2026-10-02',acts:'2026-10-05'}}),
    wf('w7','sub_claim','check',{contract_id:'s7',party:'Мегалит',acts_amount:'312400.00'})],
   skips:[],documents:[{id:'d1',project_id:'p1',period_id:'per',contract_id:'c21',kind:'c2a',number:'21-10/1',workflow_id:'w21',current_version:'v1',step_code:'tn',step_label:'У технадзора'}],
@@ -38,8 +38,8 @@ test('month tab: one screen for all steps — step strip, C-3a with the sum chec
  assert.match(html,/нужна для отправки заказчику/);
  assert.match(html,/= к оплате по С-3а<\/div><div class="mo-big">1[\s ]550[\s ]824,06/);
  assert.match(html,/Сверка сумм: ✓ сходится, есть предварительные/);
- assert.match(html,/Своими силами<\/b> <b class="">1[\s ]660[\s ]859,89/,'всего − субподряд в их ценах');
- assert.match(html,/предварительно: подали 1 из 2/);
+ assert.match(html,/Своими силами 1[\s ]660[\s ]859,89, субподряд 312[\s ]400,00/,'всего − субподряд в их ценах');
+ assert.match(html,/подали 1 из 2 · предварительно/);
  assert.match(html,/data-action="doc" data-id="d1"/);
  assert.match(html,/С-29 за октябрь/);assert.match(html,/срок 15\.11/);
  assert.doesNotMatch(html,/Хвост|undefined|NaN/);
@@ -75,10 +75,10 @@ test('close conditions and contract term',()=>{
 
 test('other tabs: contracts grouped by side, documents grouped by kit, history filtered by kind',()=>{
  const ctx=fixture();ctx.ui.projectTab='contracts';let html=objectPage(ctx);
- assert.match(html,/С заказчиком<\/td>/);assert.match(html,/Субподряда<\/td>/);
- assert.match(html,/ДС № 4 в работе/);assert.match(html,/прошло 77 % срока/);
+ assert.match(html,/Уровень 2 · Генподрядчик — Субподрядчик/);assert.match(html,/Уровень 3 · Субподрядчик — Исполнитель/);
+ assert.match(html,/ДС № 4 в работе/);assert.match(html,/30\.12\.2026/);
  ctx.ui.projectTab='documents';html=objectPage(ctx);
- assert.match(html,/Процентовка заказчику · дог\. № 21 · У технадзора/);assert.match(html,/data-action="doc" data-id="d1"/);
+ assert.match(html,/Процентовка СУ-22 заказчику · дог\. № 21 · У технадзора/);assert.match(html,/data-action="doc" data-id="d1"/);
  ctx.ui.projectTab='history';ctx.data.events=[{id:1,project_id:'p1',action:'revise',actor:'u1',created_at:'2026-10-08T10:00:00Z',detail:{reason:'исправлен объём'}},{id:2,project_id:'p1',action:'update_contract',actor:'u1',created_at:'2026-10-08T11:00:00Z',detail:{}}];
  ctx.ui.historyKind='document';html=objectPage(ctx);
  assert.match(html,/исправлен объём/);assert.doesNotMatch(html,/Изменены условия договора/);
@@ -111,8 +111,8 @@ test('month tab: our acts at the supervisor — counts by TN status, the slowest
  ctx.data.docMarks=[{document_id:'d1',tn_status:'ok'},{document_id:'d2',tn_status:'remarks',note:'нет исполнительной'}];
  let html=objectPage(ctx);
  assert.match(html,/у ТН 1 · замечания 1 · подписано 1 из 3 · шаг держат: № 29, № 30/);
- assert.match(html,/data-action="acts-all-ok" data-id="w21">Все наши проверены/);
- assert.match(html,/ТН не подписал наши акты: № 29, № 30/);
+ assert.match(html,/data-action="acts-all-ok" data-id="w21">Все акты СУ-22 проверены/);
+ assert.match(html,/ТН не подписал акты СУ-22: № 29, № 30/);
  ctx.data.docMarks.push({document_id:'d2',tn_status:'ok'},{document_id:'d3',tn_status:'ok'});ctx.data.docMarks.splice(1,1);
  html=objectPage(ctx);
  assert.match(html,/подписано 3 из 3/);assert.doesNotMatch(html,/acts-all-ok|шаг держат|ТН не подписал/);

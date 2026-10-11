@@ -38,5 +38,5 @@ test('in each column our claims come first, then subcontractors, then С-29',asy
  const data={projects:[{id:'a',name:'А'}],contracts:[],workflows:[w('1','c29'),w('2','sub_claim'),w('3','claim'),w('4','sub_claim')],skips:[],memberships:[],profiles:[]};
  const html=conveyorPage({ui:{},data,profile:{role:'head'},month:'2026-10',now:Date.parse('2026-10-10')});
  const kinds=[...html.matchAll(/<span class="cv-kind">([^<]+)<\/span>/g)].map(m=>m[1]);
- assert.deepEqual(kinds,['Наша','Субподряд','Субподряд','С-29']);
+ assert.deepEqual(kinds,['СУ-22','Субподряд','Субподряд','С-29']);
 });

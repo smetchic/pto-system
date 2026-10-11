@@ -6,7 +6,10 @@ import { randomUUID } from 'node:crypto';
 let db, project, otherProject, period, contract, doc, summary, materials;
 const users={head:randomUUID(),engineer:randomUUID(),outsider:randomUUID(),director:randomUUID(),second:randomUUID(),inactive:randomUUID()};
 async function as(user) { await db.exec('reset role'); await db.query("select set_config('request.jwt.claim.sub',$1,false)",[user]); await db.exec('set role authenticated'); }
-async function command(payload,request=randomUUID()){const r=await db.query('select public.pto_command($1,$2::jsonb) result',[request,JSON.stringify(payload)]);return r.rows[0].result;}
+// Часы PGlite идут с точностью до миллисекунды: без паузы две команды подряд получают одно время created_at,
+// и «последняя запись» (журналы отметок только на добавление) выбирается случайно. В Postgres время в микросекундах.
+let lastCommand=0;
+async function command(payload,request=randomUUID()){while(Date.now()<=lastCommand)await new Promise(r=>setTimeout(r,1));try{const r=await db.query('select public.pto_command($1,$2::jsonb) result',[request,JSON.stringify(payload)]);return r.rows[0].result;}finally{lastCommand=Date.now();}}
 async function rev(){return (await db.query('select revision from pto_periods where id=$1',[period])).rows[0].revision;}
 async function run(op,extra={}){return command({op,period_id:period,expected_revision:await rev(),...extra});}
 async function create(kind,number,amount='100.00'){return (await run('create_document',{contract_id:contract,kind,number,amount})).document_id;}
@@ -614,7 +617,7 @@ test('contracts import: objects, counterparties by UNP, unchecked contracts, add
   item({key:'НОВЫЙ/01',object:'Новый объект',number:'1',unp:'123456789',party:'ООО «Ромашка»',party_full_name:'Общество «Ромашка»',type:'su22_sub',checked:false,
    amount:'500.00',files:[{type:'contract',path:'НОВЫЙ/01/Договор.pdf'}],parts:[{name:'Жилая',vat_rate:'20',amount:'300.00'},{name:'Встроенные',vat_rate:'0',amount:'200.00'}],
    addenda:[{number:'1',date:'2026-05-01',amount_after:'600.00',signed:null},{number:'2',date:null},{number:'3',date:'2026-06-01',signed:false}]}),
-  item({key:'НОВЫЙ/00',object:'Новый объект',number:'00',our_role:'subcontractor',counterparty_role:'general_contractor',party:'МПС',type:'su22_mps',checked:true}),
+  item({key:'НОВЫЙ/00',object:'Новый объект',number:'00',our_role:'subcontractor',counterparty_role:'general_contractor',party:'МПС',type:'su22_mps',checked:true,our_role_title:'Субподрядчик',party_role_title:'Генеральный подрядчик'}),
   item({key:'НОВЫЙ/02',object:'Новый объект',number:'2',party:'Без УНП',parent_number:'00',type:'su22_sub',checked:true}),
   item({key:'НОВЫЙ/bad',object:'Новый объект',number:'3',party:'Плохой',our_role:'customer',counterparty_role:'customer'})]});
  assert.deepEqual([r.projects,r.parties,r.created,r.updated,r.addenda,r.addenda_skipped,r.parts],[1,1,3,1,2,1,2]);
@@ -628,6 +631,8 @@ test('contracts import: objects, counterparties by UNP, unchecked contracts, add
  assert.equal((await db.query('select count(*)::int n from pto_contract_parts where contract_id=$1',[c1.id])).rows[0].n,2);
  const c2=(await db.query("select c.parent_contract_id,p.number from pto_contracts c join pto_contracts p on p.id=c.parent_contract_id where c.source_key='НОВЫЙ/02'")).rows[0];
  assert.equal(c2.number,'00','основной договор найден по номеру');
+ const c0=(await db.query("select our_role_title,party_role_title,chain_level,our_side from pto_contracts where source_key='НОВЫЙ/00'")).rows[0];
+ assert.deepEqual([c0.our_role_title,c0.party_role_title,c0.chain_level,c0.our_side],['Субподрядчик','Генеральный подрядчик',2,'subcontractor'],'дословные роли из договора');
  // Повторная загрузка того же файла ничего не дублирует.
  const again=await command({op:'import_contracts',contracts:[item({key:'НОВЫЙ/01',object:'Новый объект',number:'1',unp:'123456789',party:'ООО «Ромашка»',addenda:[{number:'1',date:'2026-05-01'}]})]});
  assert.deepEqual([again.created,again.updated,again.addenda,again.projects,again.parties],[0,1,0,0,0]);
@@ -657,4 +662,42 @@ test('object card: head edits name, full name and address; duplicate name and en
  await command({op:'member',project_id:a,user_id:users.engineer});
  await as(users.engineer);
  await assert.rejects(command({op:'update_project',project_id:a,name:'Инженер',full_name:'x'}),/начальник ПТО/);
+});
+test('contract levels and roles: derived for new contracts, edited in the card; engineer of the object; addendum signed by scan path',async()=>{
+ await as(users.head);
+ const pid=(await command({op:'create_project',name:'Уровни'})).project_id,pid2=(await command({op:'create_project',name:'Уровни-2'})).project_id;
+ const mps=(await command({op:'create_counterparty',unp:'191426885',short_name:'МПС',full_name:'МПС полностью',roles:['general_contractor']})).counterparty_id;
+ const sub=(await command({op:'create_counterparty',unp:'191426886',short_name:'Суб',full_name:'Суб полностью',roles:['contractor']})).counterparty_id;
+ await command({op:'create_contract',project_id:pid,number:'21',counterparty_id:mps,our_role:'subcontractor',counterparty_role:'general_contractor'});
+ await command({op:'create_contract',project_id:pid,number:'21-01',counterparty_id:sub,our_role:'customer',counterparty_role:'subcontractor'});
+ await command({op:'create_contract',project_id:pid2,number:'5',counterparty_id:sub,our_role:'customer',counterparty_role:'subcontractor'});
+ const get=async(p,n)=>(await db.query('select * from pto_contract_list where project_id=$1 and number=$2',[p,n])).rows[0];
+ const top=await get(pid,'21'),s=await get(pid,'21-01'),s2=await get(pid2,'5');
+ assert.deepEqual([top.chain_level,top.our_side,top.party_side],[2,'subcontractor','general_contractor']);
+ assert.deepEqual([s.chain_level,s.our_side,s.party_side],[3,'subcontractor','service_provider'],'Пружаны: наш субподрядчик — «Исполнитель»');
+ assert.deepEqual([s2.chain_level,s2.our_side,s2.party_side],[2,'general_contractor','subcontractor'],'СУ-22 генподрядчик: привлечённая — «Субподрядчик»');
+ // Правка всего договора: уровень и роли выводят прежние роли и направление; объект меняется без документов.
+ const base={op:'update_contract',contract_id:s2.id,number:'5',project_id:pid2,counterparty_id:sub};
+ await command({...base,chain_level:'1',our_side:'',party_side:'customer',note:'справочно',checked:'false',advance_current_percent:'15'});
+ let c=await get(pid2,'5');
+ assert.deepEqual([c.chain_level,c.our_side,c.direction,c.contract_type,c.note,c.checked,c.advance_current_percent],[1,null,'outgoing','mps_customer','справочно',false,'15.00']);
+ await assert.rejects(command({...base,chain_level:'3',our_side:'',party_side:'subcontractor'}),/Роль СУ-22 не указана/);
+ await assert.rejects(command({...base,chain_level:'3',our_side:'contractor',party_side:'contractor'}),/разные роли/);
+ await command({...base,project_id:pid,number:'21-02',chain_level:'3',our_side:'subcontractor',party_side:'service_provider',our_role_title:'Генподрядчик',party_role_title:'Исполнитель'});
+ c=await get(pid,'21-02');assert.deepEqual([c.direction,c.contract_type,c.our_role,c.counterparty_role,c.our_role_title,c.party_role_title],['incoming','su22_sub','customer','subcontractor','Генподрядчик','Исполнитель'],'«Исполнитель» ниже СУ-22 — субподряд');
+ assert.ok((await db.query("select 1 from pto_counterparty_roles where counterparty_id=$1 and role='subcontractor'",[sub])).rows.length);
+ await assert.rejects(command({...base,contract_id:c.id,number:'21-01',project_id:pid,chain_level:'3',our_side:'subcontractor',party_side:'service_provider'}),/уже есть договор/);
+ // Допсоглашение: путь к скану — подписано, без скана — в работе.
+ const ds=(await command({op:'create_addendum',contract_id:top.id,number:'1',agreement_date:'2026-05-15',amount_after:'500.00',scan_path:''})).addendum_id;
+ assert.equal((await get(pid,'21')).signed_addenda,0);
+ await command({op:'update_addendum',addendum_id:ds,number:'1',agreement_date:'2026-05-15',amount_after:'500.00',work_end_date:'2027-01-31',scan_path:'ДОГОВОРА/Уровни/21/ДС1.pdf'});
+ c=await get(pid,'21');assert.deepEqual([c.current_amount,c.amount_addendum_number,c.signed_addenda],['500.00','1',1]);
+ await command({op:'update_addendum',addendum_id:ds,number:'1',agreement_date:'2026-05-15',amount_after:'500.00',scan_path:''});
+ assert.equal((await get(pid,'21')).signed_addenda,0,'скан убран — снова в работе');
+ // Ответственный инженер объекта получает доступ к объекту.
+ await assert.rejects(command({op:'update_project',project_id:pid2,name:'Уровни-2',full_name:'x',engineer_id:users.director}),/только инженер/);
+ await command({op:'update_project',project_id:pid2,name:'Уровни-2',full_name:'x',engineer_id:users.engineer});
+ assert.equal((await db.query('select engineer_id from pto_projects where id=$1',[pid2])).rows[0].engineer_id,users.engineer);
+ assert.ok((await db.query('select 1 from pto_memberships where project_id=$1 and user_id=$2',[pid2,users.engineer])).rows.length);
+ await command({op:'update_counterparty',counterparty_id:sub,unp:'191426886',short_name:'Суб',full_name:'Суб полностью',roles:['contractor','subcontractor']});
 });

@@ -21,6 +21,9 @@ export function parseContractsFile(text){
  if(doc?.format!=='pto-contracts'||Number(doc.version)!==1||!Array.isArray(doc.contracts))throw Error('Нужен файл формата pto-contracts, версия 1');
  return doc.contracts.map(c=>{
   const [our_role,counterparty_role]=String(c.kind||'').split(':'),parts=Array.isArray(c.parts)?c.parts:[];
+  // Дословные роли: СУ-22 и контрагента (в договоре с МПС — сторона МПС, иначе привлечённая или заказчик — side «other»).
+  const ps=c.parties||[],ourP=ps.find(p=>p.side==='СУ-22');
+  const cpP=ps.find(p=>p.side===(c.type==='su22_mps'?'МПС':'other'))||ps.find(p=>p.side!=='СУ-22');
   const other=(c.parties||[]).find(p=>p.side!=='СУ-22'&&p.name)?.name,bad=[c.date,c.work_start,c.work_end].filter(v=>v&&!/^\d{4}-\d{2}$/.test(v)&&!realDay(v));
   return {key:c.key,object:String(c.object||'').trim(),type:c.type||null,our_role,counterparty_role,
    number:String(c.number||'').trim(),date:realDay(c.date),bad_dates:bad,subject:c.subject||'',
@@ -32,6 +35,7 @@ export function parseContractsFile(text){
    parts:parts.length>1?parts.map(p=>({name:p.name,vat_rate:vatOf(p),amount:money(p.amount_with_vat)})):[],
    addenda:(c.addenda||[]).map(a=>({number:String(a.number||'').trim(),date:realDay(a.date),amount_after:money(a.amount_with_vat_after),vat_amount_after:money(a.vat_amount_after),
     work_end_after:endDay(a.work_end_after),note:a.changes||a.note||'',signed:a.signed})),
+   our_role_title:String(ourP?.role_title||'').trim().slice(0,100),party_role_title:String(cpP?.role_title||'').trim().slice(0,100),
    confidence:c.confidence||'low',check:Array.isArray(c.check)?c.check.length:0};
  });
 }
