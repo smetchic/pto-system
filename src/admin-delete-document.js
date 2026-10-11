@@ -63,7 +63,7 @@ function openDeleteForm(doc){
   submit.disabled=true;
   const out=dialog.querySelector('#admin-delete-error');out.textContent='';
   try{
-   const {error}=await client.rpc('pto_delete_document',{document_id:doc.id,reason});
+   const {error}=await client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'delete_document',document_id:doc.id,reason}});
    if(error)throw error;
    dialog.close();
    location.reload();
