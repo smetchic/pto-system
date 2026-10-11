@@ -398,6 +398,7 @@ async function action(name,id){
  if(name==='edit-addendum')return editAddendum(id);
  if(name==='cancel-addendum')return addendumStatus(id,'cancelled');
  if(name==='contract-kind'){ui.contractKind=id;return render();}
+ if(name==='contract-ds'){ui.contractDs={...(ui.contractDs||{}),[id]:!(ui.contractDs||{})[id]};return render();}
  if(name==='contract-state'){ui.contractState=id;return render();}
  if(name==='revise'){const d=data.documents.find(d=>d.id===id),v=ver(d);
  const body=d.kind==='c3a'?c3aHint+c3aFields(v):d.kind==='c29'?'':field('amount','Сумма акта с НДС, руб.','number',v.amount);

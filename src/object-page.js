@@ -2,7 +2,7 @@
 import {escapeHtml as e,money,kindNames,actionNames,canWrite} from './domain.js';
 import {COLUMNS,openNotes,objectColor,subsOf,canMoveCard,turnOf,daysOnStep,expectedCards,activeIn,oursContract} from './conveyor.js';
 import {projectAmounts,c29Status,engineerName,splitBar} from './portfolio.js';
-import {LEVELS,contractGroup,byDate,startCell,endCell} from './contracts.js';
+import {groupsOf,endCell,addendaCell,addendaRows} from './contracts.js';
 
 export const OBJECT_TABS=[['month','Месяц'],['contracts','Договоры'],['documents','Документы'],['history','История']];
 export const objectTab=t=>OBJECT_TABS.some(([id])=>id===t)?t:'month';
@@ -187,16 +187,16 @@ export function objectPage({ui,data,profile,today,now=Date.now()}){
 
  // ——— Договоры ———
  function contractsTab(){
-  const draftOf=c=>(data.addenda||[]).filter(a=>a.contract_id===c.id&&a.status==='draft');
-  const row=c=>{const drafts=draftOf(c);
+  const open=ui.contractDs||{};
+  const row=c=>{
    return `<tr class="ob-row" data-action="contract" data-id="${e(c.id)}" tabindex="0" role="button"><td><b>№ ${e(c.number)}</b>${c.contract_date?` <span class="muted">от ${e(day(c.contract_date))}</span>`:''}${c.checked===false?' <span class="ct-warn">не проверен</span>':''}</td>
-    <td>${e(c.party||'')}</td>
-    <td class="num">${c.current_amount!==null&&c.current_amount!==undefined?money(c.current_amount):'<span class="muted">—</span>'}<small>${c.amount_addendum_number?'по ДС № '+e(c.amount_addendum_number):'по договору'}${drafts.length?` · <span class="ct-warn">ДС № ${drafts.map(a=>e(a.number)).join(', ')} в работе</span>`:''}</small></td>
-    <td class="ct-nw">${startCell(c)}</td><td class="ct-nw">${endCell(c,today)}</td></tr>`;};
-  const groups=LEVELS.map(([l,label])=>[label,contracts.filter(c=>contractGroup(c,data)===String(l)).sort(byDate)]).filter(([,l])=>l.length);
+    <td>${e(c.party||'')}</td><td class="ct-subj">${e(c.subject||'')}</td>
+    <td class="num">${c.current_amount!==null&&c.current_amount!==undefined?money(c.current_amount):'<span class="muted">—</span>'}<small>${c.amount_addendum_number?'по ДС № '+e(c.amount_addendum_number):'по договору'}</small></td>
+    <td class="ct-nw">${endCell(c,today)}</td><td class="ct-nw">${addendaCell(data,c,!!open[c.id])}</td></tr>${open[c.id]?addendaRows(data,c,6):''}`;};
+  const groups=groupsOf(data,contracts);
   return `<div class="ob-bar"><span class="muted">Стоимость и срок считаются по подписанным допсоглашениям. Строка открывает карточку договора.</span>${writer?btn('Добавить договор','new-contract','',true):''}</div>
-   ${contracts.length?`<div class="table-wrap"><table class="ob-table ct-table"><thead><tr><th>Договор</th><th>Сторона</th><th class="num">Стоимость, руб.</th><th>Начало работ</th><th>Окончание работ</th></tr></thead><tbody>
-   ${groups.map(([label,list])=>`<tr class="ct-grp"><td colspan="5"><span class="ct-grp-l">${label}</span><span class="ct-grp-n">${list.length}</span></td></tr>${list.map(row).join('')}`).join('')}</tbody></table></div>`:'<div class="empty">Добавьте договор с заказчиком, чтобы готовить процентовки.</div>'}`;
+   ${contracts.length?`<div class="table-wrap"><table class="ob-table ct-table"><thead><tr><th>Договор</th><th>Контрагент</th><th>Предмет договора</th><th class="num">Стоимость, руб.</th><th>Окончание работ</th><th>Допсоглашения</th></tr></thead><tbody>
+   ${groups.map(([label,list,hint])=>`<tr class="ct-grp"><td colspan="6"><span class="ct-grp-l">${label}</span> <span class="ct-grp-h">${hint}</span><span class="ct-grp-n">${list.length}</span></td></tr>${list.map(row).join('')}`).join('')}</tbody></table></div>`:'<div class="empty">Добавьте договор с заказчиком, чтобы готовить процентовки.</div>'}`;
  }
 
  // ——— Документы ———

@@ -29,19 +29,26 @@ function fixture(role='engineer'){
 
 test('contracts: groups, finished vs active, filters by kind and object, search keeps state',()=>{
  const {data,profile,ui}=fixture();
- assert.equal(contractGroup(data.contracts[0],data),'2');assert.equal(contractGroup(data.contracts[1],data),'3','на объекте есть договор с генподрядчиком');assert.equal(contractGroup(data.contracts[2],data),'1');
+ assert.equal(contractGroup(data.contracts[0],data),'gc');assert.equal(contractGroup(data.contracts[1],data),'exec','на объекте есть договор с генподрядчиком');assert.equal(contractGroup(data.contracts[2],data),'customer');assert.equal(contractGroup(data.contracts[3],data),'service');
  assert.equal(contractFinished(data,data.contracts[2],today),true,'срок прошёл, комплекта нет');
  assert.equal(contractFinished(data,data.contracts[1],today),false,'срок истёк, но комплект месяца идёт');
  let html=contractsList({data,ui,profile,today});
- assert.match(html,/Уровень 2 · Генподрядчик — Субподрядчик<\/span><span class="ct-grp-n">2/);assert.match(html,/Уровень 3 · Субподрядчик — Исполнитель<\/span><span class="ct-grp-n">1/);
+ assert.match(html,/Наш договор с МПС<\/span> <span class="ct-grp-h">СУ-22 субподрядчик<\/span><span class="ct-grp-n">1/);assert.match(html,/Наши исполнители<\/span> <span class="ct-grp-h">нанимает СУ-22<\/span><span class="ct-grp-n">1/);
+ assert.doesNotMatch(html,/Уровень/,'группы названы словами, без номеров уровней');
+ assert.match(html,/<th>Контрагент<\/th><th>Предмет договора<\/th>/);assert.match(html,/class="ct-subj">Жилой дом</);
+ assert.match(html,/data-action="contract-ds" data-id="c1" aria-expanded="false">2 допсоглашения · <span class="ct-warn">1 в работе<\/span> ▸/);assert.doesNotMatch(html,/class="ct-ds"/,'ДС свёрнуты');
+ assert.match(html,/data-action="contract-kind" data-id="gc"/);assert.doesNotMatch(html,/data-action="contract-kind" data-id="tri"/,'фильтр только по группам, где есть договоры');
+ const opened=contractsList({data,ui:{...ui,contractDs:{c1:true}},profile,today});
+ assert.match(opened,/aria-expanded="true">2 допсоглашения/);assert.ok(opened.indexOf('ДС № 4')<opened.indexOf('ДС № 5'),'ДС по порядку дат');
+ assert.match(opened,/<b>ДС № 5<\/b><span class="muted">01\.10\.2026<\/span><span>цена → 13[\s ]940[\s ]000,00<\/span><span class="ob-st w">В работе/);assert.match(opened,/<b>ДС № 4<\/b>.*?<span class="ob-st ok">Подписано/s);
  assert.doesNotMatch(html,/data-id="c3"/,'по умолчанию только действующие');
- assert.match(html,/ДС № 5 в работе/);assert.match(html,/30\.09\.2026<small>срок истёк<\/small>/);assert.doesNotMatch(html,/У технадзора|прошло/,'без состояния месяца и доли срока');
+ assert.match(html,/30\.09\.2026<small>срок истёк<\/small>/);assert.doesNotMatch(html,/У технадзора|прошло/,'без состояния месяца и доли срока');
  assert.doesNotMatch(html,/мы генподрядчик|мы субподрядчик/,'роль видна по заголовку группы');
  assert.ok(html.indexOf('data-id="c1"')<html.indexOf('data-id="c4"'),'внутри группы по дате, без даты в конце');
  assert.match(html,/Паркинг &lt;b&gt;/);assert.match(html,/data-action="new-contract"/);
  assert.match(html,/13[\s ]166[\s ]000,00/);
  html=contractsList({data,ui:{...ui,contractState:'done'},profile,today});assert.match(html,/data-id="c3"/);assert.doesNotMatch(html,/data-id="c1"/);
- html=contractsList({data,ui:{...ui,contractKind:'3'},profile,today});assert.doesNotMatch(html,/data-id="c1"/);assert.match(html,/data-id="c2"/);
+ html=contractsList({data,ui:{...ui,contractKind:'exec'},profile,today});assert.doesNotMatch(html,/data-id="c1"/);assert.match(html,/data-id="c2"/);
  html=contractsList({data,ui:{...ui,contractObject:'p2'},profile,today});assert.doesNotMatch(html,/data-id="c1"/);
  html=contractsList({data,ui:{...ui,contractQuery:'мегалит'},profile,today});
  assert.match(html,/hidden data-action="contract" data-id="c1"/);assert.doesNotMatch(html,/hidden data-action="contract" data-id="c2"/);assert.match(html,/value="мегалит"/);

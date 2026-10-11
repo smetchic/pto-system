@@ -111,7 +111,7 @@ test('contracts tab shows computed current price and term and opens the contract
  ctx.data.addenda=[{id:'a2',contract_id:'contract',number:'2',status:'draft'}];
  const html=renderWorkspace(ctx);
  assert.match(html,/data-action="contract" data-id="contract"/);
- assert.match(html,/159[\s ]559,72<small>по ДС № 1 · <span class="ct-warn">ДС № 2 в работе/);
+ assert.match(html,/159[\s ]559,72<small>по ДС № 1<\/small>/);assert.match(html,/1 допсоглашение · <span class="ct-warn">1 в работе<\/span>/);
  assert.match(html,/31\.01\.2000<small>срок истёк/);
  ctx.data.contracts[0].current_amount=null;assert.match(renderWorkspace(ctx),/<td class="num"><span class="muted">—<\/span>/);
 });
