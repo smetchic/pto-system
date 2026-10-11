@@ -20,11 +20,19 @@ function addGroup(select,label,rows){
  select.append(group);
 }
 
+function simplifyC3aFields(form){
+ const vat=form.querySelector('input[name="smr_vat"]');
+ if(vat)vat.closest('label')?.remove();
+ const hint=[...form.querySelectorAll('p.muted')].find(p=>p.textContent.includes('СМР с НДС за период не вводится'));
+ if(hint)hint.textContent='СМР с НДС и НДС в составе СМР считаются автоматически по актам С-2 этого договора за месяц (текущие версии). После изменения акта создайте новую версию справки. «К оплате» и накопительные колонки считаются автоматически.';
+}
+
 async function enhanceC3aContractSelect(){
  if(!dialog?.open)return;
  const form=dialog.querySelector('#modal-form');
  const title=form?.querySelector('.cp-drawer-head h2')?.textContent?.trim();
  if(title!=='Справка С-3а')return;
+ simplifyC3aFields(form);
  const select=form.querySelector('select[name="contract_id"]');
  if(!select||select.dataset.c3aContracts)return;
  select.dataset.c3aContracts='loading';
