@@ -54,11 +54,8 @@ function createRow(kind,{party='',contract='',label=''}={}){
  b.classList.add('dt-create-btn');td.append(b);tr.append(td);return tr;
 }
 
-function emptyDocuments(root,canCreate){
- const bar=root.querySelector('.ob-bar');
- const empty=bar?.nextElementSibling;
- if(!empty?.classList.contains('empty')||empty.dataset.docsEmpty)return;
- empty.dataset.docsEmpty='1';empty.className='dt-empty';empty.textContent='';
+function fillEmpty(container,canCreate){
+ container.dataset.docsEmpty='1';container.className='dt-empty';container.textContent='';
  const makeBlock=(title,sub=false)=>{
   const section=document.createElement('section');section.className=`dt-empty-block${sub?' sub':''}`;
   const h=document.createElement('h3');h.textContent=title;section.append(h);
@@ -67,7 +64,14 @@ function emptyDocuments(root,canCreate){
   if(canCreate){c3.append(button('+ Создать','new-c3a'));c2.append(button('+ Создать','new-doc'));}
   section.append(c3,c2);return section;
  };
- empty.append(makeBlock('Процентовка СУ-22 заказчику'),makeBlock('Субподрядчики',true));
+ container.append(makeBlock('Процентовка СУ-22 заказчику'),makeBlock('Субподрядчики',true));
+}
+
+function emptyDocuments(root,canCreate){
+ const bar=root.querySelector('.ob-bar');
+ const empty=bar?.nextElementSibling;
+ if(!empty?.classList.contains('empty')||empty.dataset.docsEmpty)return;
+ fillEmpty(empty,canCreate);
 }
 
 function classifyRows(rows){
@@ -112,6 +116,11 @@ function enhanceTable(root,canCreate){
  const ours=sections.filter(s=>s.meta.kind==='ours');
  const subs=sections.filter(s=>s.meta.kind==='sub');
  const loose=sections.filter(s=>s.meta.kind==='loose'||s.meta.kind==='other');
+ if(!ours.length&&!subs.length&&!loose.length){
+  const wrap=table.closest('.table-wrap');
+  if(wrap){const empty=document.createElement('div');empty.className='empty';wrap.replaceWith(empty);fillEmpty(empty,canCreate);}
+  return;
+ }
  const frag=document.createDocumentFragment();
 
  for(const section of ours){
@@ -237,8 +246,11 @@ async function signedUrl(path){
 
 async function openFile(path){
  const popup=window.open('about:blank','_blank');
- try{const href=await signedUrl(path);if(popup){popup.opener=null;popup.location.href=href;}else window.location.href=href;}
- catch(err){popup?.close();console.error(err);}
+ try{
+  const href=await signedUrl(path);
+  if(popup){popup.opener=null;popup.location.href=href;}
+  else{const a=document.createElement('a');a.href=href;a.target='_blank';a.rel='noopener';a.click();}
+ }catch(err){popup?.close();console.error(err);}
 }
 
 async function previewFile(path){
