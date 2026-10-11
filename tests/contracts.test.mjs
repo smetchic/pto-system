@@ -56,6 +56,9 @@ test('contract card: amount by addendum, marks, party link; edit only for the ob
  assert.match(html,/data-action="edit-addendum" data-id="a5"/);assert.doesNotMatch(html,/sign-addendum|>Подписано</,'подписано = скан, без кнопки');assert.match(html,/data-action="edit-contract"/);assert.match(html,/Надя/);
  assert.doesNotMatch(html,/data-editing/,'просмотр закрывается кликом мимо');
  const ro=contractCard({data,contract:c,canEdit:false,today});
+ assert.doesNotMatch(html,/delete-contract/,'без профиля начальника кнопки нет');
+ assert.match(contractCard({data,contract:c,canEdit:true,today,profile:{role:'head'}}),/data-action="delete-contract"/,'начальник ПТО удаляет ошибочный договор');
+ assert.doesNotMatch(contractCard({data,contract:{...c,has_documents:true},canEdit:true,today,profile:{role:'head'}}),/delete-contract/,'с документами — нельзя');
  assert.doesNotMatch(ro,/edit-contract|edit-addendum|new-addendum/);
  html=contractCard({data,contract:c,canEdit:true,editing:true,today});
  for(const k of ['number','contract_date','subject','parent_contract_id','initial_amount','vat_rate','vat_amount','smr_amount','smr_vat_amount','pnr_amount','pnr_vat_amount','equipment_amount','equipment_vat_amount','work_start_date','work_end_date','contract_id','project_id','counterparty_id','chain_level','our_side','party_side','advance_current_percent','advance_target_amount','note','checked'])

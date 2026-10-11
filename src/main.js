@@ -385,6 +385,8 @@ async function action(name,id){
  if(name==='copy')return copyText(id);
  if(name==='party-contact-new')return contactModal(id);
  if(name==='party-contact'){const x=(data.partyContacts||[]).find(k=>k.id===id);return contactModal(x?.counterparty_id,id);}
+ if(name==='delete-contract'){const c=contractOf(id);if(!c||!confirm(`Удалить договор № ${c.number}${c.party?' · '+c.party:''}? Вместе с ним удалятся его допсоглашения. В журнале останется запись.`))return;
+  await mutate({op:'delete_contract',contract_id:id});dialog.close();toast('Договор удалён');return;}
  if(name==='party-contact-delete'){const x=(data.partyContacts||[]).find(k=>k.id===id);if(!x||!confirm(`Удалить контакт «${x.name}»?`))return;await mutate({op:'delete_counterparty_contact',contact_id:id});return partyModal(x.counterparty_id);}
  if(name==='doc')return docModal(id);
  if(name==='contract')return contractModal(id);
