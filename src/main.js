@@ -11,6 +11,7 @@ import './contracts.css';
 import './conveyor.css';
 import './object.css';
 import {signingPanel} from './signing-panel.js';
+import {documentCard,scanName} from './document-card.js';
 import {parseSheets,sheetsOf,matchContract,importCard,importPlan,createPayload,importResult} from './excel-import.js';
 import {expectedCards,subExpected} from './conveyor.js';
 import {genCumulative,genSheetRows,REGISTER_VIEWS} from './registers.js';
@@ -28,7 +29,6 @@ function applyTextScale(){const root=document.documentElement.style;if(!textScal
 applyTheme();applyTextScale();
 let client,session,profile,data={},loadId=0;
 const btn=(text,action,id='',primary=false)=>`<button ${primary?'class="primary"':''} data-action="${action}" data-id="${e(id)}">${e(text)}</button>`;
-const badge=(text,good=false)=>`<span class="badge ${good?'good':''}">${e(text)}</span>`;
 const empty=text=>`<div class="empty">${e(text)}</div>`;
 // Поле суммы (type 'number') — текст с разделителем тысяч, как в карточках договора (domain.js moneyText).
 const field=(name,label,type='text',value='',required=true)=>type==='number'
@@ -36,7 +36,6 @@ const field=(name,label,type='text',value='',required=true)=>type==='number'
  :`<label>${e(label)}<input name="${name}" type="${type}" value="${e(value)}" ${required?'required':''}></label>`;
 const select=(name,label,options)=>`<label>${e(label)}<select name="${name}" required>${options.map(([id,title])=>`<option value="${e(id)}">${e(title)}</option>`).join('')}</select></label>`;
 const note=(name,label,value='')=>`<label>${e(label)}<textarea name="${name}" required>${e(value)}</textarea></label>`;
-const fmtDate=x=>x?new Date(x).toLocaleString('ru-RU',{timeZone:'Europe/Minsk'}):'';
 const currentPeriod=()=>data.periods?.find(p=>p.project_id===ui.project);
 const editor=(pid=ui.project)=>canWrite(profile,data.memberships,pid);
 const canEdit=()=>editor()&&currentPeriod()?.status==='open';
@@ -67,11 +66,14 @@ async function load(){
  const prevWorkflows=prevPeriods.length?await all('pto_workflow_list',q=>q.in('period_id',prevPeriods.map(p=>p.id)).neq('step_code','accepted')):[];
  const dids=documents.map(d=>d.id);
  const versions=dids.length?await all('pto_versions',q=>q.in('document_id',dids)):[];
+ // Сканы текущих версий — колонка «Скан» во вкладке «Документы».
+ const cur=documents.map(d=>d.current_version).filter(Boolean);
+ const files=cur.length?await all('pto_files',q=>q.in('version_id',cur)):[];
  // Отметки месяца (docs/month.md): субподрядчик в месяце, что будет в месяце, отметки документов. Действует последняя запись.
  const [subMonth,monthMarks,docMarks]=await Promise.all([ids.length?all('pto_sub_month_current',q=>q.in('period_id',ids)):[],ids.length?all('pto_month_marks_current',q=>q.in('period_id',ids)):[],dids.length?all('pto_document_marks_current',q=>q.in('document_id',dids)):[]]);
  const events=await query(client.from('pto_events').select('*').order('id',{ascending:false}).limit(150));
  if(generation!==loadId)return;
- data={contractParts,subMonth,monthMarks,docMarks,prevMatrix,prevPeriods,prevWorkflows,addenda,c3aReports,projects,contracts,periods,profiles,memberships,documents,allocations,register,matrix,versions,events,workflows,skips,templates,steps,parties,partyRoles,participants,partyContacts};
+ data={files,contractParts,subMonth,monthMarks,docMarks,prevMatrix,prevPeriods,prevWorkflows,addenda,c3aReports,projects,contracts,periods,profiles,memberships,documents,allocations,register,matrix,versions,events,workflows,skips,templates,steps,parties,partyRoles,participants,partyContacts};
  if(ui.project&&!projects.some(p=>p.id===ui.project))ui.project=null;
  render();
 }
@@ -162,17 +164,16 @@ async function docModal(id){
  const d=data.documents.find(x=>x.id===id);if(!d)throw Error('Документ не найден');ui.doc=id;ui.project=d.project_id;
  const files=await all('pto_files',q=>q.in('version_id',data.versions.filter(v=>v.document_id===id).map(v=>v.id)));
  ui.docFiles=files;const checks=files.length?await all('pto_file_checks_current',q=>q.in('file_id',files.map(f=>f.id))):[];
- const mark=(data.docMarks||[]).find(x=>x.document_id===id);
- const v=ver(d),p=currentPeriod();
- const report=d.kind==='c3a'?(await query(client.from('pto_c3a_report').select('*').eq('version_id',v.id)))[0]:null;
- const amountBlock=d.kind==='c29'?`<p class="muted">Версия ${v.version} · материальный отчёт, денежной суммы нет.</p>`:d.kind==='c3a'?`<p class="muted">Версия ${v.version}</p>${c3aTable(report)}`:`<div class="stats"><article><small>Версия ${v.version}</small><strong>${money(v.amount)} <small>руб.</small></strong></article></div>`;
- // Документ не переходит сам по себе: передача, подпись и принятие — шаги его комплекта.
- const editable=p?.status==='open',done=isDone(d);
- modal(`${kindNames[d.kind]} № ${d.number}`,`<p>${badge(d.step_label||'Без комплекта',done)} · ${e(projectName(d.project_id))}</p>${amountBlock}<p>${e(v.note)}</p>${mark?`<p class="muted">${[mark.part,mark.tn_status&&{prep:'готовится',tn:'у ТН',remarks:'замечания ТН',ok:'ТН подписал'}[mark.tn_status],mark.materials!==null&&mark.materials!==undefined?'в т.ч. материалы заказчика '+money(mark.materials):'',mark.original&&{party:'оригинал у заказчика',ours:'оригинал у нас',accounting:'оригинал в бухгалтерии'}[mark.original]].filter(Boolean).map(e).join(' · ')}</p>`:''}<div class="actions">${d.workflow_id?btn('Открыть комплект','workflow',d.workflow_id,true):''}${editable&&editor(d.project_id)&&['c2a','c2b'].includes(d.kind)?btn('Отметки','doc-mark',id):''}${editable&&editor(d.project_id)?btn('Новая версия','revise',id):''}</div>${editable&&editor(d.project_id)&&done?'<p class="muted">Комплект принят бухгалтерией. Новая версия вернёт его на первый шаг; принятая сумма сохранится до повторного принятия.</p>':''}<h3>Файлы текущей версии</h3>${files.filter(f=>f.version_id===v.id).map(f=>{const k=checks.find(x=>x.file_id===f.id);return `<p>${btn(f.name,'download',f.path)} ${k?badge(k.result==='ok'?'Сверен':'Расхождение: '+k.note,k.result==='ok'):''} ${editable&&editor(d.project_id)&&['c2a','c2b','c3a'].includes(d.kind)?btn(k?'Сверить заново':'Сверить','check-file',f.id):''}</p>`;}).join('')||'<p class="muted">Файлы не прикреплены.</p>'}${editable&&editor(d.project_id)&&!done?`<label class="file">Прикрепить файл (до 20 МБ)<input id="upload" type="file"></label>`:''}<h3>История версий</h3>${data.versions.filter(x=>x.document_id===id).sort((a,b)=>b.version-a.version).map(x=>`<div class="version"><b>Версия ${x.version} · ${money(x.amount)} руб.</b> ${x.id===d.accepted_version?badge('Принята',true):''}<small>${e(fmtDate(x.created_at))}</small><p>${e(x.note)}</p>${files.filter(f=>f.version_id===x.id).map(f=>btn(f.name,'download',f.path)).join('')}</div>`).join('')}`,true);
+ const v=ver(d),p=currentPeriod(),canEdit=p?.status==='open'&&editor(d.project_id);
+ let cum=false;try{cum=localStorage.getItem('pto-c3a-cum')==='1';}catch{}
+ contractDrawer(documentCard({data,doc:d,files,checks,canEdit,cum}));
  if($('#upload'))$('#upload').onchange=async ev=>{const file=ev.target.files[0];if(!file)return;if(file.size>20971520)return toast('Максимальный размер файла — 20 МБ');ev.target.disabled=true;try{
- const ext=file.name.split('.').pop().replace(/[^a-zA-Z0-9]/g,'').slice(0,10);const path=`${d.project_id}/${d.id}/${v.id}/${crypto.randomUUID()}.${ext||'bin'}`;
+ const ext=file.name.split('.').pop().replace(/[^a-zA-Z0-9]/g,'').slice(0,10)||'pdf';const path=`${d.project_id}/${d.id}/${v.id}/${crypto.randomUUID()}.${ext}`;
+ // Имя скана ставит система (решение пользователя 11.10.2026); имя файла принтера остаётся в журнале.
+ const per=data.periods.find(x=>x.id===d.period_id),c=data.contracts.find(x=>x.id===d.contract_id);
+ const name=scanName({project:projectName(d.project_id),contract:c,doc:d,version:v.version,month:per?.month,index:files.filter(f=>f.version_id===v.id).length+1,ext});
  await query(client.storage.from('pto-documents').upload(path,file,{upsert:false,contentType:file.type||'application/octet-stream'}));
- await mutate(periodPayload('attach',{document_id:id,path,name:file.name}));await docModal(id);
+ await mutate(periodPayload('attach',{document_id:id,path,name,original_name:file.name}));await docModal(id);
  }catch(err){toast(errorMessage(err));ev.target.disabled=false;}};
 }
 // Карточка контрагента — панель справа. Справочник общий: правят начальник ПТО и инженеры, руководитель только смотрит.
@@ -263,8 +264,6 @@ async function panelSubmit(f){
 }
 function dialogReset(){dialog.className='';}
 const c3aFields=(v={})=>[['smr_vat','в т.ч. НДС в СМР, руб.'],['equipment_amount','Оборудование с НДС, руб.'],['equipment_vat','в т.ч. НДС на оборудование, руб.'],['advance_target_offset','Зачёт целевого аванса, руб.'],['advance_current_offset','Зачёт текущего аванса, руб.']].map(([k,label])=>field(k,label,'number',v[k]??'',false)).join('');
-const c3aRows=[['smr','СМР с НДС'],['smr_vat','в т.ч. НДС'],['equipment','Оборудование с НДС'],['equipment_vat','в т.ч. НДС'],['target_offset','Зачёт целевого аванса'],['current_offset','Зачёт текущего аванса'],['to_pay','К оплате']];
-function c3aTable(r){if(!r)return '';const cell=(prefix,k)=>money(r[(prefix?prefix+'_':'')+k]);return `<div class="table-wrap"><table><thead><tr><th>Справка С-3а</th><th class="num">С начала работ</th><th class="num">С начала года</th><th class="num">За период</th></tr></thead><tbody>${c3aRows.map(([k,label])=>`<tr class="${k==='to_pay'?'total':''}"><td>${e(label)}</td><td class="num">${cell('total',k)}</td><td class="num">${cell('ytd',k)}</td><td class="num">${cell('',k)}</td></tr>`).join('')}</tbody></table></div><p class="muted">К оплате = СМР + оборудование − зачёт авансов. Накопление — по принятым справкам предыдущих месяцев.</p>`;}
 // Карточка договора — боковая панель, как у контрагента (src/contracts.js). Правят начальник ПТО и инженер своего объекта.
 function contractDrawer(html,formId,submit){
  delete dialog.dataset.dirty;dialog.className='cp-drawer';dialog.innerHTML=html;if(!dialog.open)dialog.showModal();
@@ -458,6 +457,7 @@ async function action(name,id){
   await mutate({op:'delete_contract',contract_id:id});dialog.close();toast('Договор удалён');return;}
  if(name==='party-contact-delete'){const x=(data.partyContacts||[]).find(k=>k.id===id);if(!x||!confirm(`Удалить контакт «${x.name}»?`))return;await mutate({op:'delete_counterparty_contact',contact_id:id});return partyModal(x.counterparty_id);}
  if(name==='doc')return docModal(id);
+ if(name==='c3a-cum'){try{localStorage.setItem('pto-c3a-cum',localStorage.getItem('pto-c3a-cum')==='1'?'0':'1');}catch{}return docModal(id);}
  if(name==='contract')return contractModal(id);
  if(name==='edit-contract')return contractModal(id,true);
  if(name==='new-addendum')return newAddendum(id);
