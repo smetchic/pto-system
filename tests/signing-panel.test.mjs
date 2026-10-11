@@ -80,3 +80,16 @@ test('a closed panel is hidden: the drawer display rule applies only to an open 
  const css=(await import('node:fs')).readFileSync(new URL('../src/conveyor.css',import.meta.url),'utf8');
  for(const rule of css.match(/#dialog[^{]*\{[^}]*display:[^}]*\}/g)||[])assert.match(rule,/\[open\]/,rule);
 });
+
+test('past month: the head sees «Внести сразу» with later steps; engineers and the current month do not',()=>{
+ const f=fixture('head');f.profile.id='h';
+ assert.doesNotMatch(render(f,f.ours),/Внести сразу/,'текущий месяц идёт по шагам');
+ f.month='2026-09';let html=render(f,f.ours);
+ assert.match(html,/Прошлый месяц <span>можно внести сразу на поздний шаг<\/span><button class="link" data-action="sp-mode" data-id="jump">Внести сразу/);
+ html=render(f,f.ours,{mode:'jump'});
+ assert.match(html,/<form class="sp-move" data-op="jump" data-editing>/);
+ assert.match(html,/<option value="check">На проверке<\/option><option value="signed">Проверено<\/option><option value="accepted" selected>В бухгалтерии<\/option>/);
+ assert.match(html,/name="date"/);
+ const e=fixture();e.month='2026-09';assert.doesNotMatch(render(e,e.ours),/Внести сразу/,'инженер — по шагам');
+ assert.doesNotMatch(render(f,{...f.ours,step_code:'accepted'}),/Внести сразу/);
+});

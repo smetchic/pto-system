@@ -84,6 +84,15 @@ export function signingPanel({x,data,profile,mode='',events=[],files=[],month,no
  else move=`<div class="sp-move"><h3>Ваш ход: ${e(sayMove(m))}</h3><p>${blocked?`<span class="sp-why">${e(m.v)} нельзя: ${e(blocked)}.</span>`:e(ABOUT[tpl][key]||'')}</p>
   <div class="sp-btns"><button class="primary" data-action="sp-mode" data-id="step"${blocked?' disabled':''}>${e(m.v)}</button>${x.expected?`<button data-action="sp-mode" data-id="skip">${skipWord}</button>`:''}</div></div>`;
 
+ // Прошлый месяц (внесение истории): начальник ПТО ставит комплект сразу на поздний шаг, без проверок пропущенных шагов.
+ let past='';
+ const later=steps.filter(s=>['check','signed','accepted'].includes(s.code)&&s.ordinal>curOrd);
+ if(!x.expected&&can&&profile?.role==='head'&&month&&month<today.slice(0,7)&&later.length){
+  past=mode==='jump'?form('jump','Внести сразу','Прошлый месяц: комплект ставится сразу на выбранный шаг. Технадзор, письмо и сканы не требуются; нужны акты с суммами. Пропущенные шаги попадут в историю с этой датой.',
+   `<label for="sp-to">На шаг</label><select id="sp-to" name="to_step">${later.map(s=>`<option value="${e(s.code)}"${s.code==='accepted'?' selected':''}>${e(s.label)}</option>`).join('')}</select>${input(['date','Дата'],x,today)}<label for="sp-note">Пояснение</label><input id="sp-note" name="note" type="text" placeholder="необязательно">`,'Внести')
+   :`<div class="sp-blk sp-past"><h4>Прошлый месяц <span>можно внести сразу на поздний шаг</span><button class="link" data-action="sp-mode" data-id="jump">Внести сразу</button></h4></div>`;
+ }
+
  // Технадзор: субподрядчики месяца для процентовки СУ-22.
  let tn='';
  if(tpl==='claim'&&!x.expected&&['acts','tn'].includes(x.step_code)){
@@ -137,7 +146,7 @@ export function signingPanel({x,data,profile,mode='',events=[],files=[],month,no
  return `<div class="sp" style="--oc:${color}"><div class="sp-scroll"><button class="proc-drawer-close" data-action="dismiss">Закрыть ×</button>
   <div class="sp-head"><h2>${e(name)}</h2><div class="sp-sub">${KIND_LONG[tpl]}, ${e(second)}${eng?`; инженер ${e(eng)}`:''}</div>
   ${x.money&&Number(x.acts_amount)?`<div class="sp-sum">${money(x.acts_amount)}<small>${x.step_code==='accepted'?'зафиксирована':x.step_code==='signed'&&tpl==='claim'?'подписана':'за месяц'}</small></div>`:''}</div>
-  ${strip}${move}${tn}${kitBlk}${notesBlk}${histBlk}</div>${foot}</div>`;
+  ${strip}${move}${past}${tn}${kitBlk}${notesBlk}${histBlk}</div>${foot}</div>`;
 }
 // Отмена доступна и на последнем шаге (передано в бухгалтерию), пока период открыт.
 function canMoveCardAny(x,{profile,data}){return canMoveCard({...x,step_code:'acts'},{profile,data});}
