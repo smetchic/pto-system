@@ -26,16 +26,16 @@ function activeDocumentsRoot(){
 }
 
 function kitMeta(header){
- const raw=txt(header?.textContent);
+ const copy=header?.cloneNode(true);copy?.querySelector('.ob-st')?.remove();
+ const raw=txt(copy?.textContent||header?.textContent);
  if(/С-29/i.test(raw))return {kind:'c29',party:'',contract:''};
  if(/Без комплекта/i.test(raw))return {kind:'loose',party:'',contract:''};
  if(/Процентовка СУ-22 заказчику/i.test(raw)){
-  const m=raw.match(/дог\.\s*№\s*(.+?)(?=\s+(?:В ПТО|На объекте|У заказчика|Бухгалтерия|Закрыто|Проверено|В бухгалтерии|$))/i);
+  const m=raw.match(/дог\.\s*№\s*(.+)$/i);
   return {kind:'ours',party:'',contract:txt(m?.[1]||'')};
  }
  if(/Процентовка субподрядчика/i.test(raw)){
-  const base=raw.replace(/\s+(?:В ПТО|На объекте|У заказчика|Бухгалтерия|Закрыто|Проверено|В бухгалтерии).*$/i,'');
-  const m=base.match(/Процентовка субподрядчика\s*·\s*(.*?)\s*·\s*дог\.\s*№\s*(.+)$/i);
+  const m=raw.match(/Процентовка субподрядчика\s*·\s*(.*?)\s*·\s*дог\.\s*№\s*(.+)$/i);
   return {kind:'sub',party:txt(m?.[1]||''),contract:txt(m?.[2]||'')};
  }
  return {kind:'other',party:'',contract:''};
@@ -83,8 +83,8 @@ function decorateSubC3a(row,meta,status){
  if(!row)return;
  const cell=row.cells?.[0];if(!cell||cell.dataset.subDecorated)return;
  cell.dataset.subDecorated='1';
- if(meta.party){const p=document.createElement('span');p.className='dt-party';p.textContent=` · ${meta.party}`;cell.append(p);}
- if(meta.contract){const c=document.createElement('span');c.className='dt-contract';c.textContent=` · дог. № ${meta.contract}`;cell.append(c);}
+ if(meta.party&&!txt(cell.textContent).includes(meta.party)){const p=document.createElement('span');p.className='dt-party';p.textContent=` · ${meta.party}`;cell.append(p);}
+ if(meta.contract&&!txt(cell.textContent).includes(`дог. № ${meta.contract}`)){const c=document.createElement('span');c.className='dt-contract';c.textContent=` · дог. № ${meta.contract}`;cell.append(c);}
  if(status){const s=status.cloneNode(true);s.classList.add('dt-sub-status');cell.append(s);}
 }
 
