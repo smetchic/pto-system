@@ -6,26 +6,28 @@ import {engineerName} from './portfolio.js';
 
 // Уровень договора — место в цепочке объекта; роли сторон (решение 11.10.2026, docs/contracts.md).
 export const SIDE_NAMES={customer:'Заказчик',general_contractor:'Генподрядчик',contractor:'Подрядчик',subcontractor:'Субподрядчик',service_provider:'Исполнитель'};
-export const LEVELS=[[1,'Уровень 1 · Заказчик — Генподрядчик'],[2,'Уровень 2 · Генподрядчик — Подрядчик'],[3,'Уровень 3 · Подрядчик — Субподрядчик'],[4,'Трёхсторонние']];
+// Уровни и роли (решение пользователя 11.10.2026). Генподрядчик МПС: 1 заказчик — МПС, 2 МПС — СУ-22 (субподрядчик), 3 СУ-22 — исполнитель (наш субподрядчик).
+// Генподрядчик СУ-22: 1 заказчик — СУ-22, 2 СУ-22 — субподрядчик. 4 — трёхсторонние, СУ-22 третья сторона. «Подрядчик» сам не назначается.
+export const LEVELS=[[1,'Уровень 1 · Заказчик — Генподрядчик'],[2,'Уровень 2 · Генподрядчик — Субподрядчик'],[3,'Уровень 3 · Субподрядчик — Исполнитель'],[4,'Трёхсторонние · СУ-22 третья сторона']];
 // Уровень и роли из базы (миграция 20261011100000); до неё — по прежним ролям, как переносит миграция.
 export function sidesOf(c,data={}){
  if(c.chain_level)return {level:c.chain_level,our:c.our_side||null,party:c.party_side||null};
  if(c.contract_type==='mps_customer')return {level:1,our:null,party:'customer'};
  if(c.contract_type==='mps_su22_sub')return {level:4,our:null,party:'subcontractor'};
  if(c.counterparty_role==='customer')return {level:1,our:'general_contractor',party:'customer'};
- if(c.counterparty_role==='general_contractor')return {level:2,our:'contractor',party:'general_contractor'};
+ if(c.counterparty_role==='general_contractor')return {level:2,our:'subcontractor',party:'general_contractor'};
  if(['service_provider','supplier'].includes(c.counterparty_role))return {level:2,our:'customer',party:'service_provider'};
  const top=(data.contracts||[]).some(x=>x.project_id===c.project_id&&(x.counterparty_role==='general_contractor'||x.contract_type==='mps_customer'));
- return top?{level:3,our:'contractor',party:'subcontractor'}:{level:2,our:'general_contractor',party:'contractor'};
+ return top?{level:3,our:'subcontractor',party:'service_provider'}:{level:2,our:'general_contractor',party:'subcontractor'};
 }
-// «СУ-22 — подрядчик»: роль СУ-22 по договору.
+// «СУ-22 — субподрядчик»: роль СУ-22 по договору.
 export const ourSideLabel=(c,data)=>{const x=sidesOf(c,data);return x.our?`СУ-22 — ${SIDE_NAMES[x.our].toLowerCase()}`:x.level===4?'СУ-22 — третья сторона':'СУ-22 не сторона договора';};
 export const contractGroup=(c,data)=>String(sidesOf(c,data).level);
 const GROUPS=LEVELS.map(([l,label])=>[String(l),label]);
 // Новый договор: пара прежних ролей, которую принимает create_contract; уровень и роли база выводит сама, их можно поправить в карточке.
 export const contractKinds=[
- ['subcontractor:general_contractor','С генподрядчиком, СУ-22 — подрядчик'],
- ['customer:subcontractor','С субподрядчиком, СУ-22 — генподрядчик или подрядчик'],
+ ['subcontractor:general_contractor','С генподрядчиком, СУ-22 — субподрядчик'],
+ ['customer:subcontractor','С привлечённой организацией (исполнитель или субподрядчик)'],
  ['contractor:customer','С заказчиком, СУ-22 — генподрядчик'],
  ['service_customer:service_provider','Услуги, СУ-22 — заказчик'],
 ];
@@ -133,6 +135,7 @@ export function contractCard({data,contract:c,canEdit,editing=false,today,profil
    <div class="wide"><label>Уровень<select name="chain_level">${options(LEVELS,x.level)}</select></label></div>
    <label>Роль СУ-22<select name="our_side"><option value="">не сторона / третья сторона</option>${options(sides,x.our)}</select></label>
    <label>Роль стороны<select name="party_side">${options(sides,x.party)}</select></label>
+   ${input('our_role_title','СУ-22 в договоре',c.our_role_title||'','text','maxlength="100" placeholder="как написано в договоре"')}${input('party_role_title','Сторона в договоре',c.party_role_title||'','text','maxlength="100" placeholder="как написано в договоре"')}
    <div class="wide">${area('subject','Предмет',c.subject||'','maxlength="1000"')}</div>
    <div class="wide"><label>К основному договору<select name="parent_contract_id"><option value="">—</option>${parents.map(p=>`<option value="${e(p.id)}" ${p.id===c.parent_contract_id?'selected':''}>№ ${e(p.number)} · ${e(p.party||'')}</option>`).join('')}</select></label></div></div>`)}
   ${section('Цена по договору, руб. (без допсоглашений)',`<div class="cp-work-grid">${amount('initial_amount','Цена с НДС',c.initial_amount)}${amount('vat_amount','В т. ч. НДС',c.vat_amount)}${amount('vat_rate','Ставка НДС, %',c.vat_rate)}<span></span>
@@ -157,6 +160,7 @@ export function contractCard({data,contract:c,canEdit,editing=false,today,profil
   <dl class="ct-kv">${c.subject?`<dt>Предмет</dt><dd>${e(c.subject)}</dd>`:''}<dt>Начало работ</dt><dd>${c.work_start_date?e(day(c.work_start_date)):'<span class="muted">не указано</span>'}</dd>
   <dt>Окончание работ</dt><dd>${c.current_end_date?`${e(day(c.current_end_date))} <span class="muted">${c.term_addendum_number?'по ДС № '+e(c.term_addendum_number):'по договору'}${expired(c,today)?' · срок истёк':''}</span>`:'<span class="muted">не указано</span>'}</dd>
   ${parent?`<dt>К договору</dt><dd><button type="button" class="link" data-action="contract" data-id="${e(parent.id)}">№ ${e(parent.number)}</button> <span class="muted">${e(parent.party||'')}</span></dd>`:''}
+  ${c.our_role_title||c.party_role_title?`<dt>В договоре</dt><dd>${e([c.our_role_title?'СУ-22 — '+c.our_role_title:'',c.party_role_title?'сторона — '+c.party_role_title:''].filter(Boolean).join(' · '))}</dd>`:''}
   <dt>Инженер</dt><dd>${e(engineerName(data,c.project_id)||'—')}</dd>
   ${c.advance_current_percent||c.advance_target_amount?`<dt>Аванс</dt><dd>${[c.advance_current_percent?`текущий ${e(Number(c.advance_current_percent))} %`:'',c.advance_target_amount?`целевой ${money(c.advance_target_amount)}`:''].filter(Boolean).join(' · ')}</dd>`:''}
   ${c.replaced_by||c.note?`<dt>Примечание</dt><dd>${e([c.replaced_by?'заменён: '+c.replaced_by:'',c.note].filter(Boolean).join(' · '))}</dd>`:''}

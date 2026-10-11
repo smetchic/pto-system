@@ -614,7 +614,7 @@ test('contracts import: objects, counterparties by UNP, unchecked contracts, add
   item({key:'НОВЫЙ/01',object:'Новый объект',number:'1',unp:'123456789',party:'ООО «Ромашка»',party_full_name:'Общество «Ромашка»',type:'su22_sub',checked:false,
    amount:'500.00',files:[{type:'contract',path:'НОВЫЙ/01/Договор.pdf'}],parts:[{name:'Жилая',vat_rate:'20',amount:'300.00'},{name:'Встроенные',vat_rate:'0',amount:'200.00'}],
    addenda:[{number:'1',date:'2026-05-01',amount_after:'600.00',signed:null},{number:'2',date:null},{number:'3',date:'2026-06-01',signed:false}]}),
-  item({key:'НОВЫЙ/00',object:'Новый объект',number:'00',our_role:'subcontractor',counterparty_role:'general_contractor',party:'МПС',type:'su22_mps',checked:true}),
+  item({key:'НОВЫЙ/00',object:'Новый объект',number:'00',our_role:'subcontractor',counterparty_role:'general_contractor',party:'МПС',type:'su22_mps',checked:true,our_role_title:'Субподрядчик',party_role_title:'Генеральный подрядчик'}),
   item({key:'НОВЫЙ/02',object:'Новый объект',number:'2',party:'Без УНП',parent_number:'00',type:'su22_sub',checked:true}),
   item({key:'НОВЫЙ/bad',object:'Новый объект',number:'3',party:'Плохой',our_role:'customer',counterparty_role:'customer'})]});
  assert.deepEqual([r.projects,r.parties,r.created,r.updated,r.addenda,r.addenda_skipped,r.parts],[1,1,3,1,2,1,2]);
@@ -628,6 +628,8 @@ test('contracts import: objects, counterparties by UNP, unchecked contracts, add
  assert.equal((await db.query('select count(*)::int n from pto_contract_parts where contract_id=$1',[c1.id])).rows[0].n,2);
  const c2=(await db.query("select c.parent_contract_id,p.number from pto_contracts c join pto_contracts p on p.id=c.parent_contract_id where c.source_key='НОВЫЙ/02'")).rows[0];
  assert.equal(c2.number,'00','основной договор найден по номеру');
+ const c0=(await db.query("select our_role_title,party_role_title,chain_level,our_side from pto_contracts where source_key='НОВЫЙ/00'")).rows[0];
+ assert.deepEqual([c0.our_role_title,c0.party_role_title,c0.chain_level,c0.our_side],['Субподрядчик','Генеральный подрядчик',2,'subcontractor'],'дословные роли из договора');
  // Повторная загрузка того же файла ничего не дублирует.
  const again=await command({op:'import_contracts',contracts:[item({key:'НОВЫЙ/01',object:'Новый объект',number:'1',unp:'123456789',party:'ООО «Ромашка»',addenda:[{number:'1',date:'2026-05-01'}]})]});
  assert.deepEqual([again.created,again.updated,again.addenda,again.projects,again.parties],[0,1,0,0,0]);
@@ -668,9 +670,9 @@ test('contract levels and roles: derived for new contracts, edited in the card; 
  await command({op:'create_contract',project_id:pid2,number:'5',counterparty_id:sub,our_role:'customer',counterparty_role:'subcontractor'});
  const get=async(p,n)=>(await db.query('select * from pto_contract_list where project_id=$1 and number=$2',[p,n])).rows[0];
  const top=await get(pid,'21'),s=await get(pid,'21-01'),s2=await get(pid2,'5');
- assert.deepEqual([top.chain_level,top.our_side,top.party_side],[2,'contractor','general_contractor']);
- assert.deepEqual([s.chain_level,s.our_side,s.party_side],[3,'contractor','subcontractor'],'на объекте есть договор с генподрядчиком');
- assert.deepEqual([s2.chain_level,s2.our_side,s2.party_side],[2,'general_contractor','contractor'],'СУ-22 генподрядчик');
+ assert.deepEqual([top.chain_level,top.our_side,top.party_side],[2,'subcontractor','general_contractor']);
+ assert.deepEqual([s.chain_level,s.our_side,s.party_side],[3,'subcontractor','service_provider'],'Пружаны: наш субподрядчик — «Исполнитель»');
+ assert.deepEqual([s2.chain_level,s2.our_side,s2.party_side],[2,'general_contractor','subcontractor'],'СУ-22 генподрядчик: привлечённая — «Субподрядчик»');
  // Правка всего договора: уровень и роли выводят прежние роли и направление; объект меняется без документов.
  const base={op:'update_contract',contract_id:s2.id,number:'5',project_id:pid2,counterparty_id:sub};
  await command({...base,chain_level:'1',our_side:'',party_side:'customer',note:'справочно',checked:'false',advance_current_percent:'15'});
@@ -678,10 +680,10 @@ test('contract levels and roles: derived for new contracts, edited in the card; 
  assert.deepEqual([c.chain_level,c.our_side,c.direction,c.contract_type,c.note,c.checked,c.advance_current_percent],[1,null,'outgoing','mps_customer','справочно',false,'15.00']);
  await assert.rejects(command({...base,chain_level:'3',our_side:'',party_side:'subcontractor'}),/Роль СУ-22 не указана/);
  await assert.rejects(command({...base,chain_level:'3',our_side:'contractor',party_side:'contractor'}),/разные роли/);
- await command({...base,project_id:pid,number:'21-02',chain_level:'3',our_side:'contractor',party_side:'subcontractor'});
- c=await get(pid,'21-02');assert.deepEqual([c.direction,c.contract_type,c.our_role,c.counterparty_role],['incoming','su22_sub','customer','subcontractor']);
+ await command({...base,project_id:pid,number:'21-02',chain_level:'3',our_side:'subcontractor',party_side:'service_provider',our_role_title:'Генподрядчик',party_role_title:'Исполнитель'});
+ c=await get(pid,'21-02');assert.deepEqual([c.direction,c.contract_type,c.our_role,c.counterparty_role,c.our_role_title,c.party_role_title],['incoming','su22_sub','customer','subcontractor','Генподрядчик','Исполнитель'],'«Исполнитель» ниже СУ-22 — субподряд');
  assert.ok((await db.query("select 1 from pto_counterparty_roles where counterparty_id=$1 and role='subcontractor'",[sub])).rows.length);
- await assert.rejects(command({...base,contract_id:c.id,number:'21-01',project_id:pid,chain_level:'3',our_side:'contractor',party_side:'subcontractor'}),/уже есть договор/);
+ await assert.rejects(command({...base,contract_id:c.id,number:'21-01',project_id:pid,chain_level:'3',our_side:'subcontractor',party_side:'service_provider'}),/уже есть договор/);
  // Допсоглашение: путь к скану — подписано, без скана — в работе.
  const ds=(await command({op:'create_addendum',contract_id:top.id,number:'1',agreement_date:'2026-05-15',amount_after:'500.00',scan_path:''})).addendum_id;
  assert.equal((await get(pid,'21')).signed_addenda,0);

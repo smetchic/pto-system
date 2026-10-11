@@ -33,7 +33,7 @@ test('contracts: groups, finished vs active, filters by kind and object, search 
  assert.equal(contractFinished(data,data.contracts[2],today),true,'срок прошёл, комплекта нет');
  assert.equal(contractFinished(data,data.contracts[1],today),false,'срок истёк, но комплект месяца идёт');
  let html=contractsList({data,ui,profile,today});
- assert.match(html,/Уровень 2 · Генподрядчик — Подрядчик<\/span><span class="ct-grp-n">2/);assert.match(html,/Уровень 3 · Подрядчик — Субподрядчик<\/span><span class="ct-grp-n">1/);
+ assert.match(html,/Уровень 2 · Генподрядчик — Субподрядчик<\/span><span class="ct-grp-n">2/);assert.match(html,/Уровень 3 · Субподрядчик — Исполнитель<\/span><span class="ct-grp-n">1/);
  assert.doesNotMatch(html,/data-id="c3"/,'по умолчанию только действующие');
  assert.match(html,/ДС № 5 в работе/);assert.match(html,/30\.09\.2026<small>срок истёк<\/small>/);assert.doesNotMatch(html,/У технадзора|прошло/,'без состояния месяца и доли срока');
  assert.doesNotMatch(html,/мы генподрядчик|мы субподрядчик/,'роль видна по заголовку группы');

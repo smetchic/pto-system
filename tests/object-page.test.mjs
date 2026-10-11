@@ -75,7 +75,7 @@ test('close conditions and contract term',()=>{
 
 test('other tabs: contracts grouped by side, documents grouped by kit, history filtered by kind',()=>{
  const ctx=fixture();ctx.ui.projectTab='contracts';let html=objectPage(ctx);
- assert.match(html,/Уровень 2 · Генподрядчик — Подрядчик/);assert.match(html,/Уровень 3 · Подрядчик — Субподрядчик/);
+ assert.match(html,/Уровень 2 · Генподрядчик — Субподрядчик/);assert.match(html,/Уровень 3 · Субподрядчик — Исполнитель/);
  assert.match(html,/ДС № 4 в работе/);assert.match(html,/30\.12\.2026/);
  ctx.ui.projectTab='documents';html=objectPage(ctx);
  assert.match(html,/Процентовка СУ-22 заказчику · дог\. № 21 · У технадзора/);assert.match(html,/data-action="doc" data-id="d1"/);

@@ -1,7 +1,10 @@
 -- Роли и уровни договоров, ответственный инженер объекта, скан допсоглашения (тред «Исправляем ошибки», 11.10.2026).
--- * Уровень договора — место в цепочке объекта: 1 Заказчик ↔ Генподрядчик, 2 Генподрядчик ↔ Подрядчик,
---   3 Подрядчик ↔ Субподрядчик, 4 трёхсторонние. Роли сторон: Заказчик, Генподрядчик, Подрядчик, Субподрядчик, Исполнитель.
---   our_side пусто — СУ-22 не сторона договора (договор МПС с заказчиком) или третья сторона.
+-- * Уровень договора — место в цепочке объекта (решение пользователя 11.10.2026):
+--   генподрядчик МПС (Пружаны): 1 Заказчик ↔ Генподрядчик (МПС, СУ-22 не сторона), 2 Генподрядчик (МПС) ↔ Субподрядчик (СУ-22),
+--   3 Субподрядчик (СУ-22) ↔ Исполнитель (наш субподрядчик);
+--   генподрядчик СУ-22: 1 Заказчик ↔ Генподрядчик (СУ-22), 2 Генподрядчик (СУ-22) ↔ Субподрядчик;
+--   4 трёхсторонние: МПС генподрядчик, привлечённая организация — субподрядчик МПС, СУ-22 третья сторона (our_side пусто).
+--   Роль «Подрядчик» есть в справочнике, но автоматически не назначается. Дословные роли из договора — our_role_title, party_role_title.
 --   Прежние our_role, counterparty_role и contract_type выводятся из уровня и ролей при правке, поэтому
 --   направление (direction), реестр и «Подписание» работают как раньше.
 -- * Роль контрагента «Подрядчик» (contractor).
@@ -17,7 +20,9 @@
 alter table public.pto_contracts
  add column chain_level smallint check (chain_level between 1 and 4),
  add column our_side text check (our_side in ('customer','general_contractor','contractor','subcontractor','service_provider')),
- add column party_side text check (party_side in ('customer','general_contractor','contractor','subcontractor','service_provider'));
+ add column party_side text check (party_side in ('customer','general_contractor','contractor','subcontractor','service_provider')),
+ add column our_role_title text not null default '' check (length(our_role_title)<=100),
+ add column party_role_title text not null default '' check (length(party_role_title)<=100);
 
 -- Уровень и роли по прежним ролям: для новых договоров (create_contract, загрузка из файла) и переноса данных.
 create or replace function pto_private.contract_sides() returns trigger
@@ -27,12 +32,12 @@ begin
  if new.contract_type='mps_customer' then new.chain_level:=1;new.our_side:=null;new.party_side:='customer';
  elsif new.contract_type='mps_su22_sub' then new.chain_level:=4;new.our_side:=null;new.party_side:='subcontractor';
  elsif new.counterparty_role='customer' then new.chain_level:=1;new.our_side:='general_contractor';new.party_side:='customer';
- elsif new.counterparty_role='general_contractor' then new.chain_level:=2;new.our_side:='contractor';new.party_side:='general_contractor';
+ elsif new.counterparty_role='general_contractor' then new.chain_level:=2;new.our_side:='subcontractor';new.party_side:='general_contractor';
  elsif new.counterparty_role in ('service_provider','supplier') then new.chain_level:=2;new.our_side:='customer';new.party_side:='service_provider';
  elsif exists(select 1 from public.pto_contracts x where x.project_id=new.project_id and x.id is distinct from new.id
    and (x.counterparty_role='general_contractor' or x.contract_type='mps_customer')) then
-  new.chain_level:=3;new.our_side:='contractor';new.party_side:='subcontractor';
- else new.chain_level:=2;new.our_side:='general_contractor';new.party_side:='contractor';
+  new.chain_level:=3;new.our_side:='subcontractor';new.party_side:='service_provider';
+ else new.chain_level:=2;new.our_side:='general_contractor';new.party_side:='subcontractor';
  end if;
  return new;
 end $$;
@@ -40,7 +45,7 @@ revoke all on function pto_private.contract_sides() from public, anon, authentic
 create trigger pto_contracts_sides before insert or update on public.pto_contracts
  for each row execute function pto_private.contract_sides();
 
--- Перенос: уровень и роли по прежним ролям (субподряд — уровень 3, если на объекте есть договор с МПС, иначе 2).
+-- Перенос: уровень и роли по прежним ролям (наш субподряд — уровень 3 «Исполнитель», если на объекте есть договор с МПС, иначе уровень 2 «Субподрядчик»).
 update public.pto_contracts set chain_level=null;
 
 -- 2. Роль контрагента «Подрядчик».
@@ -138,7 +143,13 @@ begin
   if v_party is null or not v_party=any(sides) or (v_our is not null and not v_our=any(sides)) then raise exception 'Неизвестная роль стороны'; end if;
   if v_our is null and v_level not in (1,4) then raise exception 'Роль СУ-22 не указана: так можно только для договора уровня 1 (СУ-22 не сторона) или трёхстороннего'; end if;
   if v_our=v_party then raise exception 'У сторон договора должны быть разные роли'; end if;
-  v_cprole:=case v_party when 'customer' then 'customer' when 'general_contractor' then 'general_contractor' when 'service_provider' then 'service_provider' else 'subcontractor' end;
+  -- Прежняя роль контрагента — по месту в цепочке: сторона выше СУ-22 — заказчик или генподрядчик, ниже — субподрядчик
+  -- (в том числе «Исполнитель» уровня 3); услуги — когда СУ-22 заказчик, а сторона исполнитель.
+  v_cprole:=case
+   when v_our is null then case when v_level=1 then 'customer' else 'subcontractor' end
+   when v_our='customer' and v_party='service_provider' then 'service_provider'
+   when array_position(sides,v_party)<array_position(sides,v_our) then case when v_party='customer' then 'customer' else 'general_contractor' end
+   else 'subcontractor' end;
   v_ourrole:=case v_cprole when 'customer' then 'contractor' when 'general_contractor' then 'subcontractor' when 'service_provider' then 'service_customer' else 'customer' end;
   v_type:=case when v_level=4 then 'mps_su22_sub' when v_level=1 and v_our is null then 'mps_customer'
    when v_cprole='general_contractor' then 'su22_mps' when v_cprole='subcontractor' then 'su22_sub' else null end;
@@ -167,7 +178,9 @@ begin
     advance_current_percent=case when body ? 'advance_current_percent' then pto_private.money_arg(body->>'advance_current_percent','текущий аванс, %') else advance_current_percent end,
     advance_target_amount=case when body ? 'advance_target_amount' then pto_private.money_arg(body->>'advance_target_amount','целевой аванс') else advance_target_amount end,
     note=case when body ? 'note' then trim(coalesce(body->>'note','')) else note end,
-    checked=case when body ? 'checked' then coalesce((body->>'checked')::boolean,checked) else checked end
+    checked=case when body ? 'checked' then coalesce((body->>'checked')::boolean,checked) else checked end,
+    our_role_title=case when body ? 'our_role_title' then left(trim(coalesce(body->>'our_role_title','')),100) else our_role_title end,
+    party_role_title=case when body ? 'party_role_title' then left(trim(coalesce(body->>'party_role_title','')),100) else party_role_title end
    where id=con.id;
   exception
    when unique_violation then raise exception 'На объекте уже есть договор № % с той же стороной', trim(body->>'number');
@@ -411,3 +424,166 @@ begin
 end $$;
 revoke all on function public.pto_command(uuid,jsonb) from public, anon;
 grant execute on function public.pto_command(uuid,jsonb) to authenticated;
+
+-- 10. Загрузка договоров из файла: дословные роли сторон (parties[].role_title) сохраняются отдельно.
+create or replace function pto_private.contract_import_command(req uuid, body jsonb) returns jsonb
+language plpgsql security definer set search_path='' as $$
+declare
+ who uuid:=auth.uid(); role_name text; op text:=body->>'op'; prior pto_private.requests; result jsonb;
+ it jsonb; ad jsonb; pt jsonb; con public.pto_contracts; proj uuid; cp uuid; v_unp text; v_name text; v_number text; v_dir text;
+ v_our text; v_cpr text; created_projects int:=0; created_parties int:=0; created int:=0; updated int:=0; addenda int:=0; parts int:=0;
+ skipped jsonb:='[]'::jsonb; ad_skipped int:=0; v_start date; v_end date; is_new boolean; ord int;
+ -- Счётчики одного договора: попадают в итог, только если договор загрузился (ошибка откатывает его целиком).
+ n_proj int; n_party int; n_add int; n_add_skip int; n_parts int;
+begin
+ if who is null then raise exception 'Требуется вход' using errcode='42501'; end if;
+ role_name:=pto_private.my_role();
+ if role_name is null then raise exception 'Учётная запись не активирована' using errcode='42501'; end if;
+ if req is null then raise exception 'Отсутствует идентификатор запроса'; end if;
+ select * into prior from pto_private.requests where id=req;
+ if found then
+  if prior.actor<>who or prior.command<>body then raise exception 'Идентификатор запроса уже использован'; end if;
+  return prior.result;
+ end if;
+
+ -- Отметка «Проверен» у договора.
+ if op='set_contract_checked' then
+  if role_name not in ('head','engineer') then raise exception 'Недостаточно прав' using errcode='42501'; end if;
+  select * into con from public.pto_contracts where id=(body->>'contract_id')::uuid for update;
+  if not found then raise exception 'Договор не найден'; end if;
+  if not coalesce(pto_private.can_access(con.project_id),false) then raise exception 'Нет доступа к объекту' using errcode='42501'; end if;
+  update public.pto_contracts set checked=coalesce((body->>'checked')::boolean,true) where id=con.id;
+  insert into public.pto_events(project_id,actor,action,detail) values(con.project_id,who,op,body);
+  result:=jsonb_build_object('contract_id',con.id);
+  insert into pto_private.requests values(req,who,body,result);
+  return result;
+ end if;
+
+ -- Загрузка: создаёт объекты, поэтому только начальник ПТО.
+ if role_name<>'head' then raise exception 'Загружать договоры может начальник ПТО' using errcode='42501'; end if;
+ if jsonb_typeof(body->'contracts')<>'array' then raise exception 'Нет списка договоров'; end if;
+
+ for it in select * from jsonb_array_elements(body->'contracts') loop
+  n_proj:=0;n_party:=0;n_add:=0;n_add_skip:=0;n_parts:=0;
+  begin
+   -- Объект по названию; нет — создаётся.
+   v_name:=trim(coalesce(it->>'object',''));
+   if length(v_name) not between 1 and 120 then raise exception 'нет названия объекта'; end if;
+   select id into proj from public.pto_projects where lower(trim(name))=lower(v_name) order by created_at limit 1;
+   if proj is null then
+    insert into public.pto_projects(name,full_name,address) values(v_name,v_name,'') returning id into proj;
+    insert into public.pto_events(project_id,actor,action,detail) values(proj,who,'create_project',jsonb_build_object('name',v_name,'source','import_contracts'));
+    n_proj:=1;
+   end if;
+
+   -- Контрагент: по УНП (нет в справочнике — создаётся), без УНП — по названию, иначе текстом в договоре.
+   cp:=null;v_unp:=nullif(trim(coalesce(it->>'unp','')),'');
+   v_name:=trim(coalesce(nullif(it->>'party',''),it->>'party_full_name',''));
+   if v_unp is not null and v_unp ~ '^[0-9]{9}$' then
+    select id into cp from public.pto_counterparties where unp=v_unp;
+    if cp is null then
+     insert into public.pto_counterparties(unp,short_name,full_name,source)
+     values(v_unp,left(v_name,200),left(coalesce(nullif(trim(it->>'party_full_name'),''),v_name),500),'contracts_import') returning id into cp;
+     n_party:=1;
+    end if;
+   elsif length(v_name)>0 then
+    select id into cp from public.pto_counterparties where lower(short_name)=lower(v_name) or lower(full_name)=lower(v_name) order by created_at limit 1;
+   end if;
+
+   v_our:=it->>'our_role';v_cpr:=it->>'counterparty_role';
+   if not ((v_our='contractor' and v_cpr='customer') or (v_our='subcontractor' and v_cpr in ('general_contractor','customer'))
+    or (v_our='customer' and v_cpr='subcontractor')) then raise exception 'несовместимые роли сторон'; end if;
+   v_dir:=case when v_cpr in ('customer','general_contractor') then 'outgoing' else 'incoming' end;
+   v_number:=coalesce(nullif(trim(it->>'number'),''),'б/н');
+   v_start:=nullif(it->>'work_start','')::date;v_end:=nullif(it->>'work_end','')::date;
+   if v_start is not null and v_end is not null and v_end<v_start then v_end:=null; end if;
+
+   -- Существующий договор: по ключу папки, иначе по объекту, номеру и направлению.
+   con:=null;
+   select * into con from public.pto_contracts where source_key=it->>'key';
+   if con.id is null then select * into con from public.pto_contracts where project_id=proj and number=v_number and direction=v_dir; end if;
+   is_new:=con.id is null;
+   if is_new then
+    if cp is null and length(v_name)=0 then raise exception 'нет контрагента'; end if;
+    insert into public.pto_contracts(project_id,number,party_text,counterparty_id,contract_date,subject,our_role,counterparty_role,
+     initial_amount,vat_rate,vat_amount,work_start_date,work_end_date,contract_type,checked,source_key,doc_status,replaced_by,note,files,
+     advance_current_percent,advance_target_amount)
+    values(proj,v_number,case when cp is null then left(v_name,200) end,cp,nullif(it->>'date','')::date,left(coalesce(it->>'subject',''),1000),v_our,v_cpr,
+     pto_private.money_arg(it->>'amount','цена'),pto_private.money_arg(it->>'vat_rate','ставка НДС'),pto_private.money_arg(it->>'vat_amount','НДС'),
+     v_start,v_end,it->>'type',coalesce((it->>'checked')::boolean,false),it->>'key',nullif(it->>'status',''),coalesce(it->>'replaced_by',''),coalesce(it->>'note',''),
+     coalesce(it->'files','[]'::jsonb),pto_private.money_arg(it->>'advance_current_percent','аванс, %'),pto_private.money_arg(it->>'advance_target_amount','целевой аванс'))
+    returning * into con;
+   else
+    if con.project_id<>proj then raise exception 'договор с этим ключом уже есть на другом объекте'; end if;
+    update public.pto_contracts set
+     counterparty_id=coalesce(counterparty_id,cp),contract_date=coalesce(contract_date,nullif(it->>'date','')::date),
+     subject=case when length(subject)=0 then left(coalesce(it->>'subject',''),1000) else subject end,
+     initial_amount=coalesce(initial_amount,pto_private.money_arg(it->>'amount','цена')),vat_rate=coalesce(vat_rate,pto_private.money_arg(it->>'vat_rate','ставка НДС')),
+     vat_amount=coalesce(vat_amount,pto_private.money_arg(it->>'vat_amount','НДС')),
+     work_start_date=coalesce(work_start_date,case when work_end_date is null or v_start<=work_end_date then v_start end),
+     work_end_date=coalesce(work_end_date,case when coalesce(work_start_date,v_start) is null or v_end>=coalesce(work_start_date,v_start) then v_end end),
+     contract_type=coalesce(contract_type,it->>'type'),source_key=coalesce(source_key,it->>'key'),doc_status=coalesce(doc_status,nullif(it->>'status','')),
+     replaced_by=case when length(replaced_by)=0 then coalesce(it->>'replaced_by','') else replaced_by end,
+     note=case when length(note)=0 then coalesce(it->>'note','') else note end,
+     files=case when files='[]'::jsonb then coalesce(it->'files','[]'::jsonb) else files end,
+     advance_current_percent=coalesce(advance_current_percent,pto_private.money_arg(it->>'advance_current_percent','аванс, %')),
+     advance_target_amount=coalesce(advance_target_amount,pto_private.money_arg(it->>'advance_target_amount','целевой аванс'))
+    where id=con.id returning * into con;
+   end if;
+   -- Дословные роли из договора: заполняются, только если пусты (ручные правки не затираются).
+   update public.pto_contracts set
+    our_role_title=case when length(our_role_title)=0 then left(trim(coalesce(it->>'our_role_title','')),100) else our_role_title end,
+    party_role_title=case when length(party_role_title)=0 then left(trim(coalesce(it->>'party_role_title','')),100) else party_role_title end
+   where id=con.id returning * into con;
+   if cp is not null then
+    insert into public.pto_counterparty_roles(counterparty_id,role) values(cp,v_cpr) on conflict do nothing;
+    if v_cpr in ('customer','general_contractor','subcontractor') then
+     insert into public.pto_project_participants(project_id,counterparty_id,role) values(proj,cp,v_cpr) on conflict(project_id,counterparty_id,role) do nothing;
+    end if;
+   end if;
+
+   -- Допсоглашения: новые по номеру; без номера или даты не загружаются. Подписанным считается всё, кроме signed=false.
+   for ad in select * from jsonb_array_elements(coalesce(it->'addenda','[]'::jsonb)) loop
+    if nullif(trim(ad->>'number'),'') is null or nullif(ad->>'date','') is null then n_add_skip:=n_add_skip+1; continue; end if;
+    if exists(select 1 from public.pto_contract_addenda where contract_id=con.id and number=trim(ad->>'number')) then continue; end if;
+    insert into public.pto_contract_addenda(contract_id,number,agreement_date,amount_after,vat_amount,work_end_date,note,status)
+    values(con.id,trim(ad->>'number'),(ad->>'date')::date,pto_private.money_arg(ad->>'amount_after','цена после ДС'),pto_private.money_arg(ad->>'vat_amount_after','НДС после ДС'),
+     nullif(ad->>'work_end_after','')::date,left(coalesce(ad->>'note',''),1000),case when (ad->>'signed')='false' then 'draft' else 'signed' end);
+    n_add:=n_add+1;
+   end loop;
+
+   -- Части договора: только если частей две и больше и у договора их ещё нет.
+   if jsonb_array_length(coalesce(it->'parts','[]'::jsonb))>1 and not exists(select 1 from public.pto_contract_parts where contract_id=con.id) then
+    ord:=0;
+    for pt in select * from jsonb_array_elements(it->'parts') loop
+     ord:=ord+1;
+     insert into public.pto_contract_parts(project_id,contract_id,name,vat_rate,amount,ordinal,created_by)
+     values(proj,con.id,left(coalesce(nullif(trim(pt->>'name'),''),'Часть '||ord),200),pto_private.money_arg(pt->>'vat_rate','ставка НДС части'),pto_private.money_arg(pt->>'amount','стоимость части'),ord,who);
+     n_parts:=n_parts+1;
+    end loop;
+   end if;
+   insert into public.pto_events(project_id,actor,action,detail)
+   values(proj,who,'import_contract',jsonb_build_object('key',it->>'key','number',v_number,'new',is_new,'contract_id',con.id));
+   if is_new then created:=created+1; else updated:=updated+1; end if;
+   created_projects:=created_projects+n_proj;created_parties:=created_parties+n_party;addenda:=addenda+n_add;ad_skipped:=ad_skipped+n_add_skip;parts:=parts+n_parts;
+  exception when others then
+   skipped:=skipped||jsonb_build_array(jsonb_build_object('key',it->>'key','reason',sqlerrm));
+  end;
+ end loop;
+
+ -- Основной договор (для ДС-договоров и трёхсторонних): по номеру на том же объекте, если ещё не указан.
+ for it in select * from jsonb_array_elements(body->'contracts') loop
+  if nullif(trim(it->>'parent_number'),'') is not null then
+   update public.pto_contracts c set parent_contract_id=(select p.id from public.pto_contracts p
+    where p.project_id=c.project_id and p.number=trim(it->>'parent_number') and p.id<>c.id order by (p.direction='outgoing') desc,p.created_at limit 1)
+   where c.source_key=it->>'key' and c.parent_contract_id is null;
+  end if;
+ end loop;
+
+ result:=jsonb_build_object('projects',created_projects,'parties',created_parties,'created',created,'updated',updated,'addenda',addenda,
+  'addenda_skipped',ad_skipped,'parts',parts,'skipped',skipped);
+ insert into pto_private.requests values(req,who,body,result);
+ return result;
+end $$;
+revoke all on function pto_private.contract_import_command(uuid,jsonb) from public, anon, authenticated;
+grant execute on function pto_private.contract_import_command(uuid,jsonb) to authenticated;
