@@ -75,8 +75,9 @@ test('close conditions and contract term',()=>{
 
 test('other tabs: contracts grouped by side, documents grouped by kit, history filtered by kind',()=>{
  const ctx=fixture();ctx.ui.projectTab='contracts';let html=objectPage(ctx);
- assert.match(html,/Уровень 2 · Генподрядчик — Субподрядчик/);assert.match(html,/Уровень 3 · Субподрядчик — Исполнитель/);
- assert.match(html,/ДС № 4 в работе/);assert.match(html,/30\.12\.2026/);
+ assert.match(html,/Наш договор с МПС/);assert.match(html,/Наши исполнители/);
+ assert.match(html,/<th>Контрагент<\/th><th>Предмет договора<\/th>/);assert.match(html,/1 в работе/);
+ ctx.ui.contractDs=Object.fromEntries(ctx.data.contracts.map(c=>[c.id,true]));assert.match(objectPage(ctx),/<tr class="ct-ds">/);delete ctx.ui.contractDs;assert.match(html,/30\.12\.2026/);
  ctx.ui.projectTab='documents';html=objectPage(ctx);
  assert.match(html,/Процентовка СУ-22 заказчику · дог\. № 21 · У технадзора/);assert.match(html,/data-action="doc" data-id="d1"/);
  ctx.ui.projectTab='history';ctx.data.events=[{id:1,project_id:'p1',action:'revise',actor:'u1',created_at:'2026-10-08T10:00:00Z',detail:{reason:'исправлен объём'}},{id:2,project_id:'p1',action:'update_contract',actor:'u1',created_at:'2026-10-08T11:00:00Z',detail:{}}];

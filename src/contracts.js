@@ -8,7 +8,7 @@ import {engineerName} from './portfolio.js';
 export const SIDE_NAMES={customer:'Заказчик',general_contractor:'Генподрядчик',contractor:'Подрядчик',subcontractor:'Субподрядчик',service_provider:'Исполнитель'};
 // Уровни и роли (решение пользователя 11.10.2026). Генподрядчик МПС: 1 заказчик — МПС, 2 МПС — СУ-22 (субподрядчик), 3 СУ-22 — исполнитель (наш субподрядчик).
 // Генподрядчик СУ-22: 1 заказчик — СУ-22, 2 СУ-22 — субподрядчик. 4 — трёхсторонние, СУ-22 третья сторона. «Подрядчик» сам не назначается.
-export const LEVELS=[[1,'Уровень 1 · Заказчик — Генподрядчик'],[2,'Уровень 2 · Генподрядчик — Субподрядчик'],[3,'Уровень 3 · Субподрядчик — Исполнитель'],[4,'Трёхсторонние · СУ-22 третья сторона']];
+export const LEVELS=[[1,'Заказчик — генподрядчик'],[2,'Генподрядчик — субподрядчик'],[3,'Субподрядчик — исполнитель'],[4,'Трёхсторонний, СУ-22 третья сторона']];
 // Уровень и роли из базы (миграция 20261011100000); до неё — по прежним ролям, как переносит миграция.
 export function sidesOf(c,data={}){
  if(c.chain_level)return {level:c.chain_level,our:c.our_side||null,party:c.party_side||null};
@@ -22,8 +22,26 @@ export function sidesOf(c,data={}){
 }
 // «СУ-22 — субподрядчик»: роль СУ-22 по договору.
 export const ourSideLabel=(c,data)=>{const x=sidesOf(c,data);return x.our?`СУ-22 — ${SIDE_NAMES[x.our].toLowerCase()}`:x.level===4?'СУ-22 — третья сторона':'СУ-22 не сторона договора';};
-export const contractGroup=(c,data)=>String(sidesOf(c,data).level);
-const GROUPS=LEVELS.map(([l,label])=>[String(l),label]);
+// Группы списка от лица СУ-22 вместо «Уровень N» (решение 11.10.2026, демо «Договоры и ДС» v4). Внешний генподрядчик — МПС.
+export const GROUPS=[
+ ['top','Заказчик и МПС','СУ-22 не сторона, для справки'],
+ ['customer','Наш договор с заказчиком','СУ-22 генподрядчик'],
+ ['gc','Наш договор с МПС','СУ-22 субподрядчик'],
+ ['exec','Наши исполнители','нанимает СУ-22'],
+ ['sub','Наши субподрядчики','нанимает СУ-22'],
+ ['service','Услуги для СУ-22','СУ-22 заказчик'],
+ ['tri','Трёхсторонние с МПС','СУ-22 третья сторона, в итоги не входят'],
+];
+export function contractGroup(c,data){
+ const x=sidesOf(c,data);
+ if(x.level===1)return x.our?'customer':'top';
+ if(x.level===3)return 'exec';
+ if(x.level===4)return 'tri';
+ return x.our==='subcontractor'?'gc':x.our==='customer'?'service':'sub';
+}
+export const groupName=(c,data)=>GROUPS.find(([g])=>g===contractGroup(c,data))?.[1]||'';
+// Группы с договорами по порядку GROUPS: [название, договоры, пояснение].
+export const groupsOf=(data,list)=>GROUPS.map(([g,label,hint])=>[label,list.filter(c=>contractGroup(c,data)===g).sort(byDate),hint]).filter(([,l])=>l.length);
 // Новый договор: пара прежних ролей, которую принимает create_contract; уровень и роли база выводит сама, их можно поправить в карточке.
 export const contractKinds=[
  ['subcontractor:general_contractor','С генподрядчиком, СУ-22 — субподрядчик'],
@@ -58,36 +76,51 @@ const searchText=(data,c)=>[c.number,c.party,c.subject,projectOf(data,c.project_
 const seg=(action,value,items)=>`<div class="ct-seg" role="group">${items.map(([v,label])=>`<button type="button" class="${v===value?'on':''}" data-action="${action}" data-id="${v}" aria-pressed="${v===value}">${label}</button>`).join('')}</div>`;
 // Внутри группы — по дате договора, сначала старые; без даты в конце.
 export const byDate=(a,b)=>(a.contract_date?0:1)-(b.contract_date?0:1)||String(a.contract_date||'').localeCompare(String(b.contract_date||''))||String(a.number).localeCompare(String(b.number),'ru',{numeric:true});
+// Допсоглашения в строке списка: кнопка «N допсоглашений · M в работе» раскрывает их строками под договором.
+const addendaOf=(data,c)=>(data.addenda||[]).filter(a=>a.contract_id===c.id).sort((a,b)=>String(a.agreement_date).localeCompare(String(b.agreement_date))||String(a.created_at).localeCompare(String(b.created_at)));
+const plural=n=>n%10===1&&n%100!==11?'допсоглашение':n%10>=2&&n%10<=4&&(n%100<10||n%100>=20)?'допсоглашения':'допсоглашений';
+const addendumWhat=a=>[has(a.amount_after)?'цена → '+money(a.amount_after):'',a.work_end_date?'срок → '+day(a.work_end_date):'',a.note].filter(Boolean).join(' · ');
+const addendumPill=a=>a.status==='draft'?'<span class="ob-st w">В работе</span>':a.status==='cancelled'?'<span class="ob-st">Отменено</span>':'<span class="ob-st ok">Подписано</span>';
+export function addendaCell(data,c,open){
+ const l=addendaOf(data,c),w=l.filter(a=>a.status==='draft').length;
+ if(!l.length)return '<span class="muted">нет</span>';
+ return `<button type="button" class="ct-ds-btn${open?' on':''}" data-action="contract-ds" data-id="${e(c.id)}" aria-expanded="${open}">${l.length} ${plural(l.length)}${w?` · <span class="ct-warn">${w} в работе</span>`:''} ${open?'▾':'▸'}</button>`;
+}
+// Строки ДС под договором; search — тот же текст, что у строки договора, чтобы поиск прятал их вместе.
+export function addendaRows(data,c,cols,search='',hidden=false){
+ return `<tr class="ct-ds"${search?` data-search="${e(search)}"`:''}${hidden?' hidden':''}><td></td><td colspan="${cols-1}">${addendaOf(data,c).map(a=>`<div class="ct-ds-l${a.status==='cancelled'?' off':''}"><b>ДС № ${e(a.number)}</b><span class="muted">${e(day(a.agreement_date))}</span><span>${e(addendumWhat(a)||'—')}</span>${addendumPill(a)}</div>`).join('')}</td></tr>`;
+}
 // Ячейки начала и окончания работ: истёкший срок — мелкая серая пометка, изменённый ДС — «по ДС № N».
 export const startCell=c=>c.work_start_date?e(day(c.work_start_date)):'<span class="muted">—</span>';
 export const endCell=(c,today)=>!c.current_end_date?'<span class="muted">—</span>':`${e(day(c.current_end_date))}${c.term_addendum_number?`<small>по ДС № ${e(c.term_addendum_number)}</small>`:''}${expired(c,today)?'<small>срок истёк</small>':''}`;
 
 export function contractsList({data,ui,profile,today}){
- const q=ui.contractQuery||'',kind=['1','2','3','4'].includes(ui.contractKind)?ui.contractKind:'all',state=ui.contractState||'act',obj=ui.contractObject||'';
+ const q=ui.contractQuery||'',kind=GROUPS.some(([g])=>g===ui.contractKind)?ui.contractKind:'all',open=ui.contractDs||{},state=ui.contractState||'act',obj=ui.contractObject||'';
  // Отбор из «Сегодня»: не проверенные или без цены или срока.
  const flag={unchecked:['Не проверенные',c=>c.checked===false],noterms:['Без цены или срока',c=>c.checked!==false&&(!has(c.current_amount)||!c.current_end_date)]}[ui.contractFlag];
  const all=(data.contracts||[]).filter(c=>(!obj||c.project_id===obj)&&(kind==='all'||contractGroup(c,data)===kind)&&(flag?flag[1](c):state==='any'||(state==='act')!==contractFinished(data,c,today)));
  const canAdd=['head','engineer'].includes(profile?.role)&&(data.projects||[]).some(p=>canWrite(profile,data.memberships,p.id)),canImport=profile?.role==='head';
- const row=c=>{const p=projectOf(data,c.project_id),drafts=draftsOf(data,c),text=searchText(data,c);
+ const row=c=>{const p=projectOf(data,c.project_id),text=searchText(data,c);
   return `<tr class="ct-row${contractFinished(data,c,today)?' ct-off':''}" data-search="${e(text)}" ${q&&!text.includes(q)?'hidden':''} data-action="contract" data-id="${e(c.id)}" tabindex="0" role="button">
  <td class="ct-nw"><b>№ ${e(c.number)}</b><small>${c.contract_date?'от '+e(day(c.contract_date)):''}${c.checked===false?' · <span class="ct-warn">не проверен</span>':''}</small></td>
  <td class="ct-nw"><i class="ct-dot" style="background:${objectColor(data.projects||[],c.project_id)}"></i>${e(p?.name||'')}<small>${e(engineerName(data,c.project_id)||'')}</small></td>
- <td>${e(c.party||'')}</td>
- <td class="num">${has(c.current_amount)?money(c.current_amount):'<span class="muted">—</span>'}<small>${c.amount_addendum_number?'по ДС № '+e(c.amount_addendum_number):'по договору'}${drafts.length?` · <span class="ct-warn">ДС № ${drafts.map(a=>e(a.number)).join(', ')} в работе</span>`:''}</small></td>
- <td class="ct-nw">${startCell(c)}</td><td class="ct-nw">${endCell(c,today)}</td></tr>`;};
- const groups=GROUPS.map(([g,label])=>[label,all.filter(c=>contractGroup(c,data)===g).sort(byDate)]).filter(([,l])=>l.length);
+ <td>${e(c.party||'')}</td><td class="ct-subj">${e(c.subject||'')}</td>
+ <td class="num">${has(c.current_amount)?money(c.current_amount):'<span class="muted">—</span>'}<small>${c.amount_addendum_number?'по ДС № '+e(c.amount_addendum_number):'по договору'}</small></td>
+ <td class="ct-nw">${endCell(c,today)}</td><td class="ct-nw">${addendaCell(data,c,!!open[c.id])}</td></tr>${open[c.id]?addendaRows(data,c,7,text,!!q&&!text.includes(q)):''}`;};
+ const groups=groupsOf(data,all);
+ const present=GROUPS.filter(([g])=>(data.contracts||[]).some(c=>contractGroup(c,data)===g));
  const live=(data.contracts||[]).filter(c=>!contractFinished(data,c,today));
  const late=live.filter(c=>expired(c,today)).length,ds=live.filter(c=>draftsOf(data,c).length).length;
- return `<div class="ob"><div class="heading"><div><h1>Договоры</h1><div class="muted">Все договоры организации по уровням цепочки объекта. Стоимость и срок считаются по подписанным допсоглашениям.</div></div><div class="actions">${canImport?'<button data-action="contracts-json" data-id="">Загрузить из файла</button><input id="contracts-json" type="file" accept=".json,application/json" hidden>':''}${canAdd?'<button class="primary" data-action="new-contract" data-id="">Добавить договор</button>':''}</div></div>
- <div class="ct-toolbar"><input id="contract-search" class="cp-search" type="search" autocomplete="off" placeholder="Поиск по номеру, стороне или объекту" aria-label="Поиск договора" value="${e(q)}">
- ${seg('contract-kind',kind,[['all','Все'],['1','Уровень 1'],['2','Уровень 2'],['3','Уровень 3'],['4','Трёхсторонние']])}
+ return `<div class="ob"><div class="heading"><div><h1>Договоры</h1><div class="muted">Все договоры организации по месту СУ-22 в цепочке объекта. Стоимость и срок считаются по подписанным допсоглашениям.</div></div><div class="actions">${canImport?'<button data-action="contracts-json" data-id="">Загрузить из файла</button><input id="contracts-json" type="file" accept=".json,application/json" hidden>':''}${canAdd?'<button class="primary" data-action="new-contract" data-id="">Добавить договор</button>':''}</div></div>
+ <div class="ct-toolbar"><input id="contract-search" class="cp-search" type="search" autocomplete="off" placeholder="Поиск по номеру, контрагенту, предмету или объекту" aria-label="Поиск договора" value="${e(q)}">
+ ${seg('contract-kind',kind,[['all','Все'],...present.map(([g,label])=>[g,label])])}
  ${seg('contract-state',state,[['act','Действующие'],['done','Завершённые'],['any','Все']])}
  <select id="contract-object" aria-label="Объект"><option value="">Все объекты</option>${(data.projects||[]).map(p=>`<option value="${e(p.id)}" ${p.id===obj?'selected':''}>${e(p.name)}</option>`).join('')}</select></div>
  ${flag?`<div class="ct-flag">Отбор: <b>${flag[0]}</b> · ${all.length} <button class="link" data-action="contract-flag" data-id="">Показать все</button></div>`:''}
  <div class="ct-sum"><span>Действующих <b>${live.length}</b></span>${late?`<span>Срок истёк, работы продолжаются <b>${late}</b></span>`:''}${ds?`<span class="ct-warn">ДС в работе <b>${ds}</b></span>`:''}</div>
- <section class="table-wrap"><table class="ct-table"><thead><tr><th>Договор</th><th>Объект</th><th>Сторона</th><th class="num">Стоимость, руб.</th><th>Начало работ</th><th>Окончание работ</th></tr></thead><tbody>
- ${groups.map(([label,l])=>`<tr class="ct-grp" ${q&&!l.some(c=>searchText(data,c).includes(q))?'hidden':''}><td colspan="6"><span class="ct-grp-l">${label}</span><span class="ct-grp-n">${l.length}</span></td></tr>${l.map(row).join('')}`).join('')}
- <tr id="contract-empty" ${all.some(c=>!q||searchText(data,c).includes(q))?'hidden':''}><td colspan="6"><div class="empty cp-empty">${(data.contracts||[]).length?'Договоры не найдены.':'Договоров пока нет.'}</div></td></tr></tbody></table></section></div>`;
+ <section class="table-wrap"><table class="ct-table"><thead><tr><th>Договор</th><th>Объект</th><th>Контрагент</th><th>Предмет договора</th><th class="num">Стоимость, руб.</th><th>Окончание работ</th><th>Допсоглашения</th></tr></thead><tbody>
+ ${groups.map(([label,l,hint])=>`<tr class="ct-grp" ${q&&!l.some(c=>searchText(data,c).includes(q))?'hidden':''}><td colspan="7"><span class="ct-grp-l">${label}</span> <span class="ct-grp-h">${hint}</span><span class="ct-grp-n">${l.length}</span></td></tr>${l.map(row).join('')}`).join('')}
+ <tr id="contract-empty" ${all.some(c=>!q||searchText(data,c).includes(q))?'hidden':''}><td colspan="7"><div class="empty cp-empty">${(data.contracts||[]).length?'Договоры не найдены.':'Договоров пока нет.'}</div></td></tr></tbody></table></section></div>`;
 }
 
 const head=(title,sub='')=>`<div class="cp-drawer-head"><button type="button" class="cp-drawer-close" data-action="dismiss">Закрыть ×</button><h2>${e(title)}</h2>${sub}</div>`;
@@ -97,7 +130,7 @@ const area=(name,label,value='',extra='')=>`<label>${e(label)}<textarea class="c
 const amount=(name,label,value)=>input(name,label,has(value)?String(value):'','text','inputmode="decimal"');
 const section=(title,body)=>`<section class="cp-section"><div class="cp-section-title">${title}</div>${body}</section>`;
 const options=(list,cur)=>list.map(([v,label])=>`<option value="${e(v)}" ${String(v)===String(cur??'')?'selected':''}>${e(label)}</option>`).join('');
-const subLine=(data,c)=>`<div class="ct-sub">${c.contract_date?`от ${e(day(c.contract_date))} · `:''}<i class="ct-dot" style="background:${objectColor(data.projects||[],c.project_id)}"></i>${e(projectOf(data,c.project_id)?.name||'')} · ${e(LEVELS.find(([l])=>l===sidesOf(c,data).level)?.[1]||'')} · ${e(ourSideLabel(c,data))}</div>`;
+const subLine=(data,c)=>`<div class="ct-sub">${c.contract_date?`от ${e(day(c.contract_date))} · `:''}<i class="ct-dot" style="background:${objectColor(data.projects||[],c.project_id)}"></i>${e(projectOf(data,c.project_id)?.name||'')} · ${e(groupName(c,data))} · ${e(ourSideLabel(c,data))}</div>`;
 
 // Маркеры под заголовком: действует ли договор, ДС в работе, заполнены ли цена и срок. Истёкший срок — серым, без тревоги.
 export function contractMarks(data,c,today){
@@ -131,11 +164,11 @@ export function contractCard({data,contract:c,canEdit,editing=false,today,profil
  <div class="cp-drawer-content">
   ${section('Договор',`<div class="cp-work-grid">${input('number','Номер',c.number,'text','required')}${input('contract_date','Дата',c.contract_date||'','date')}
    <div class="wide"><label>Объект${c.has_documents?`<span class="ct-ro">${e(projectOf(data,c.project_id)?.name||'')} <span class="muted">по договору есть документы, объект не меняется</span></span><input type="hidden" name="project_id" value="${e(c.project_id)}">`:`<select name="project_id">${options(projects.map(p=>[p.id,p.name]),c.project_id)}</select>`}</label></div>
-   <div class="wide"><label>Сторона<select name="counterparty_id" ${c.counterparty_id?'required':''}>${c.counterparty_id?'':`<option value="">${e(c.party||'Не из справочника')}</option>`}${options(parties.map(p=>[p.id,p.short_name+(p.unp?' · УНП '+p.unp:'')]),c.counterparty_id)}</select></label></div>
-   <div class="wide"><label>Уровень<select name="chain_level">${options(LEVELS,x.level)}</select></label></div>
+   <div class="wide"><label>Контрагент<select name="counterparty_id" ${c.counterparty_id?'required':''}>${c.counterparty_id?'':`<option value="">${e(c.party||'Не из справочника')}</option>`}${options(parties.map(p=>[p.id,p.short_name+(p.unp?' · УНП '+p.unp:'')]),c.counterparty_id)}</select></label></div>
+   <div class="wide"><label>Место в цепочке<select name="chain_level">${options(LEVELS,x.level)}</select></label></div>
    <label>Роль СУ-22<select name="our_side"><option value="">не сторона / третья сторона</option>${options(sides,x.our)}</select></label>
    <label>Роль стороны<select name="party_side">${options(sides,x.party)}</select></label>
-   ${input('our_role_title','СУ-22 в договоре',c.our_role_title||'','text','maxlength="100" placeholder="как написано в договоре"')}${input('party_role_title','Сторона в договоре',c.party_role_title||'','text','maxlength="100" placeholder="как написано в договоре"')}
+   ${input('our_role_title','СУ-22 в договоре',c.our_role_title||'','text','maxlength="100" placeholder="как написано в договоре"')}${input('party_role_title','Контрагент в договоре',c.party_role_title||'','text','maxlength="100" placeholder="как написано в договоре"')}
    <div class="wide">${area('subject','Предмет',c.subject||'','maxlength="1000"')}</div>
    <div class="wide"><label>К основному договору<select name="parent_contract_id"><option value="">—</option>${parents.map(p=>`<option value="${e(p.id)}" ${p.id===c.parent_contract_id?'selected':''}>№ ${e(p.number)} · ${e(p.party||'')}</option>`).join('')}</select></label></div></div>`)}
   ${section('Цена по договору, руб. (без допсоглашений)',`<div class="cp-work-grid">${amount('initial_amount','Цена с НДС',c.initial_amount)}${amount('vat_amount','В т. ч. НДС',c.vat_amount)}${amount('vat_rate','Ставка НДС, %',c.vat_rate)}<span></span>
@@ -149,7 +182,7 @@ export function contractCard({data,contract:c,canEdit,editing=false,today,profil
  <div class="cp-drawer-foot"><p id="contract-error" class="error" role="alert"></p><button type="button" data-action="contract" data-id="${e(c.id)}">Отмена</button><button class="primary" type="submit">Сохранить</button></div></form>`;
  }
  const marks=contractMarks(data,c,today);
- const addenda=(data.addenda||[]).filter(a=>a.contract_id===c.id).sort((a,b)=>String(b.agreement_date).localeCompare(String(a.agreement_date))||String(b.created_at).localeCompare(String(a.created_at)));
+ const addenda=addendaOf(data,c),wip=addenda.filter(a=>a.status==='draft').length,signed=addenda.filter(a=>a.status==='signed').length;
  const sub=`${subLine(data,c)}<div class="cp-ids">${c.counterparty_id?`<button type="button" class="cp-chip-copy" data-action="party" data-id="${e(c.counterparty_id)}" title="Открыть карточку контрагента">${e(c.party||'Контрагент')}</button>`:`<span class="cp-chip-copy">${e(c.party||'')}</span>`}<span class="muted ct-side">${e(SIDE_NAMES[x.party]||'')}</span></div>
  <div class="cp-marks">${marks.map(([k,text])=>`<span class="cp-mark ${k}"><i></i>${e(text)}</span>`).join('')}</div>`;
  const total=has(c.current_amount)?money(c.current_amount).replace(/,(\d\d)$/,'<small>,$1</small>'):'—';
@@ -160,7 +193,7 @@ export function contractCard({data,contract:c,canEdit,editing=false,today,profil
   <dl class="ct-kv">${c.subject?`<dt>Предмет</dt><dd>${e(c.subject)}</dd>`:''}<dt>Начало работ</dt><dd>${c.work_start_date?e(day(c.work_start_date)):'<span class="muted">не указано</span>'}</dd>
   <dt>Окончание работ</dt><dd>${c.current_end_date?`${e(day(c.current_end_date))} <span class="muted">${c.term_addendum_number?'по ДС № '+e(c.term_addendum_number):'по договору'}${expired(c,today)?' · срок истёк':''}</span>`:'<span class="muted">не указано</span>'}</dd>
   ${parent?`<dt>К договору</dt><dd><button type="button" class="link" data-action="contract" data-id="${e(parent.id)}">№ ${e(parent.number)}</button> <span class="muted">${e(parent.party||'')}</span></dd>`:''}
-  ${c.our_role_title||c.party_role_title?`<dt>В договоре</dt><dd>${e([c.our_role_title?'СУ-22 — '+c.our_role_title:'',c.party_role_title?'сторона — '+c.party_role_title:''].filter(Boolean).join(' · '))}</dd>`:''}
+  ${c.our_role_title||c.party_role_title?`<dt>В договоре</dt><dd>${e([c.our_role_title?'СУ-22 — '+c.our_role_title:'',c.party_role_title?'контрагент — '+c.party_role_title:''].filter(Boolean).join(' · '))}</dd>`:''}
   <dt>Инженер</dt><dd>${e(engineerName(data,c.project_id)||'—')}</dd>
   ${c.advance_current_percent||c.advance_target_amount?`<dt>Аванс</dt><dd>${[c.advance_current_percent?`текущий ${e(Number(c.advance_current_percent))} %`:'',c.advance_target_amount?`целевой ${money(c.advance_target_amount)}`:''].filter(Boolean).join(' · ')}</dd>`:''}
   ${c.replaced_by||c.note?`<dt>Примечание</dt><dd>${e([c.replaced_by?'заменён: '+c.replaced_by:'',c.note].filter(Boolean).join(' · '))}</dd>`:''}
@@ -168,7 +201,7 @@ export function contractCard({data,contract:c,canEdit,editing=false,today,profil
   ${c.checked===false?`<div class="ct-unchecked"><span class="ct-warn">Не проверен: загружен из реестра или имени файла. В «Подписании» не участвует, пока не отмечен.</span>${canEdit?`<button type="button" class="cp-small" data-action="contract-checked" data-id="${e(c.id)}">Проверен</button>`:''}</div>`:''}
   ${terms.length?`<section class="cp-block"><div class="cp-block-head"><h3>Условия договора</h3>${has(c.vat_rate)?`<span class="muted">НДС ${e(c.vat_rate)} %</span>`:''}</div>${terms.map(([label,v,vat])=>`<div class="ct-line"><span>${label}</span><span class="ct-line-r ct-one">${has(vat)?`<small>НДС ${money(vat)}</small>`:''}${money(v)}</span></div>`).join('')}</section>`:''}
   ${partsBlock(data,c,canEdit)}
-  <section class="cp-block"><div class="cp-block-head"><h3>Допсоглашения <span class="muted">${addenda.length||''}</span></h3>${canEdit?`<button type="button" class="cp-small" data-action="new-addendum" data-id="${e(c.id)}">+ Допсоглашение</button>`:''}</div>${addenda.length?addenda.map(a=>addendumLine(a,canEdit)).join(''):'<div class="cp-no-data">Допсоглашений нет.</div>'}</section>
+  <section class="cp-block"><div class="cp-block-head"><h3>Допсоглашения <span class="muted">${addenda.length?`${addenda.length} · подписано ${signed}${wip?` · в работе ${wip}`:''}`:''}</span></h3>${canEdit?`<button type="button" class="cp-small" data-action="new-addendum" data-id="${e(c.id)}">+ Допсоглашение</button>`:''}</div>${addenda.length?`<div class="ct-line ct-edge"><div><b>Договор</b> <span class="muted">${c.contract_date?'от '+e(day(c.contract_date)):''}</span><small>начальная цена</small></div><div class="ct-line-r">${has(c.initial_amount)?money(c.initial_amount):''}</div></div>${addenda.map(a=>addendumLine(a,canEdit)).join('')}<div class="ct-line ct-edge"><div><b>Действует сейчас</b><small>${c.amount_addendum_number?'по ДС № '+e(c.amount_addendum_number):'по договору'}${wip?' · ДС в работе не учтены':''}</small></div><div class="ct-line-r"><b>${has(c.current_amount)?money(c.current_amount):'—'}</b></div></div>`:'<div class="cp-no-data">Допсоглашений нет.</div>'}</section>
  </div>
  <div class="cp-drawer-foot"><span class="cp-foot-note">${c.created_at?'Внесён '+e(day(c.created_at)):''}</span>${canEdit&&profile?.role==='head'&&!c.has_documents?`<button class="cp-danger" type="button" data-action="delete-contract" data-id="${e(c.id)}" title="Для ошибочных записей: договор и его допсоглашения удаляются, в журнале остаётся запись">Удалить</button>`:''}${canEdit?`<button class="primary" type="button" data-action="edit-contract" data-id="${e(c.id)}">Изменить</button>`:''}</div></form>`;
 }
@@ -181,7 +214,7 @@ export function newContractCard({data,profile,projectId=''}){
  <div class="cp-drawer-content"><div class="cp-work-grid">
   <div class="wide"><label>Объект<select name="project_id" required>${projects.length>1?'<option value="">Выберите объект</option>':''}${projects.map(p=>`<option value="${e(p.id)}" ${p.id===projectId?'selected':''}>${e(p.name)}</option>`).join('')}</select></label></div>
   <div class="wide"><label>Вид договора<select name="kind" required>${contractKinds.map(([v,label])=>`<option value="${v}">${label}</option>`).join('')}</select></label></div>
-  <div class="wide"><label>Сторона<select name="counterparty_id" required><option value="">Выберите из справочника</option>${parties.map(p=>`<option value="${e(p.id)}">${e(p.short_name)}${p.unp?' · УНП '+e(p.unp):''}</option>`).join('')}</select></label></div>
+  <div class="wide"><label>Контрагент<select name="counterparty_id" required><option value="">Выберите из справочника</option>${parties.map(p=>`<option value="${e(p.id)}">${e(p.short_name)}${p.unp?' · УНП '+e(p.unp):''}</option>`).join('')}</select></label></div>
   ${input('number','Номер','','text','required')}${input('contract_date','Дата','','date')}
   <div class="wide">${input('subject','Предмет')}</div></div>
   <p class="cp-hint">Нет нужной организации — сначала добавьте её в «Контрагенты». Цену и срок внесёте в карточке договора после сохранения.</p></div>
