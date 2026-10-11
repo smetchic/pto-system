@@ -813,3 +813,23 @@ test('contract files: paths edited in the card keep the type of known files; par
  const row=(await db.query('select vat_amount,vat_rate from pto_contract_parts where id=$1',[part])).rows[0];
  assert.deepEqual([Number(row.vat_amount),Number(row.vat_rate)],[200000,20]);
 });
+
+test('document card: a scan is attached to a kit already in accounting; acts keep VAT from the file, minus for a correction',async()=>{
+ await as(users.head);
+ const pid=(await command({op:'create_project',name:'Сканы в бухгалтерии'})).project_id;
+ await command({op:'create_contract',project_id:pid,number:'С-1',party:'Заказчик С',direction:'outgoing'});
+ const our=(await db.query("select id from pto_contracts where project_id=$1 and number='С-1'",[pid])).rows[0].id;
+ const per=(await command({op:'open_period',project_id:pid,month:'2026-08-01'})).period_id;
+ const op=async extra=>command({op:'create_document',period_id:per,expected_revision:await periodRev(per),...extra});
+ const a=(await op({contract_id:our,kind:'c2b',number:'22',amount:'366768.39',smr_vat:'61128.07'})).document_id;
+ const k=(await op({contract_id:our,kind:'c2b',number:'22к',amount:'-120',smr_vat:'-20',correction:true})).document_id;
+ await assert.rejects(op({contract_id:our,kind:'c2b',number:'23',amount:'10',smr_vat:'1.234'}),/рублях и копейках/);
+ const vat=async d=>(await db.query('select v.smr_vat from pto_documents d join pto_versions v on v.id=d.current_version where d.id=$1',[d])).rows[0].smr_vat;
+ assert.equal(await vat(a),'61128.07');assert.equal(await vat(k),'-20.00');
+ const w=(await docRow(a)).workflow_id;
+ assert.equal((await command({op:'workflow_jump',workflow_id:w,to_step:'accepted',date:'2026-09-10',expected_revision:await periodRev(per)})).step,'accepted');
+ await attachFile(a);
+ assert.equal((await db.query('select count(*)::int n from pto_files f join pto_documents d on d.current_version=f.version_id where d.id=$1',[a])).rows[0].n,1,'скан приложен к принятому комплекту');
+ assert.equal(await stepOf(w),'accepted','комплект остаётся в бухгалтерии');
+ await assert.rejects(command({op:'revise',period_id:per,expected_revision:await periodRev(per),document_id:a,amount:'1',reason:'ошибка'}),/бухгалтер|отмените переход/);
+});

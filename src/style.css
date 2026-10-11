@@ -1,8 +1,8 @@
 /* Visual foundation from the supplied PTO v4 reference. */
 
-:root{--zoom:1;--drawer-w:clamp(480px,calc(30vw / var(--zoom,1)),600px);--bg:#f7f7f8;--sf:#fff;--ink:#16181d;--mu:#6b7280;--ln:#e5e7eb;--hv:#f3f4f6;--ac:#2f54eb;--acs:#eef2ff;--own:#2f54eb;--sub:#12a150;--mat:#0f9d77;--er:#d92d20;--ers:#fef3f2;--wa:#b54708;--was:#fffaeb;--ok:#079455;--onac:#fff}
-@media(prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#0f1115;--sf:#16181d;--ink:#e8eaed;--mu:#9aa1ad;--ln:#262a33;--hv:#1c2027;--ac:#7c93ff;--acs:#1c2340;--own:#7c93ff;--sub:#3ccb7f;--ok:#3ccb7f;--ers:#3a1c1a;--was:#33260f;--wa:#f0b24f;--er:#ff7b6e;--onac:#0f1115}}
-:root[data-theme=dark]{color-scheme:dark;--bg:#0f1115;--sf:#16181d;--ink:#e8eaed;--mu:#9aa1ad;--ln:#262a33;--hv:#1c2027;--ac:#7c93ff;--acs:#1c2340;--own:#7c93ff;--sub:#3ccb7f;--ok:#3ccb7f;--ers:#3a1c1a;--was:#33260f;--wa:#f0b24f;--er:#ff7b6e;--onac:#0f1115}
+:root{--zoom:1;--drawer-w:clamp(480px,calc(30vw / var(--zoom,1)),600px);--bg:#f7f7f8;--sf:#fff;--ink:#16181d;--mu:#6b7280;--ln:#e5e7eb;--hv:#f3f4f6;--ac:#2f54eb;--acs:#eef2ff;--own:#2f54eb;--sub:#a9bbf3;--gen:#6f8cf0;--subt:#3d5fd0;--mat:#0f9d77;--er:#d92d20;--ers:#fef3f2;--wa:#b54708;--was:#fffaeb;--ok:#079455;--onac:#fff}
+@media(prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#0f1115;--sf:#16181d;--ink:#e8eaed;--mu:#9aa1ad;--ln:#262a33;--hv:#1c2027;--ac:#7c93ff;--acs:#1c2340;--own:#7c93ff;--sub:#34477f;--gen:#5468b8;--subt:#a9b8ff;--ok:#3ccb7f;--ers:#3a1c1a;--was:#33260f;--wa:#f0b24f;--er:#ff7b6e;--onac:#0f1115}}
+:root[data-theme=dark]{color-scheme:dark;--bg:#0f1115;--sf:#16181d;--ink:#e8eaed;--mu:#9aa1ad;--ln:#262a33;--hv:#1c2027;--ac:#7c93ff;--acs:#1c2340;--own:#7c93ff;--sub:#34477f;--gen:#5468b8;--subt:#a9b8ff;--ok:#3ccb7f;--ers:#3a1c1a;--was:#33260f;--wa:#f0b24f;--er:#ff7b6e;--onac:#0f1115}
 *{box-sizing:border-box}html,body{margin:0}
 body{font:13px/1.5 Inter,system-ui,sans-serif;background:var(--bg);color:var(--ink);font-variant-numeric:tabular-nums}
 #shell{display:flex;min-height:calc(100vh / var(--zoom,1))}

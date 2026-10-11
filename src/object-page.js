@@ -1,7 +1,7 @@
 // Страница объекта (docs/object.md, вкладка «Месяц» — docs/month.md): Месяц · Договоры · Документы · История. Чистая функция: данные из main.js, шаги делаются в боковой панели «Подписания».
 import {escapeHtml as e,money,kindNames,actionNames,canWrite} from './domain.js';
 import {COLUMNS,openNotes,objectColor,subsOf,canMoveCard,turnOf,daysOnStep,expectedCards,activeIn,oursContract} from './conveyor.js';
-import {projectAmounts,c29Status,engineerName,splitBar} from './portfolio.js';
+import {projectAmounts,c29Status,engineerName} from './portfolio.js';
 import {groupsOf,endCell,addendaCell,addendaRows} from './contracts.js';
 
 export const OBJECT_TABS=[['month','Месяц'],['contracts','Договоры'],['documents','Документы'],['history','История']];
@@ -36,6 +36,20 @@ export function closeConditions(data,projectId,month){
   {ok:subsDone===subs.length,text:`Субподрядчики прошли технадзор или исключены · ${subsDone} из ${subs.length}`},
   {ok:reviewed,text:'Месяц проверен начальником ПТО'}
  ];
+}
+
+// Полоса «Из чего СМР» (макет v12, решения 11.10.2026): цвета — оттенки синего, скобки и подписи в цвет своих отрезков.
+// Отрицательные свои силы не блокируются: отрезок не рисуется, сумма подсвечена красным.
+export function compBar({work,G,D,own,F,T,hasF,plan=false,top='',bottom=''}){
+ const w=Math.max(0,Number(work)||0),g=hasF?Math.max(0,Number(G)||0):0,s=Math.max(0,Number(D)||0),sum=w+g+s||1;
+ const pw=w/sum*100,pg=g/sum*100,ps=s/sum*100,neg=Number(own)<0;
+ const ownTxt=`<b class="num${neg?' neg':''}">${money(own)}</b>${neg?' <span class="neg">отрицательные, проверьте</span>':''}`;
+ return `<div class="mo-viz cb${plan?' plan':''}">
+  <div class="cb-lt cb-own" style="min-width:${Math.min(100,pw+pg)}%"><b>Своими силами</b> ${ownTxt} <span class="muted">${e(top)}</span></div><div class="cb-br t" style="width:${pw+pg}%"></div>
+  <div class="cb-bar" role="img" aria-label="Свои работы ${money(hasF?work:own)}, генуслуги ${hasF?money(G):'—'}, субподряд в их ценах ${money(D)} руб.">${w?`<i class="w" style="width:${pw}%">${hasF?'свои работы '+money(work):plan?'свои работы':'своими силами'}</i>`:''}${g?`<i class="g" style="width:${pg}%">генуслуги</i>`:''}${s?`<i class="s" style="width:${ps}%">субподряд, их цены ${money(D)}</i>`:''}</div>
+  <div class="cb-br b" style="margin-left:${hasF?pw:pw+pg}%;width:${hasF?pg+ps:ps}%"></div>
+  <div class="cb-rowb"><span class="muted">${hasF?`генуслуги <b class="num ${Number(G)<0?'neg':'cb-ink'}">${money(G)}</b> = ${(T?G/T*100:0).toFixed(1).replace('.',',')} %`:`генуслуги появятся с «на заказчика»${plan?' на шаге «На проверке»':''}`}</span>
+   <span class="cb-lt cb-sub">${hasF?`<b>Субподряд в ценах заказчика</b> <b class="num">${money(F)}</b>`:`<b>Субподряд</b> <b class="num">${money(D)}</b>`} <span class="muted">${e(bottom)}</span></span></div></div>`;
 }
 
 export function objectPage({ui,data,profile,today,now=Date.now()}){
@@ -132,9 +146,14 @@ export function objectPage({ui,data,profile,today,now=Date.now()}){
   const strip=reports.length
    ?cell(`Выполнено СМР · ${SUMST[ix]}`,money(rs('smr')),`${mats?`в т.ч. материалы заказчика ${money(mats)} · `:''}${acts.length} ${acts.length===1?'акт':acts.length>=2&&acts.length<=4?'акта':'актов'}`)+cell('+ оборудование',money(rs('equipment')),'по справке С-3а')+cell('− зачёт авансов',money(rs('target_offset')+rs('current_offset')),`целевой ${money(rs('target_offset'))} · текущий ${money(rs('current_offset'))}`)+'<div class="mo-sep"></div>'+cell('= к оплате по С-3а',money(rs('to_pay')),chkLine)
    :cell(T?`СМР · ${SUMST[ix]}`:'СМР за месяц',T?money(T):'—',T?'по актам месяца':'актов ещё нет',!T)+cell('+ оборудование','—','появится с С-3а на шаге «На проверке»',true)+cell('− зачёт авансов','—','появится с С-3а',true)+'<div class="mo-sep"></div>'+cell('= к оплате по С-3а','—',chkLine,true);
-  // «Из чего СМР»: тонкая полоса, как в Портфеле — своими силами (синий) и субподряд в их ценах (зелёный).
-  const info=T?`<div class="mo-lab"><b>Из чего СМР</b><small>${pre?'предварительно':'по актам месяца'}</small></div><div class="mo-viz">${splitBar({own,sub:D,filed:filed.length,active:active.length})}
-   <div class="mo-rowb"><span class="muted">${filed.some(s=>s.F!==null)?`свои работы ${money(work)} · генуслуги <b class="${G<0?'neg':''}">${money(G)}</b>`:'генуслуги появятся с «на заказчика»'}</span><span class="muted">субподряд в ценах заказчика <b>${F?money(F):'—'}</b></span></div></div>`
+  // «Из чего СМР» — как в макете v12: толстая полоса «свои работы · генуслуги · субподряд в их ценах», скобка сверху —
+  // своими силами (свои работы + генуслуги), снизу — субподряд в ценах заказчика (генуслуги + субподряд). До актов — план, бледно.
+  const planOwn=(data.matrix?.rows||[]).filter(r=>r.kind==='contract'&&r.project_id===pid&&r.estimate!==null&&r.estimate!==undefined).reduce((t,r)=>t+Number(r.estimate),0);
+  const planSub=active.reduce((t,s)=>t+(s.plan||0),0),atTn=filed.length-passed.length;
+  const info=T?`<div class="mo-lab"><b>Из чего СМР</b><small>две разбивки одной суммы</small></div>${compBar({work,G,D,own,F,T,hasF:filed.some(s=>s.F!==null),
+    top:`· ${T?Math.round(own/T*100):0} % · по реестру${pre||oral.length?' · предварительно':''}`,
+    bottom:`· подали ${filed.length} из ${active.length}${atTn>0?` · ${atTn} у технадзора`:''}`})}`
+   :planOwn||planSub?`<div class="mo-lab"><b>Из чего СМР</b><small>план месяца</small></div>${compBar({work:planOwn,G:0,D:planSub,own:planOwn,F:null,T:planOwn+planSub,plan:true,hasF:false,top:'· план',bottom:`· план · подадут ${active.length}`})}`
    :`<div class="mo-lab"><b>Из чего СМР</b></div><div class="muted">Сумм за ${e(monthName(month))} ещё нет: появятся с актами.</div>`;
   const moneyHtml=`<section class="ob-panel mo-money" aria-label="Деньги месяца"><div class="mo-strip">${strip}</div><div class="mo-info">${info}</div></section>`;
 
@@ -201,17 +220,32 @@ export function objectPage({ui,data,profile,today,now=Date.now()}){
    ${groups.map(([label,list,hint])=>`<tr class="ct-grp"><td colspan="6"><span class="ct-grp-l">${label}</span> <span class="ct-grp-h">${hint}</span><span class="ct-grp-n">${list.length}</span></td></tr>${list.map(row).join('')}`).join('')}</tbody></table></div>`:'<div class="empty">Добавьте договор с заказчиком, чтобы готовить процентовки.</div>'}`;
  }
 
- // ——— Документы ———
+ // ——— Документы ——— (замечания 11.10.2026): в комплекте справка С-3а сверху, её акты под ней по номеру с отступом;
+ // колонки — разделы справки и скан; версия — цветом в имени, только со второй; С-29 — одной строкой со статусом.
  function documentsTab(){
   const add=canEdit?btn('Новый акт','new-doc','',true)+btn('Справка С-3а','new-c3a')+btn('С-29','new-c29')+`${btn('Из Excel','excel-acts')}<input type="file" id="excel-acts" accept=".xlsx" multiple hidden>`:'';
-  const groups=[...ws.map(w=>({title:`${KIND_LONG[w.template_code]||w.template_name} · ${w.template_code==='c29'?'':w.template_code==='sub_claim'?(w.party||'')+' · ':''}дог. № ${w.contract_number||''}`,w,list:docs.filter(d=>d.workflow_id===w.id)})),
-   {title:'Без комплекта',list:docs.filter(d=>!d.workflow_id||!ws.some(w=>w.id===d.workflow_id))}].filter(g=>g.list.length);
-  const row=d=>{const v=ver(d),acc=(data.versions||[]).find(x=>x.id===d.accepted_version);
-   return `<tr class="ob-row" data-action="doc" data-id="${e(d.id)}" tabindex="0" role="button"><td><b>${e(kindNames[d.kind])} № ${e(d.number)}</b>${corr(d)}</td><td>в.${v?.version||1}${d.accepted_version&&d.current_version!==d.accepted_version?' <span class="muted">есть изменения</span>':''}</td>
-    <td class="num">${d.kind==='c29'?'<span class="muted">—</span>':money(v?.amount)}</td><td class="num">${acc&&d.kind!=='c29'?money(acc.amount):''}</td><td>${d.step_label?st(d.step_label,d.step_code==='accepted'?'ok':'w'):st('Без комплекта','n')}</td><td>${d.due_date?e(day(d.due_date)):''}</td></tr>`;};
-  return `<div class="ob-bar"><span class="muted">Документы за ${e(monthName(month))} по комплектам. Строка открывает карточку документа: версии и файлы.</span><div class="actions">${add}</div></div>
-   ${groups.length?`<div class="table-wrap"><table class="ob-table"><thead><tr><th>Документ</th><th>Версия</th><th class="num">Рабочая версия, руб.</th><th class="num">Принято, руб.</th><th>Где</th><th>Срок</th></tr></thead><tbody>
-   ${groups.map(g=>`<tr class="ob-grp"><td colspan="6">${e(g.title)}${g.w?` · ${e(g.w.step_label)}`:''}</td></tr>${g.list.map(row).join('')}`).join('')}</tbody></table></div>`:`<div class="empty">${per?'В этом месяце документы ещё не созданы.':'Отчётный месяц ещё не открыт.'}</div>`}`;
+  const report=d=>(data.c3aReports||[]).find(r=>r.version_id===d.current_version);
+  const scan=d=>(data.files||[]).some(f=>f.version_id===d.current_version)?'<span class="mo-ok" title="Скан загружен">✓</span>':'<span class="muted">—</span>';
+  const byNo=(a,b)=>String(a.number).localeCompare(String(b.number),'ru',{numeric:true});
+  const dash='<span class="muted">—</span>',cellM=v=>v===null||v===undefined?'':money(v);
+  const name=d=>{const v=ver(d);return `${e(kindNames[d.kind])} № ${e(d.number)}${v?.version>1?` <span class="dt-v">в${v.version}</span>`:''}${corr(d)}`;};
+  const row=(d,inner)=>{const r=d.kind==='c3a'?report(d):null,v=ver(d);
+   return `<tr class="ob-row${inner?' dt-in':' dt-top'}" data-action="doc" data-id="${e(d.id)}" tabindex="0" role="button"><td>${inner?'<span class="dt-l"></span>':''}${d.kind==='c3a'?'<b>'+name(d)+'</b>':name(d)}</td>
+    <td class="num">${d.kind==='c3a'?(r?money(r.smr):money(v?.amount)):money(v?.amount)}</td><td class="num">${r?cellM(Number(r.equipment)||null)||dash:''}</td><td class="num">${r?cellM(Number(r.target_offset)+Number(r.current_offset)||null)||dash:''}</td><td class="num">${r?'<b>'+money(r.to_pay)+'</b>':''}</td><td class="dt-scan">${scan(d)}</td></tr>`;};
+  const kits=ws.filter(w=>w.template_code!=='c29').map(w=>({w,list:docs.filter(d=>d.workflow_id===w.id)})).filter(g=>g.list.length);
+  const kitRows=g=>{const c3a=g.list.filter(d=>d.kind==='c3a'),acts=g.list.filter(d=>d.kind==='c2a'||d.kind==='c2b').sort(byNo),rest=g.list.filter(d=>!['c3a','c2a','c2b'].includes(d.kind));
+   const title=g.w.template_code==='sub_claim'?`Процентовка субподрядчика · ${g.w.party||''} · дог. № ${g.w.contract_number||''}`:`Процентовка СУ-22 заказчику · дог. № ${g.w.contract_number||''}`;
+   return `<tr class="ob-grp"><td colspan="6">${e(title)} ${st(g.w.step_label,g.w.step_code==='accepted'?'ok':'w')}</td></tr>
+    ${c3a.map(d=>row(d,false)).join('')||'<tr class="dt-top mo-off"><td colspan="6">Справки С-3а нет</td></tr>'}${acts.map(d=>row(d,true)).join('')}${rest.map(d=>row(d,true)).join('')}`;};
+  const loose=docs.filter(d=>d.kind!=='c29'&&(!d.workflow_id||!ws.some(w=>w.id===d.workflow_id)));
+  // С-29: файлы не загружаются, только статус; основана на актах комплекта заказчику.
+  const c29w=ws.find(w=>w.template_code==='c29'),c29s=c29w?c29Status(data.workflows||[],pid,month,today,now):null;
+  const ourActs=docs.filter(d=>(d.kind==='c2a'||d.kind==='c2b')&&ws.some(w=>w.id===d.workflow_id&&w.template_code==='claim')).sort(byNo);
+  const c29Row=c29w?`<tr class="ob-grp"><td colspan="6">С-29 · материалы</td></tr><tr class="ob-row dt-top" data-action="workflow" data-id="${e(c29w.id)}" tabindex="0" role="button"><td colspan="5">С-29 за ${e(monthName(month))}${ourActs.length?` <span class="muted">· по актам № ${ourActs.map(d=>e(d.number)).join(', ')}</span>`:''} ${st(c29s.text,c29s.cls==='o'?'e':c29s.cls,c29s.title||'')} <span class="muted">· срок ${e(dm(c29s.deadline))}</span></td><td></td></tr>`:'';
+  const any=kits.length||loose.length||c29w;
+  return `<div class="ob-bar"><span class="muted">Документы за ${e(monthName(month))} по комплектам: справка С-3а и её акты. Строка открывает карточку документа.</span><div class="actions">${add}</div></div>
+   ${any?`<div class="table-wrap"><table class="ob-table dt-table"><colgroup><col><col style="width:150px"><col style="width:140px"><col style="width:140px"><col style="width:150px"><col style="width:70px"></colgroup><thead><tr><th>Документ</th><th class="num">СМР с НДС</th><th class="num">Оборудование</th><th class="num">Зачёт авансов</th><th class="num">К оплате</th><th>Скан</th></tr></thead><tbody>
+   ${kits.map(kitRows).join('')}${loose.length?`<tr class="ob-grp"><td colspan="6">Без комплекта</td></tr>${loose.sort(byNo).map(d=>row(d,false)).join('')}`:''}${c29Row}</tbody></table></div>`:`<div class="empty">${per?'В этом месяце документы ещё не созданы.':'Отчётный месяц ещё не открыт.'}</div>`}`;
  }
 
  // ——— История ———

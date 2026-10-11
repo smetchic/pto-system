@@ -99,15 +99,17 @@ export function parseSheets(sheets){
  return out;
 }
 
-// Договор объекта: сначала по номеру из файла; акт субподрядчика — по УНП контрагента входящего договора;
+// Наш документ или субподрядчика: исполнитель (последний УНП в шапке) — СУ-22. Справка без УНП считается нашей.
+export const isOurs=doc=>doc.type==='c3a'&&!(doc.unps||[]).length||(doc.unps||[]).at(-1)===SU22_UNP;
+// Договор объекта: сначала по номеру из файла; акт и справка субподрядчика — по УНП контрагента входящего договора;
 // наш акт и С-3а — договор с заказчиком (у объекта он один).
 export function matchContract(data,projectId,doc){
  const list=(data.contracts||[]).filter(c=>c.project_id===projectId),unpOf=c=>(data.parties||[]).find(p=>p.id===c.counterparty_id)?.unp||'';
  const norm=s=>String(s||'').trim().toLowerCase();
- const ours=doc.type==='c3a'||(doc.unps||[]).at(-1)===SU22_UNP;
- const byNo=doc.contract&&list.filter(c=>norm(c.number)===norm(doc.contract)&&(!ours||c.direction==='outgoing'));
+ const ours=isOurs(doc);
+ const byNo=doc.contract&&list.filter(c=>norm(c.number)===norm(doc.contract)&&(ours?c.direction==='outgoing':doc.type!=='c3a'||c.direction==='incoming'));
  if(byNo?.length===1)return byNo[0].id;
- if(doc.type==='act'&&!ours){
+ if(!ours){
   const sub=list.filter(c=>c.direction==='incoming'&&doc.unps.includes(unpOf(c)));
   if(sub.length===1)return sub[0].id;
  }
@@ -130,12 +132,12 @@ export function importCard({data,projectId,files,existing=[],canJump=false}){
   let check='';
   if(d.type==='c3a'){const sum=round(acts.filter(a=>a.doc.month===d.month&&a.contract===f.contract).reduce((s,a)=>s+(a.doc.amount||0),0));
    check=sum?(Math.abs(sum-d.smr)<0.01?`<small class="xi-ok">СМР совпадает с актами из файла: ${money(sum)}</small>`:`<small class="ct-warn">СМР ${money(d.smr)}, акты из файла ${money(sum)}: проверьте, все ли акты выбраны</small>`):'';}
-  const what=!d.type?'Не распознан':d.type==='c3a'?'Справка С-3а':`Акт ${d.kind==='c2a'?'С-2а':'С-2б'}`;
+  const what=!d.type?'Не распознан':d.type==='c3a'?(isOurs(d)?'Справка С-3а':'Справка С-3а субподрядчика'):`Акт ${d.kind==='c2a'?'С-2а':'С-2б'}`;
   const sum=d.type==='c3a'?`СМР ${money(d.smr)}${d.equipment_amount?` · оборуд. ${money(d.equipment_amount)}`:''}${d.to_pay!==null?` · к оплате ${money(d.to_pay)}`:''}`:d.type?`<b class="${d.amount<0?'neg':''}">${money(d.amount)}</b>${d.vat!==null?` <small>в т. ч. НДС ${money(d.vat)}</small>`:''}`:'';
   return `<div class="xi-row${ok?'':' off'}" data-i="${i}"><label class="xi-c"><input type="checkbox" name="pick" value="${i}"${ok?' checked':' disabled'}></label>
    <div class="xi-main"><div class="xi-top"><b>${what}${d.number?` № ${e(d.number)}`:''}</b>${d.correction?'<span class="pill w">Корректировка</span>':''}<span class="xi-sum num">${sum}</span></div>
     <small class="muted xi-where" title="${e(d.part||'')}">${e(monthName(d.month))} · лист «${e(d.sheet||f.name)}»${d.part?` · ${e(d.part)}`:''}</small>
-    ${d.type?`<div class="xi-grid${d.correction?' corr':''}"><label>№<input name="number-${i}" value="${e(d.number)}" maxlength="40" required></label><label>Договор<select name="contract-${i}">${opt(f.contract,d.type==='c3a'?'outgoing':'')}</select></label>${d.correction?`<label>Исправляет<input name="corrects-${i}" value="${e(d.corrects)}" maxlength="120"></label>`:''}</div>`:''}
+    ${d.type?`<div class="xi-grid${d.correction?' corr':''}"><label>№<input name="number-${i}" value="${e(d.number)}" maxlength="40" required></label><label>Договор<select name="contract-${i}">${opt(f.contract,d.type==='c3a'?(isOurs(d)?'outgoing':'incoming'):'')}</select></label>${d.correction?`<label>Исправляет<input name="corrects-${i}" value="${e(d.corrects)}" maxlength="120"></label>`:''}</div>`:''}
     ${loaded?'<small class="muted">Уже внесён: пропускается</small>':''}${check}${d.problems.map(p=>`<small class="${ok||loaded?'ct-warn':'error'}">${e(p)}</small>`).join('')}</div></div>`;}).join('');
  const n=files.filter(f=>f.doc.type).length,corr=files.filter(f=>f.doc.correction).length;
  const step=canJump?`<label class="xi-step">Шаг «Подписания» после загрузки<select name="to_step">${STEPS.map(([v,l])=>`<option value="${v}"${v==='accepted'?' selected':''}>${l}</option>`).join('')}</select></label>`:'';
@@ -154,7 +156,7 @@ export function importPlan(files,form,existing=[]){
 export function createPayload(f){
  const d=f.doc,from=`Из файла ${f.name}${d.sheet?`, лист «${d.sheet}»`:''}`;
  const base={op:'create_document',contract_id:f.contract,kind:d.kind,number:f.number,note:d.part?`Часть объекта: ${d.part}. ${from}`:from};
- if(d.type==='act')return {...base,amount:String(d.amount),...(d.correction?{correction:true,corrects:f.corrects||d.corrects||'корректировка'}:{})};
+ if(d.type==='act')return {...base,amount:String(d.amount),...(d.vat!==null&&d.vat!==undefined?{smr_vat:String(d.vat)}:{}),...(d.correction?{correction:true,corrects:f.corrects||d.corrects||'корректировка'}:{})};
  const v={};for(const k of ['smr_vat','equipment_amount','equipment_vat','advance_target_offset','advance_current_offset'])if(d[k]!==null&&d[k]!==undefined)v[k]=String(d[k]);
  return {...base,...v};
 }

@@ -110,3 +110,40 @@
 .xi-grid input,.xi-grid select{min-width:0;flex:1;padding:4px 8px;min-height:30px}
 .xi-step{display:flex;align-items:center;gap:10px;margin:12px 0 4px}.xi-step select{flex:1}.xi-ok{color:var(--ok)}
 @media(max-width:800px){.xi-grid,.xi-grid.corr{grid-template-columns:1fr}}
+/* Карточка документа (src/document-card.js): одна схема для актов и справки С-3а. */
+.dc .ct-sub .ob-st{margin-left:6px}
+.dc-corr{margin:0 0 8px;font-size:13px}
+.dc-kv{margin:4px 0 10px}
+.dc-c3a{overflow-x:auto;margin:4px 0 2px;border:1px solid var(--ln);border-radius:8px}
+.dc-c3a table{width:100%;border-collapse:collapse;font-size:13px}
+.dc-c3a th,.dc-c3a td{padding:5px 10px;border-bottom:1px solid var(--ln);white-space:nowrap;text-align:left}.dc-c3a th.num,.dc-c3a td.num{text-align:right;font-variant-numeric:tabular-nums}
+.dc-c3a th{font-size:12px;font-weight:500;color:var(--mu)}.dc-c3a tr:last-child td{border-bottom:0}
+.dc-c3a th:first-child,.dc-c3a td:first-child{position:sticky;left:0;background:var(--sf);z-index:1}
+.dc-c3a .dc-in td:first-child{padding-left:22px;color:var(--mu)}.dc-c3a .dc-in td{color:var(--mu);font-size:12px}
+.dc-c3a tr.total td{font-weight:650;border-top:2px solid var(--ln)}
+.dc-c3a.cum .dc-now{background:var(--acs);font-weight:600}
+.dc-cum{font-size:12px;margin:2px 0 10px;padding:0}
+.dc-check{margin:6px 0 4px;font-size:13px}.dc-check .link{padding:0}
+.dc-file{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:3px 0;font-size:13px}.dc-file .link{padding:0;text-align:left;word-break:break-word}
+.dc-up{display:inline-flex;align-items:center;cursor:pointer;border:1px solid var(--ln);border-radius:7px;background:var(--sf);color:var(--ink);font-size:13px;padding:5px 10px}.dc-up input{display:none}
+.dc-ver{display:grid;grid-template-columns:34px auto auto 1fr;gap:4px 10px;align-items:baseline;padding:3px 0;font-size:13px}.dc-ver small{grid-column:2/-1}
+.dc-meta{margin:14px 0 0;font-size:12px;color:var(--mu)}
+.dc .cp-drawer-foot{justify-content:flex-start}
+/* Вкладка «Документы»: акты под справкой с отступом и линией слева — видно, что они входят в справку. */
+.dt-table .dt-in td:first-child{padding-left:30px;position:relative}
+.dt-table .dt-l{position:absolute;left:14px;top:0;bottom:0;border-left:2px solid var(--ln)}
+.dt-table .dt-in td{color:var(--ink)}.dt-table .dt-in .num{color:var(--mu)}
+.dt-v{color:var(--wa);font-weight:600;font-size:12px}
+.dt-scan{text-align:center}
+.dt-table .ob-grp .ob-st{margin-left:6px}
+/* «Из чего СМР» (макет v12): своими силами — скобка сверху, субподряд в ценах заказчика — снизу, генуслуги — общий отрезок. */
+.cb{font-size:12px;min-width:0}
+.cb-lt{white-space:nowrap}.cb-lt b{font-size:13px}.cb-own,.cb-own b{color:var(--own)}.cb-sub,.cb-sub b{color:var(--subt)}.cb-ink{color:var(--ink)}
+.cb-own .neg,.cb-own b.neg{color:var(--er)}
+.cb-br{height:7px;box-sizing:border-box}.cb-br.t{border:1.5px solid var(--own);border-bottom:0;border-radius:3px 3px 0 0;margin-top:3px}
+.cb-br.b{border:1.5px solid var(--subt);border-top:0;border-radius:0 0 3px 3px;margin-bottom:3px}
+.cb-bar{display:flex;height:34px;border-radius:8px;overflow:hidden;margin:2px 0;background:var(--hv)}
+.cb-bar i{font-style:normal;display:flex;align-items:center;padding:0 10px;white-space:nowrap;overflow:hidden;min-width:0;font-size:12px}
+.cb-bar .w{background:var(--own);color:var(--onac)}.cb-bar .g{background:var(--gen);color:#fff;justify-content:center}.cb-bar .s{background:var(--sub);color:var(--ink);justify-content:flex-end}
+.cb.plan .cb-bar i{opacity:.55}
+.cb-rowb{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}

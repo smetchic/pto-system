@@ -38,8 +38,8 @@ test('month tab: one screen for all steps — step strip, C-3a with the sum chec
  assert.match(html,/нужна для отправки заказчику/);
  assert.match(html,/= к оплате по С-3а<\/div><div class="mo-big">1[\s ]550[\s ]824,06/);
  assert.match(html,/Сверка сумм: ✓ сходится, есть предварительные/);
- assert.match(html,/Своими силами 1[\s ]660[\s ]859,89, субподряд 312[\s ]400,00/,'всего − субподряд в их ценах');
- assert.match(html,/подали 1 из 2 · предварительно/);
+ assert.match(html,/<b>Своими силами<\/b> <b class="num">1[\s ]660[\s ]859,89<\/b>/,'всего − субподряд в их ценах');assert.match(html,/субподряд, их цены 312[\s ]400,00/);
+ assert.match(html,/· подали 1 из 2/);assert.match(html,/по реестру · предварительно/);
  assert.match(html,/data-action="doc" data-id="d1"/);
  assert.match(html,/С-29 за октябрь/);assert.match(html,/срок 15\.11/);
  assert.doesNotMatch(html,/Хвост|undefined|NaN/);
@@ -49,9 +49,9 @@ test('month tab: «на заказчика» from the register gives general ser
  const ctx=fixture();ctx.data.matrix.rows[0].cells={s7:'312400.00'};ctx.data.matrix.rows[0].customer_cells={s7:'400000.00'};
  let html=objectPage(ctx);
  assert.match(html,/400[\s ]000,00<\/span><\/td><td class="num"><span class="">87[\s ]600,00/);
- assert.match(html,/генуслуги <b class="">87[\s ]600,00/);
+ assert.match(html,/генуслуги <b class="num cb-ink">87[\s ]600,00/);
  ctx.data.workflows[1].acts_amount='2500000.00';html=objectPage(ctx);
- assert.match(html,/<b class="neg">-526[\s ]740,11<\/b>/);assert.match(html,/отрицательные, проверьте/);
+ assert.match(html,/<b class="num neg">-526[\s ]740,11<\/b>/);assert.match(html,/отрицательные, проверьте/);
 });
 
 test('director sees the same page without a single action',()=>{
@@ -79,7 +79,7 @@ test('other tabs: contracts grouped by side, documents grouped by kit, history f
  assert.match(html,/<th>Контрагент<\/th><th>Предмет договора<\/th>/);assert.match(html,/1 в работе/);
  ctx.ui.contractDs=Object.fromEntries(ctx.data.contracts.map(c=>[c.id,true]));assert.match(objectPage(ctx),/<tr class="ct-ds">/);delete ctx.ui.contractDs;assert.match(html,/30\.12\.2026/);
  ctx.ui.projectTab='documents';html=objectPage(ctx);
- assert.match(html,/Процентовка СУ-22 заказчику · дог\. № 21 · У технадзора/);assert.match(html,/data-action="doc" data-id="d1"/);
+ assert.match(html,/Процентовка СУ-22 заказчику · дог\. № 21 <span class="ob-st w">У технадзора/);assert.match(html,/Справки С-3а нет/);assert.match(html,/class="ob-row dt-in" data-action="doc" data-id="d1"/,'акт под справкой с отступом');assert.match(html,/data-action="doc" data-id="d1"/);
  ctx.ui.projectTab='history';ctx.data.events=[{id:1,project_id:'p1',action:'revise',actor:'u1',created_at:'2026-10-08T10:00:00Z',detail:{reason:'исправлен объём'}},{id:2,project_id:'p1',action:'update_contract',actor:'u1',created_at:'2026-10-08T11:00:00Z',detail:{}}];
  ctx.ui.historyKind='document';html=objectPage(ctx);
  assert.match(html,/исправлен объём/);assert.doesNotMatch(html,/Изменены условия договора/);

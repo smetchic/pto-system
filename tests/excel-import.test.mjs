@@ -51,7 +51,24 @@ test('excel: contract by number from the file, then by UNP; the import card and 
  form.append('corrects-0','акт №1 за июнь 2026');
  const plan=importPlan(files,form,existing);
  assert.deepEqual(plan.map(f=>f.number),['4.1'],'уже внесённый пропускается');
- assert.deepEqual(createPayload(plan[0]),{op:'create_document',contract_id:'sub',kind:'c2b',number:'4.1',amount:'-10',correction:true,corrects:'акт №1 за июнь 2026',
+ assert.deepEqual(createPayload(plan[0]),{op:'create_document',contract_id:'sub',kind:'c2b',number:'4.1',amount:'-10',smr_vat:'-1.67',correction:true,corrects:'акт №1 за июнь 2026',
   note:'Часть объекта: 2 ЦЕХ (ПРИСТРОЙКА). Из файла книга.xlsx, лист «k»'});
  assert.equal(createPayload({...files[1],number:'4.4'}).correction,undefined);
+});
+
+// Справка С-3а: исполнитель (последний УНП) — СУ-22 → наш договор с заказчиком; иначе — договор субподрядчика по его УНП.
+const c3a=(unps)=>{const g=[];g[0]=[null,'Форма С-3а'];unps.forEach((u,i)=>{g[2+i*2]=['Сторона',null,null,'УНП',u];});
+ g[11]=['Договор подряда (субподряда) № 21-03/2026 от "07" Мая 2026 г.'];g[15]=['за Август 2026 года'];
+ g[18]=['№','Наименование',null,null,null,'с начала проведения работ','с начала года','за отчетный период'];
+ g[20]=[1,'Всего стоимость выполненных строительно-',null,null,null,500,500,137979.92];g[34]=[null,'сумма НДС',null,null,null,80,80,22996.65];
+ g[51]=[4,'Всего к оплате',null,null,null,'х','х',137979.92];for(let r=0;r<g.length;r++)g[r]=g[r]||[];return g;};
+test('excel: a subcontractor C-3a goes to their subcontract, ours to the customer contract',()=>{
+ const data={contracts:[{id:'out',project_id:'p',direction:'outgoing',number:'21',party:'Трест'},{id:'sub',project_id:'p',direction:'incoming',number:'21-03/2026',party:'БЕЛТОПМЕД',counterparty_id:'bt'}],parties:[{id:'bt',unp:'190510032'}]};
+ const [sub]=parseSheets([{name:'С3а',grid:c3a(['200027027','193913288','191426884','190510032'])}]);
+ assert.equal(sub.type,'c3a');assert.equal(matchContract(data,'p',sub),'sub','номер из файла и договор субподряда');
+ assert.equal(matchContract(data,'p',{...sub,contract:''}),'sub','без номера — по УНП субподрядчика');
+ const [ours]=parseSheets([{name:'С3а',grid:c3a(['200027027','193913288','191426884'])}]);
+ assert.equal(matchContract(data,'p',{...ours,contract:''}),'out','наша справка — договор с заказчиком');
+ const html=importCard({data,projectId:'p',files:[{name:'с.xlsx',doc:sub,contract:'sub'}]});
+ assert.match(html,/Справка С-3а субподрядчика/);assert.match(html,/value="sub" selected/);assert.doesNotMatch(html,/value="out"/,'в списке только договоры субподряда');
 });

@@ -78,7 +78,7 @@ test('negative own forces are shown and highlighted, not hidden',()=>{
  // На вкладке «Месяц» своими силами = всего − субподряд в их ценах (docs/month.md).
  ctx.data.contracts.push({id:'sc',project_id:'object',number:'С-1',party:'Суб',direction:'incoming'});
  ctx.data.workflows.push({id:'sw',template_code:'sub_claim',project_id:'object',period_id:'period',contract_id:'sc',step_code:'check',step_label:'На проверке',step_ordinal:4,acts_amount:'324.58',open_notes:[]});
- ctx.ui.route='project';ctx.ui.projectTab='month';assert.match(renderWorkspace(ctx),/class="neg"[^>]*>-224,58</);
+ ctx.ui.route='project';ctx.ui.projectTab='month';assert.match(renderWorkspace(ctx),/class="num neg"[^>]*>-224,58</);
 });
 
 test('register renders the database matrix: sub-contract columns, object subtotal and total without client sums',()=>{
