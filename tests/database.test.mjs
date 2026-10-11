@@ -722,3 +722,46 @@ test('delete contract: only the head, only without documents or month records; a
  const ev=(await db.query("select detail from pto_events where action='delete_contract' and project_id=$1",[pid])).rows[0].detail;
  assert.deepEqual([ev.number,ev.contract.party_text,ev.contract.addenda.length],['б/н','.docx',1]);
 });
+
+test('past month: the head puts a kit straight onto a late step; checks of skipped steps are not required; undo works as usual',async()=>{
+ await as(users.head);
+ const pid=(await command({op:'create_project',name:'История'})).project_id,month='2026-08-01';
+ await command({op:'member',project_id:pid,user_id:users.engineer});
+ await command({op:'create_contract',project_id:pid,number:'И-1',party:'Заказчик И',direction:'outgoing'});
+ await command({op:'create_contract',project_id:pid,number:'ИС-1',party:'Мегалит',direction:'incoming'});
+ const cid=async n=>(await db.query('select id from pto_contracts where project_id=$1 and number=$2',[pid,n])).rows[0].id;
+ const our=await cid('И-1'),sub=await cid('ИС-1');
+ const per=(await command({op:'open_period',project_id:pid,month})).period_id;
+ const op=async(name,extra)=>command({op:name,period_id:per,expected_revision:await periodRev(per),...extra});
+ const c3a=(await op('create_document',{contract_id:our,kind:'c3a',number:'8'})).document_id;
+ const w=(await docRow(c3a)).workflow_id;
+ const jump=async(to,extra={})=>command({op:'workflow_jump',workflow_id:w,to_step:to,date:'2026-09-10',expected_revision:await periodRev(per),...extra});
+ await assert.rejects(jump('accepted'),/нет актов С-2/,'без сумм не вносится');
+ const act=(await op('create_document',{contract_id:our,kind:'c2a',number:'8',amount:'1973259.89'})).document_id;
+ await as(users.engineer);await assert.rejects(jump('accepted'),/начальник ПТО/);
+ await as(users.head);
+ await assert.rejects(jump('acts'),/Выберите шаг/);
+ // Субподрядчик не прошёл технадзор, письма и сканов нет — для прошлого месяца это не мешает.
+ assert.equal((await jump('check')).step,'check');
+ await assert.rejects(jump('check'),/уже на этом шаге/);
+ assert.equal((await jump('accepted')).step,'accepted');
+ const row=(await db.query('select step_dates from pto_workflow_list where id=$1',[w])).rows[0];
+ assert.deepEqual([row.step_dates.check,row.step_dates.signed],['2026-09-10','2026-09-10'],'даты пропущенных шагов');
+ const d=(await db.query('select accepted_version,current_version from pto_documents where id=$1',[act])).rows[0];
+ assert.equal(d.accepted_version,d.current_version,'«В бухгалтерии» фиксирует сумму');
+ const notes=(await db.query("select count(*)::int n from pto_workflow_events where workflow_id=$1 and kind='advance' and note like 'Прошлый месяц%'",[w])).rows[0].n;
+ assert.ok(notes>=3,'каждый пропущенный шаг в истории с пометкой');
+ await command({op:'workflow_undo',workflow_id:w,note:'не тот шаг'});
+ assert.equal(await stepOf(w),'signed');
+ assert.equal((await db.query('select accepted_version from pto_documents where id=$1',[act])).rows[0].accepted_version,null);
+ // Субподрядчик прошлого месяца — тоже сразу в бухгалтерию.
+ const sa=(await op('create_document',{contract_id:sub,kind:'c2b',number:'5',amount:'469709.47'})).document_id;
+ const ws=(await docRow(sa)).workflow_id;
+ assert.equal((await command({op:'workflow_jump',workflow_id:ws,to_step:'accepted',date:'2026-09-12',expected_revision:await periodRev(per)})).step,'accepted');
+ // Текущий месяц идёт по шагам.
+ const now=new Date(),cur=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
+ const per2=(await command({op:'open_period',project_id:pid,month:cur})).period_id;
+ const a2=(await command({op:'create_document',period_id:per2,expected_revision:await periodRev(per2),contract_id:our,kind:'c2a',number:'10',amount:'5'})).document_id;
+ await assert.rejects(command({op:'workflow_jump',workflow_id:(await docRow(a2)).workflow_id,to_step:'check',date:'2026-09-10'}),/только прошлые месяцы/);
+ assert.equal((await db.query("select count(*)::int n from pto_events where action='workflow_jump' and project_id=$1",[pid])).rows[0].n,3);
+});

@@ -243,7 +243,8 @@ async function panelSubmit(f){
   advance:{op:'workflow_advance',...target,...v},
   received:{op:'workflow_received',...target,...v},
   note:{op:'workflow_note',...target,...v},
-  undo:{op:'workflow_undo',...target,...v}
+  undo:{op:'workflow_undo',...target,...v},
+  jump:{op:'workflow_jump',...target,...v}
  }[f.dataset.op];
  const result=await mutate(payload);
  if(f.dataset.op==='start'&&result?.workflow_id)return openPanel('wf',result.workflow_id);
