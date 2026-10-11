@@ -1,0 +1,47 @@
+/* Документы объекта: создание внутри месяца, единый блок субподрядчиков и чуть более заметная С-3а. */
+.dt-import-actions{margin-left:auto}
+.dt-table .dt-c3a td:first-child{font-size:14px;font-weight:600}
+.dt-table .dt-c3a .dt-party{font-weight:600;color:var(--ink)}
+.dt-contract,.dt-part{color:var(--mu);font-size:12px;font-weight:400}
+.dt-party{color:var(--ink);font-size:13px;font-weight:500}
+.dt-sub-status{margin-left:8px;vertical-align:1px}
+.dt-sub-start:not(.first) td{border-top:2px solid var(--ln)}
+.dt-subs-head td{background:color-mix(in srgb,var(--ac) 5%,var(--bg));color:var(--ink)}
+.dt-create td{padding-top:5px!important;padding-bottom:5px!important;color:var(--mu)!important;background:color-mix(in srgb,var(--sf) 94%,var(--hv))}
+.dt-create .dt-create-label{font-size:12px}
+.dt-create-btn{margin-left:10px;padding:0!important;font-size:12px!important}
+.dt-sub-add td{padding:7px 12px;border-top:1px dashed var(--ln)}
+.dt-sub-add button{padding:0;margin-right:16px;font-size:12px}
+.dt-empty{display:grid;gap:10px;margin-top:8px}
+.dt-empty-block{border:1px solid var(--ln);border-radius:8px;background:var(--sf);overflow:hidden}
+.dt-empty-block h3{margin:0;padding:7px 12px;background:var(--bg);font-size:12px;font-weight:600;color:var(--mu);text-transform:uppercase;letter-spacing:.04em}
+.dt-empty-line{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 12px;border-top:1px solid var(--ln);font-size:13px}
+.dt-empty-line .link{padding:0;font-size:12px}
+.dt-empty-block:first-child .dt-empty-line:first-of-type{font-size:14px;font-weight:600}
+
+/* Карточка акта / справки: контрагент → объект → часть → договор → документ → период. */
+.dc-ident{display:grid;gap:2px;margin-top:2px}
+.dc-party{font-size:16px;line-height:1.3;font-weight:600;color:var(--ink)}
+.dc-object{font-size:14px;line-height:1.35;color:var(--ink)}
+.dc-part,.dc-contract,.dc-month{font-size:13px;line-height:1.35;color:var(--mu)}
+.dc-docno{font-size:24px;line-height:1.15;font-weight:650;letter-spacing:-.015em;color:var(--ink);margin-top:5px}
+.dc .cp-total{align-items:center;margin-top:2px}
+.dc .cp-total>b{font-size:30px}
+.dc-status-at-total{margin-left:auto;flex:none;font-size:12px}
+.dc-file-no{display:inline-grid;place-items:center;min-width:20px;height:20px;border-radius:50%;background:var(--hv);color:var(--mu);font-size:11px}
+.dc-file .cp-small{padding:3px 9px}
+
+/* PDF слева, карточка документа справа. */
+#dialog.cp-drawer.dc-preview-open{
+ width:min(calc(100vw / var(--zoom,1)),calc(var(--drawer-w) + 760px));
+ max-width:calc(100vw / var(--zoom,1));
+ display:grid;
+ grid-template-columns:minmax(420px,1fr) var(--drawer-w);
+}
+#dialog.cp-drawer.dc-preview-open>.cp-drawer-shell{grid-column:2;grid-row:1;min-width:0;border-left:1px solid var(--ln)}
+.dc-preview-pane{grid-column:1;grid-row:1;min-width:0;height:100%;display:flex;flex-direction:column;background:var(--bg);overflow:hidden}
+.dc-preview-bar{flex:none;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;border-bottom:1px solid var(--ln);background:var(--sf)}
+.dc-preview-bar>b{font-size:13px;font-weight:600}
+.dc-preview-actions{display:flex;gap:12px;align-items:center}.dc-preview-actions .link{padding:0;font-size:12px}
+.dc-preview-frame{flex:1;min-height:0;width:100%;border:0;background:#fff}
+@media(max-width:1100px){#dialog.cp-drawer.dc-preview-open{width:100%;display:block}.dc-preview-pane{display:none}#dialog.cp-drawer.dc-preview-open>.cp-drawer-shell{border-left:0}}
