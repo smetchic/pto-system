@@ -765,3 +765,31 @@ test('past month: the head puts a kit straight onto a late step; checks of skipp
  await assert.rejects(command({op:'workflow_jump',workflow_id:(await docRow(a2)).workflow_id,to_step:'check',date:'2026-09-10'}),/только прошлые месяцы/);
  assert.equal((await db.query("select count(*)::int n from pto_events where action='workflow_jump' and project_id=$1",[pid])).rows[0].n,3);
 });
+
+test('correction acts: zero and minus only with the «Корректировка» mark; the register and C-3a count them',async()=>{
+ await as(users.head);
+ const pid=(await command({op:'create_project',name:'Корректировки'})).project_id;
+ await command({op:'create_contract',project_id:pid,number:'К-1',party:'Заказчик К',direction:'outgoing'});
+ await command({op:'create_contract',project_id:pid,number:'КС-1',party:'Белтопмед',direction:'incoming'});
+ const cid=async n=>(await db.query('select id from pto_contracts where project_id=$1 and number=$2',[pid,n])).rows[0].id;
+ const our=await cid('К-1'),sub=await cid('КС-1');
+ const per=(await command({op:'open_period',project_id:pid,month:'2026-09-01'})).period_id;
+ const op=async extra=>command({op:'create_document',period_id:per,expected_revision:await periodRev(per),...extra});
+ await assert.rejects(op({contract_id:sub,kind:'c2b',number:'4.1',amount:'-22361.21'}),/только у акта-корректировки/);
+ await assert.rejects(op({contract_id:sub,kind:'c2b',number:'4.1',amount:'0'}),/только у акта-корректировки/);
+ await assert.rejects(op({contract_id:our,kind:'c3a',number:'09/2026',correction:true}),/только акт С-2/);
+ const k=(await op({contract_id:sub,kind:'c2b',number:'4.1',amount:'-22361.21',correction:true,corrects:'акт №1 за июнь 2026'})).document_id;
+ const row=(await db.query('select correction,corrects from pto_document_list where id=$1',[k])).rows[0];
+ assert.deepEqual([row.correction,row.corrects],[true,'акт №1 за июнь 2026']);
+ await op({contract_id:sub,kind:'c2b',number:'4.4',amount:'480878.34'});
+ await op({contract_id:our,kind:'c2a',number:'9',amount:'100'});
+ await op({contract_id:our,kind:'c2a',number:'9к',amount:'-30',correction:true});
+ const c3a=(await op({contract_id:our,kind:'c3a',number:'09/2026'})).document_id;
+ const amt=(await db.query('select v.amount from pto_documents d join pto_versions v on v.id=d.current_version where d.id=$1',[c3a])).rows[0].amount;
+ assert.equal(Number(amt),70,'СМР справки с учётом корректировки');
+ // Новая версия корректировки тоже может быть с минусом.
+ await command({op:'revise',period_id:per,expected_revision:await periodRev(per),document_id:k,amount:'-22000',reason:'уточнили'});
+ // У обычного акта новая версия с минусом не проходит.
+ const plain=(await db.query("select id from pto_documents where period_id=$1 and number='4.4'",[per])).rows[0].id;
+ await assert.rejects(command({op:'revise',period_id:per,expected_revision:await periodRev(per),document_id:plain,amount:'-1',reason:'ошибка'}),/только у акта-корректировки/);
+});
