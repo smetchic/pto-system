@@ -793,3 +793,23 @@ test('correction acts: zero and minus only with the «Корректировка
  const plain=(await db.query("select id from pto_documents where period_id=$1 and number='4.4'",[per])).rows[0].id;
  await assert.rejects(command({op:'revise',period_id:per,expected_revision:await periodRev(per),document_id:plain,amount:'-1',reason:'ошибка'}),/только у акта-корректировки/);
 });
+
+test('contract files: paths edited in the card keep the type of known files; parts store VAT amount',async()=>{
+ await as(users.head);
+ const pid=(await command({op:'create_project',name:'Файлы'})).project_id;
+ await command({op:'create_contract',project_id:pid,number:'Ф-1',party:'Заказчик Ф',direction:'outgoing'});
+ const id=(await db.query("select id from pto_contracts where project_id=$1",[pid])).rows[0].id;
+ await db.exec('reset role');await db.query(`update pto_contracts set files='[{"path":"ОБЪЕКТ/01/Договор.pdf","type":"contract"}]' where id=$1`,[id]);await as(users.head);
+ await command({op:'set_contract_files',contract_id:id,files:['ОБЪЕКТ/01/Договор.pdf',' ОБЪЕКТ/01/ДС 1.pdf ','ОБЪЕКТ/01/ДС 1.pdf']});
+ const files=(await db.query('select files from pto_contracts where id=$1',[id])).rows[0].files;
+ assert.deepEqual(files,[{path:'ОБЪЕКТ/01/Договор.pdf',type:'contract'},{path:'ОБЪЕКТ/01/ДС 1.pdf'}],'повтор убран, тип прежнего файла сохранён');
+ await assert.rejects(command({op:'set_contract_files',contract_id:id,files:['']}),/от 1 до 500/);
+ await command({op:'set_contract_files',contract_id:id,files:[]});
+ assert.deepEqual((await db.query('select files from pto_contracts where id=$1',[id])).rows[0].files,[]);
+ await as(users.outsider);
+ await assert.rejects(command({op:'set_contract_files',contract_id:id,files:['x.pdf']}),/Нет доступа|Недостаточно прав/);
+ await as(users.head);
+ const part=(await command({op:'set_contract_part',contract_id:id,name:'Жилая часть',amount:'1200000',vat_amount:'200000',vat_rate:'20'})).part_id;
+ const row=(await db.query('select vat_amount,vat_rate from pto_contract_parts where id=$1',[part])).rows[0];
+ assert.deepEqual([Number(row.vat_amount),Number(row.vat_rate)],[200000,20]);
+});

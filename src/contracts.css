@@ -54,3 +54,13 @@
 .ct-edge b{font-weight:600}
 @media(max-width:640px){.ct-ds-l{grid-template-columns:70px minmax(0,1fr)}.ct-subj{display:none}}
 @media(max-width:640px){.ct-seg{flex-wrap:wrap;max-width:100%}}
+/* Окна-формы (main.js modal/form) — та же боковая панель, поля столбиком. */
+.md-body{display:grid;gap:12px;align-content:start}.md-body>.actions{margin-top:4px}
+/* Посчитанная ставка НДС рядом с полем НДС; красным — НДС не 20 % от суммы или части не сходятся с итогом. */
+.cp-rate{font-size:12px;color:var(--mu);font-weight:400}.cp-rate.bad{color:var(--er);font-weight:600}
+.cp-sum-check{margin:0;min-height:0}.cp-sum-check:empty{display:none}
+.cp-pick{margin-top:6px}
+/* Выбор файла из папки ДОГОВОРА (folder-pick.js) для браузеров без доступа к папке. */
+.fp-box{margin-top:8px;border:1px solid var(--ln);border-radius:8px;padding:8px;display:grid;gap:6px;background:var(--sf)}
+.fp-list{max-height:220px;overflow:auto;display:grid}.fp-item{text-align:left;border:0!important;background:transparent!important;padding:5px 6px!important;font-size:12px;font-weight:400;border-radius:5px;word-break:break-all}.fp-item:hover{background:var(--hv)!important}
+.md-check{display:flex;align-items:center;gap:8px;color:var(--ink);font-size:13px}.md-check input{width:auto;margin:0}

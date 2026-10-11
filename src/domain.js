@@ -1,5 +1,20 @@
 export const escapeHtml=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export const money=value=>Number(value||0).toLocaleString('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2});
+// Поля сумм (замечание пользователя 11.10.2026): «53 958 885,69» при вводе и просмотре; в базу уходит «53958885.69».
+// Ввод любой: с пробелами или без, через точку или запятую.
+export const parseMoney=v=>{const s=String(v??'').replace(/[\s\u00a0\u202f]/g,'').replace(',','.').replace('−','-');return /^-?(\d+\.?\d*|\.\d+)$/.test(s)?Number(s):null;};
+const groups=i=>i.replace(/\B(?=(\d{3})+(?!\d))/g,' ');
+export const moneyText=v=>{if(v===null||v===undefined||String(v).trim()==='')return '';const n=parseMoney(v);if(n===null)return String(v);const [i,f]=Math.abs(n).toFixed(2).split('.');return `${n<0?'-':''}${groups(i)},${f}`;};
+// Пока вводят: только разделитель тысяч в целой части, дробная — как набрана.
+export const moneyLive=v=>{const s=String(v??'').replace(/[\s\u00a0\u202f]/g,'').replace('−','-');const m=s.match(/^(-?)(\d*)([.,]\d*)?$/);return m?`${m[1]}${groups(m[2])}${m[3]?','+m[3].slice(1,3):''}`:String(v??'');};
+export const plainMoney=v=>{const n=parseMoney(v);return n===null?String(v??'').trim():String(n);};
+// Ставка НДС не вводится, а считается: НДС / (цена − НДС). «Не сходится» — НДС отличается от 20 % (или 0) больше чем на рубль.
+export function vatInfo(total,vat){
+ const t=parseMoney(total),v=parseMoney(vat);if(t===null||v===null||t<=0)return null;
+ if(v===0)return {rate:0,text:'без НДС',ok:true};
+ const rate=v/(t-v)*100,ok=Math.abs(v-t*20/120)<=1;
+ return {rate:Math.round(rate*100)/100,text:`${(Math.round(rate*100)/100).toLocaleString('ru-RU',{maximumFractionDigits:2})} %`,ok};
+}
 // Состояние документа следует из шага его комплекта (pto_document_list / pto_workflow_list).
 // Последний шаг «В бухгалтерии» (код accepted): передача фиксирует принятые версии.
 export const isDone=x=>x?.step_code==='accepted';

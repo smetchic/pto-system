@@ -197,8 +197,9 @@ if(url&&key&&key.startsWith('sb_publishable_')){
   const roleOptions=participantRoles.map(r=>[r,counterpartyRoleNames[r]]);
   const role=makeSelect('Роль на объекте','role',roleOptions);
   const cp=makeSelect('Организация','counterparty_id',cache.counterparties.map(c=>[c.id,`${c.short_name} · УНП ${c.unp}`]));
-  dialog.classList.remove('document-drawer');
-  dialog.innerHTML=`<div class="row"><h2>Участник объекта</h2><button data-rel-action="close">Закрыть</button></div><form id="rel-participant-form"><div class="rel-grid"></div><p id="rel-error" class="error" role="alert"></p><div class="actions"><button class="primary" type="submit">Сохранить</button></div></form>`;
+  // Боковая панель, как все карточки (решение пользователя: без окон по центру).
+  delete dialog.dataset.dirty;dialog.className='cp-drawer';
+  dialog.innerHTML=`<form id="rel-participant-form" class="cp-drawer-shell ob" data-editing><div class="cp-drawer-head"><button type="button" class="cp-drawer-close" data-rel-action="close">Закрыть ×</button><h2>Участник объекта</h2></div><div class="cp-drawer-content md-body"><div class="rel-grid"></div></div><div class="cp-drawer-foot"><p id="rel-error" class="error" role="alert"></p><button type="button" data-rel-action="close">Отмена</button><button class="primary" type="submit">Сохранить</button></div></form>`;
   const grid=dialog.querySelector('.rel-grid');grid.append(role.label,cp.label);
   if(!dialog.open)dialog.showModal();
   const form=dialog.querySelector('#rel-participant-form');

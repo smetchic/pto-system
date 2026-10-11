@@ -68,9 +68,11 @@ test('contract card: amount by addendum, marks, party link; edit only for the ob
  assert.doesNotMatch(contractCard({data,contract:{...c,has_documents:true},canEdit:true,today,profile:{role:'head'}}),/delete-contract/,'с документами — нельзя');
  assert.doesNotMatch(ro,/edit-contract|edit-addendum|new-addendum/);
  html=contractCard({data,contract:c,canEdit:true,editing:true,today});
- for(const k of ['number','contract_date','subject','parent_contract_id','initial_amount','vat_rate','vat_amount','smr_amount','smr_vat_amount','pnr_amount','pnr_vat_amount','equipment_amount','equipment_vat_amount','work_start_date','work_end_date','contract_id','project_id','counterparty_id','chain_level','our_side','party_side','advance_current_percent','advance_target_amount','note','checked'])
+ for(const k of ['number','contract_date','subject','parent_contract_id','initial_amount','vat_amount','smr_amount','smr_vat_amount','pnr_amount','pnr_vat_amount','equipment_amount','equipment_vat_amount','work_start_date','work_end_date','contract_id','project_id','counterparty_id','chain_level','our_side','party_side','advance_current_percent','advance_target_amount','note','checked'])
   assert.match(html,new RegExp(`name="${k}"`),k);
- assert.match(html,/data-editing/);assert.match(html,/value="12410000\.00"/);
+ assert.match(html,/data-editing/);assert.match(html,/value="12 410 000,00"/,'сумма с разделителем тысяч');
+ assert.doesNotMatch(html,/name="vat_rate"/,'ставка НДС не вводится, считается');assert.match(html,/data-rate-of="initial_amount" data-rate-vat="vat_amount"/);
+ assert.match(html,/name="files"/,'пути к файлам правятся');assert.match(html,/data-action="pick-file" data-id="files"/);
  assert.match(contractCard({data,contract:data.contracts[1],canEdit:true,today}),/Срок истёк 30\.09\.2026, работы продолжаются/);
  assert.match(contractCard({data,contract:data.contracts[3],canEdit:true,today}),/Цена не указана/);
 });
@@ -95,5 +97,5 @@ test('contract card: parts of the contract with their own VAT; adding and editin
  assert.match(html,/data-action="edit-part" data-id="pt1"/);
  assert.doesNotMatch(contractCard({data,contract:c,canEdit:false,today}),/edit-part|new-part/);
  const form=partCard({data,contract:c,part:data.contractParts[1]});
- assert.match(form,/name="part_id" value="pt1"/);assert.match(form,/name="vat_rate"[^>]*value="20.00"/);assert.match(form,/data-editing/);
+ assert.match(form,/name="part_id" value="pt1"/);assert.doesNotMatch(form,/name="vat_rate"/,'ставка не вводится');assert.match(form,/name="vat_amount"[^>]*value="166 666,67"/,'НДС из стоимости и прежней ставки');assert.match(form,/data-editing/);
 });
