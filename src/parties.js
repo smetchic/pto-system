@@ -1,14 +1,20 @@
 // Раздел «Контрагенты»: единый справочник организаций. Здесь только разметка из данных; запись — команды pto_command.
-import {escapeHtml as e,money,ourRoleNames} from './domain.js';
+import {escapeHtml as e,money} from './domain.js';
+import {sidesOf,ourSideLabel} from './contracts.js';
 
-export const partyRoleNames={customer:'Заказчик',general_contractor:'Генподрядчик / подрядчик',subcontractor:'Субподрядчик',supplier:'Поставщик',service_provider:'Исполнитель услуг'};
+export const partyRoleNames={customer:'Заказчик',general_contractor:'Генподрядчик',contractor:'Подрядчик',subcontractor:'Субподрядчик',service_provider:'Исполнитель',supplier:'Поставщик'};
 const roleOrder=Object.keys(partyRoleNames);
+// Фильтр списка по ролям (решение 11.10.2026): поставщик — только ручная роль, в фильтр не входит.
+const FILTER_ROLES=['customer','general_contractor','contractor','subcontractor','service_provider'];
 // Официальные поля выписки МНС: в карточке существующего контрагента показываются, но не правятся вручную.
 export const officialFields=['unp','short_name','full_name','address','registration_date','tax_office_code','tax_office_name','status_code','status_name','status_change_date','liquidation_info'];
 
 const statusPill=c=>c.status_name?`<span class="pill ${c.status_name==='Действующий'?'g':'e'}">${e(c.status_name)}</span>`:'';
 const day=v=>v?new Date(v+'T12:00:00Z').toLocaleDateString('ru-RU',{timeZone:'Europe/Minsk'}):'';
-export const partyRoles=(data,id)=>(data.partyRoles||[]).filter(r=>r.counterparty_id===id).map(r=>r.role).filter(r=>partyRoleNames[r]);
+// Роли вручную (pto_counterparty_roles) и роли из договоров: был стороной с ролью хоть в одном договоре — значит у него эта роль.
+export const manualRoles=(data,id)=>(data.partyRoles||[]).filter(r=>r.counterparty_id===id).map(r=>r.role).filter(r=>partyRoleNames[r]);
+export const contractRoles=(data,id)=>[...new Set((data.contracts||[]).filter(c=>c.counterparty_id===id).map(c=>sidesOf(c,data).party).filter(Boolean))];
+export const partyRoles=(data,id)=>{const set=new Set([...manualRoles(data,id),...contractRoles(data,id)]);return roleOrder.filter(r=>set.has(r));};
 const contractsOf=(data,id)=>(data.contracts||[]).filter(c=>c.counterparty_id===id);
 const projectOf=(data,id)=>(data.projects||[]).find(p=>p.id===id);
 const rolePills=(data,id)=>{const roles=partyRoles(data,id);return roles.length?`<div class="cp-role-list">${roles.map(r=>`<span class="pill">${e(partyRoleNames[r])}</span>`).join('')}</div>`:'<span class="muted">Не назначены</span>';};
@@ -29,9 +35,12 @@ const ALPHABET=[...'АБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЭЮЯ',
 export const partyProjects=(data,id)=>[...new Set([...contractsOf(data,id).map(c=>c.project_id),...(data.participants||[]).filter(x=>x.counterparty_id===id).map(x=>x.project_id)])];
 
 export function partiesList({data,canEdit,ui={}}){
- const letter=ui.partyLetter||'',project=ui.partyProject||'';
- const all=(data.parties||[]).map(c=>({c,l:partyLetter(c.short_name),p:partyProjects(data,c.id)}));
- const scoped=all.filter(x=>!project||x.p.includes(project));
+ const letter=ui.partyLetter||'',project=ui.partyProject||'',role=FILTER_ROLES.includes(ui.partyRole)?ui.partyRole:'';
+ const all=(data.parties||[]).map(c=>({c,l:partyLetter(c.short_name),p:partyProjects(data,c.id),r:partyRoles(data,c.id)}));
+ const inProject=all.filter(x=>!project||x.p.includes(project));
+ const old=c=>!c.mns_checked_at||(Date.now()-Date.parse(c.mns_checked_at))/864e5>30;
+ const scoped=inProject.filter(x=>(!role||x.r.includes(role))&&(ui.partyFlag!=='mns'||old(x.c)));
+ const roleSeg=`<div class="ct-seg" role="group" aria-label="Роль">${[['','Все',inProject.length],...FILTER_ROLES.map(r=>[r,partyRoleNames[r],inProject.filter(x=>x.r.includes(r)).length])].map(([v,l,n])=>`<button type="button" class="${v===role?'on':''}" data-action="party-role" data-id="${v}" aria-pressed="${v===role}">${l} <span class="muted">${n}</span></button>`).join('')}</div>`;
  const have=new Set(scoped.map(x=>x.l));
  const list=scoped.filter(x=>!letter||x.l===letter).sort((a,b)=>ALPHABET.indexOf(a.l)-ALPHABET.indexOf(b.l)||String(a.c.short_name).replace(/^[^"«“„']*["«“„']/,'').localeCompare(String(b.c.short_name).replace(/^[^"«“„']*["«“„']/,''),'ru'));
  const objects=p=>p.map(id=>projectOf(data,id)?.name).filter(Boolean).sort((a,b)=>a.localeCompare(b,'ru')).join(', ');
@@ -39,8 +48,8 @@ export function partiesList({data,canEdit,ui={}}){
  const projects=[...(data.projects||[])].sort((a,b)=>String(a.name).localeCompare(String(b.name),'ru'));
  const letters=`<div class="cp-letters" role="group" aria-label="Первая буква названия"><button type="button" class="${letter?'':'on'}" data-action="party-letter" data-id="">Все</button>${ALPHABET.map(l=>`<button type="button" class="${l===letter?'on':''}" data-action="party-letter" data-id="${e(l)}" ${have.has(l)||l===letter?'':'disabled'}>${e(l)}</button>`).join('')}</div>`;
  return `<div class="heading"><div><h1>Контрагенты</h1><div class="muted">Единый справочник организаций. Одна организация может иметь несколько ролей.</div></div><div class="actions">${canEdit?'<button data-action="mns-xml" data-id="">Загрузить XML МНС</button><input id="mns-xml" type="file" accept=".xml,text/xml,application/xml" multiple hidden><button class="primary" data-action="new-party" data-id="">Добавить контрагента</button>':''}</div></div>
- <div class="cp-toolbar"><input id="party-search" class="cp-search" type="search" autocomplete="off" placeholder="Поиск по названию, УНП или роли"><select id="party-project" class="cp-project" aria-label="Объект"><option value="">Все объекты</option>${projects.map(x=>`<option value="${e(x.id)}" ${x.id===project?'selected':''}>${e(x.name)}</option>`).join('')}</select></div>
- ${letters}
+ <div class="cp-toolbar"><input id="party-search" class="cp-search" type="search" autocomplete="off" placeholder="Поиск по названию, УНП или роли">${roleSeg}<select id="party-project" class="cp-project" aria-label="Объект"><option value="">Все объекты</option>${projects.map(x=>`<option value="${e(x.id)}" ${x.id===project?'selected':''}>${e(x.name)}</option>`).join('')}</select></div>
+ ${ui.partyFlag==='mns'?`<div class="ct-flag">Отбор: <b>сведения МНС старше 30 дней или нет</b> · ${scoped.length} <button class="link" data-action="party-flag" data-id="">Показать все</button></div>`:''}${letters}
  <section class="table-wrap"><table class="cp-table"><thead><tr><th>Контрагент</th><th>УНП</th><th>Роли</th><th>Статус</th><th>Объекты</th><th class="num">Договоров</th></tr></thead><tbody>${rows}<tr id="party-empty" ${rows?'hidden':''}><td colspan="6"><div class="empty cp-empty">Контрагенты не найдены.</div></td></tr></tbody></table></section>`;
 }
 
@@ -94,7 +103,7 @@ function money_(data,c){
  const total_=money(total).replace(/,(\d\d)$/,'<small>,$1</small>');
  return `<div class="cp-total"><b>${total_}</b><span>руб. по ${plural(list.length,'договору','договорам','договорам')}<br>на ${plural(objects,'объекте','объектах','объектах')}</span></div>
   ${total>0&&groups.length>1?`<div class="cp-bar">${groups.map(g=>`<i class="t${tone(g.id)}" style="flex:${g.sum}" title="${e(g.name)}: ${money(g.sum)}"></i>`).join('')}</div><div class="cp-legend">${groups.map(g=>`<span><i class="t${tone(g.id)}"></i>${e(g.name)} <b>${money(g.sum)}</b></span>`).join('')}</div>`:''}
-  <div class="cp-contracts">${list.slice().sort((a,b)=>amount(b)-amount(a)).map(x=>`<div class="cp-k" title="Наша роль: ${e(ourRoleNames[x.our_role]||x.our_role||'')}"><i class="t${tone(x.project_id)}"></i><b>№${e(x.number||'—')}</b><span>${x.contract_date?`от ${e(day(x.contract_date))}`:''}${x.amount_addendum_number?` · <em>ДС №${e(x.amount_addendum_number)}</em>`:''} · ${e(projectOf(data,x.project_id)?.name||'')}</span><span class="cp-k-sum">${x.current_amount!==null&&x.current_amount!==undefined&&x.current_amount!==''?money(x.current_amount):''}</span></div>`).join('')}
+  <div class="cp-contracts">${list.slice().sort((a,b)=>amount(b)-amount(a)).map(x=>`<div class="cp-k" title="${e(ourSideLabel(x,data))}"><i class="t${tone(x.project_id)}"></i><b>№${e(x.number||'—')}</b><span>${x.contract_date?`от ${e(day(x.contract_date))}`:''}${x.amount_addendum_number?` · <em>ДС №${e(x.amount_addendum_number)}</em>`:''} · ${e(projectOf(data,x.project_id)?.name||'')}</span><span class="cp-k-sum">${x.current_amount!==null&&x.current_amount!==undefined&&x.current_amount!==''?money(x.current_amount):''}</span></div>`).join('')}
   ${participants.map(x=>`<div class="cp-k"><i class="t3"></i><b>—</b><span>${e(projectOf(data,x.project_id)?.name||'Объект')} · ${e(partyRoleNames[x.role]||x.role)}, без договора</span><span></span></div>`).join('')}</div>`;
 }
 
@@ -123,10 +132,10 @@ const section=(title,body)=>`<section class="cp-section"><div class="cp-section-
 export function partyCard({data,party:c=null,canEdit,editing=false,today}){
  const editMode=canEdit&&(editing||!c);
  if(editMode){
-  const selected=new Set(c?partyRoles(data,c.id):[]);
+  const selected=new Set(c?manualRoles(data,c.id):[]),fromContracts=c?contractRoles(data,c.id):[];
   return `<form id="party-form" class="cp-drawer-shell" autocomplete="off" data-editing>${head(c,c?(c.short_name||'Контрагент'):'Новый контрагент',c?`<div class="cp-full-name">${e(c.full_name)}</div>`:'')}
   <div class="cp-drawer-content">${c?'':section('Основные реквизиты',newFields())}
-   ${section('Роли',`<div class="cp-role-checks">${roleOrder.map(r=>`<label class="cp-chip"><input type="checkbox" name="roles" value="${e(r)}" ${selected.has(r)?'checked':''}>${e(partyRoleNames[r])}</label>`).join('')}</div>`)}
+   ${section('Роли',`<div class="cp-role-checks">${roleOrder.map(r=>fromContracts.includes(r)&&!selected.has(r)?`<span class="cp-chip cp-chip-auto" title="Роль из договоров">${e(partyRoleNames[r])} · по договорам</span>`:`<label class="cp-chip"><input type="checkbox" name="roles" value="${e(r)}" ${selected.has(r)?'checked':''}>${e(partyRoleNames[r])}</label>`).join('')}</div><p class="cp-hint">Роли из договоров ставятся сами. Вручную — для организации без договоров.</p>`)}
    ${section('Подписант',`<div class="cp-work-grid">${input('director_title','Должность',c?.director_title)}${input('director_name','ФИО полностью',c?.director_name)}<div class="wide">${input('authority_basis','Действует на основании (Устава, доверенности № …)',c?.authority_basis)}</div></div>`)}
    ${section('Связь и адрес',`<div class="cp-work-grid">${input('email','Эл. почта организации',c?.email,'email')}${input('phone','Телефон приёмной',(c?.phone||'').replace(/\s*\n\s*/g,', '))}${input('postal_code','Почтовый индекс',c?.postal_code,'text','inputmode="numeric" pattern="[0-9]{6}" maxlength="6"')}</div>`)}
    ${section('Банк',`<div class="cp-work-grid"><div class="wide">${input('bank_account','Расчётный счёт (IBAN)',c?.bank_account)}</div>${input('bank_bic','BIC',c?.bank_bic)}${input('okpo','ОКПО',c?.okpo)}<div class="wide">${input('bank_name','Банк',c?.bank_name)}</div></div>`)}

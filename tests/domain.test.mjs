@@ -9,11 +9,11 @@ test('Excel rows come from the database matrix as is; empty cells stay empty; us
    {kind:'project',project:'Пружаны',total:'1973259.99',own:'1503550.52',subcontract:'469709.47',cells:{s:'469709.47'}}],
   total:{total:'1973259.99',own:'1503550.52',subcontract:'469709.47',cells:{s:'469709.47'}}};
  const rows=registerSheetRows(matrix,'2026-08');
- assert.deepEqual(rows[1].values,['Объект / договор','Всего, руб.','Своими силами','Субподряд','Мегалит · №1']);
+ assert.deepEqual(rows[1].values,['Объект / договор','Генподряд всего, с НДС','Собственные силы','Субподряд всего','Мегалит · №1']);
  assert.deepEqual(rows[2].values,['Пружаны · 21 · Итого по договору',1973259.89,1503550.42,469709.47,469709.47]);
  assert.equal(rows[3].values[4],null);
  assert.equal(rows[4].values[0],'Итого по объекту Пружаны');assert.equal(rows[4].bold,true);
- assert.deepEqual(rows.at(-1).values,['Итого',1973259.99,1503550.52,469709.47,469709.47]);
+ assert.deepEqual(rows.at(-4).values,['Всего',1973259.99,1503550.52,469709.47,469709.47]);assert.match(rows.at(-2).values[0],/директор/);assert.match(rows.at(-1).values[0],/Начальник ПТО/);
  assert.equal(registerSheetRows([], '2026-08').length,2);assert.equal(matrixOf(null),emptyMatrix);
  assert.equal(escapeHtml('<img onerror="x">'),'&lt;img onerror=&quot;x&quot;&gt;');
 });

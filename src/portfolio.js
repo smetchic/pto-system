@@ -1,5 +1,6 @@
 // Портфель: итог месяца и плитки объектов (docs/portfolio.md). Суммы — из реестра базы (pto_register_matrix), здесь не складываются.
 import {escapeHtml as e,money} from './domain.js';
+import {objectColor,subsOf} from './conveyor.js';
 
 const DAY=86400000;
 // Строка реестра по объекту: итог объекта, а если договор один — строка договора.
@@ -43,7 +44,10 @@ export function c29Status(workflows,projectId,month,today,now=Date.now()){
  return {...s,deadline};
 }
 
+// Ответственный инженер объекта: выбранный в карточке объекта (engineer_id), иначе первый инженер с доступом к объекту.
 export function engineerName(data,projectId){
+ const p=(data.projects||[]).find(x=>x.id===projectId);
+ if(p?.engineer_id){const u=(data.profiles||[]).find(x=>x.id===p.engineer_id);if(u)return u.display_name;}
  const ids=(data.memberships||[]).filter(m=>m.project_id===projectId).map(m=>m.user_id);
  return (data.profiles||[]).find(p=>ids.includes(p.id)&&p.role==='engineer')?.display_name||'';
 }
@@ -52,6 +56,18 @@ const fmtShort=x=>new Date(x+'T12:00:00Z').toLocaleDateString('ru-RU',{day:'2-di
 const pill=s=>`<span class="st ${s.cls}"${s.title?` title="${e(s.title)}"`:''}>${e(s.text)}</span>`;
 const delta=d=>d===null?'':`<span class="delta ${d>=0?'up':'dn'}" title="К прошлому месяцу">${d>=0?'▲':'▼'} ${Math.abs(d)}%</span>`;
 const negHint='Собственные силы отрицательны: субподряд больше выполнения по договору';
+// Субподрядчики месяца: подали (есть комплект) из ожидаемых, без исключённых.
+export function subsFiled(data,projectIds,month){
+ let filed=0,active=0;for(const pid of projectIds)for(const s of subsOf(data,pid,month)){if(s.skip)continue;active++;if(s.workflow)filed++;}
+ return {filed,active};
+}
+// Тонкая полоса «своими силами (синий) / субподряд (зелёный)»: пока подали не все — конец штрихован и «предварительно»;
+// отрицательные свои силы — красная рамка и подпись. Общая для Портфеля и страницы объекта.
+export function splitBar({own,sub,filed,active}){
+ const o=Number(own)||0,b=Number(sub)||0,pos=Math.max(0,o)+Math.max(0,b)||1,pre=filed<active,neg=o<0;
+ return `<div class="pf-split2${neg?' neg':''}"><div class="pf-sbar${pre?' pre':''}" role="img" aria-label="Своими силами ${money(o)}, субподряд ${money(b)} руб.">${o>0?`<i class="own" style="width:${o/pos*100}%" title="Своими силами: ${money(o)} руб."></i>`:''}${b>0?`<i class="sub" style="width:${b/pos*100}%" title="Субподряд: ${money(b)} руб."></i>`:''}</div>
+ <div class="pf-slegend"><span><i class="own"></i>Своими силами <b class="${neg?'neg':''}">${money(o)}</b>${neg?' <span class="neg">отрицательные, проверьте</span>':''}</span><span><i class="sub"></i>Субподряд <b>${money(b)}</b></span><span class="muted">подали ${filed} из ${active}${pre?' · предварительно':''}</span></div></div>`;
+}
 
 export function portfolioPage({ui,data,profile,today,now=Date.now(),view}){
  const projects=data.projects||[],workflows=data.workflows||[];
@@ -60,15 +76,19 @@ export function portfolioPage({ui,data,profile,today,now=Date.now(),view}){
  const t=data.matrix?.total||{total:'0.00',own:'0.00',subcontract:'0.00'},n=projects.length;
  const count=f=>rows.filter(f).length;
  const ownCell=v=>Number(v)<0?`<span class="own neg" title="${negHint}">${money(v)}</span>`:`<span class="own">${money(v)}</span>`;
+ const totals=rows.map(r=>({p:r.p,v:Number(r.a.total)||0})).filter(x=>x.v>0).sort((a,b)=>b.v-a.v),sum=totals.reduce((t,x)=>t+x.v,0);
+ // Полоса СМР месяца по объектам: кусок в цвете объекта, подпись внутри, если кусок широкий; клик открывает объект.
+ const bar=sum?`<div class="pf-objbar" role="group" aria-label="СМР месяца по объектам">${totals.map(x=>`<button class="pf-seg" style="flex:${x.v} 1 0;--oc:${objectColor(projects,x.p.id)}" data-action="project" data-id="${e(x.p.id)}" title="${e(x.p.name)}: ${money(x.v)} руб. · ${Math.round(x.v/sum*100)} %">${x.v/sum>=0.07?`<span>${e(x.p.name)}</span><small>${money(x.v)}</small>`:''}</button>`).join('')}</div>`:'';
  const band=`<section class="pf-band" aria-label="Итог портфеля за месяц">
 <div class="pf-k"><small>СМР всего за месяц</small><b>${money(t.total)}</b>${delta(deltaPercent(t.total,data.prevMatrix?.total?.total))}</div>
 <div class="pf-k s"><small>Своими силами</small><b${Number(t.own)<0?` class="neg" title="${negHint}"`:''}>${money(t.own)}</b></div>
 <div class="pf-k s"><small>Субподряд</small><b>${money(t.subcontract)}</b></div>
-<div class="pf-counters"><span>Процентовки подписаны <b>${count(r=>r.claim.signed)} из ${n}</b></span><span>С-29 приняты <b>${count(r=>r.c29.done)} из ${n}</b></span><span>Месяц закрыт <b>${count(r=>r.period?.status==='closed')} из ${n}</b></span></div>
+<div class="pf-counters"><span>Процентовки подписаны <b>${count(r=>r.claim.signed)} из ${n}</b></span><span>С-29 приняты <b>${count(r=>r.c29.done)} из ${n}</b></span><span class="${n&&count(r=>r.period?.status==='closed')===n?'ok':''}">Месяц закрыт <b>${count(r=>r.period?.status==='closed')} из ${n}</b></span></div>
+${sum?`<div class="pf-graph">${bar}${splitBar({own:t.own,sub:t.subcontract,...subsFiled(data,projects.map(p=>p.id),ui.month)})}</div>`:''}
 </section>`;
  const tile=r=>{const {p,a,c29}=r;
   return `<button class="tile pf-tile" data-action="project" data-id="${e(p.id)}">
-<span class="pf-head"><b title="${e(p.full_name||p.name)}">${e(p.name)}</b><span class="eng">${e(r.eng)}</span></span>
+<span class="pf-head"><b title="${e(p.full_name||p.name)}"><i class="ct-dot" style="background:${objectColor(projects,p.id)}"></i>${e(p.name)}</b><span class="eng">${e(r.eng)}</span></span>
 <span class="pf-sum"><span class="amt">${money(a.total)}</span>${delta(r.d)}</span>
 <span class="pf-split">${ownCell(a.own)}<span class="muted">своими</span><span class="muted">·</span><span>${money(a.subcontract)}</span><span class="muted">субподряд</span></span>
 <span class="pf-rows">
@@ -80,14 +100,14 @@ export function portfolioPage({ui,data,profile,today,now=Date.now(),view}){
  const table=`<div class="table-wrap"><table><thead><tr><th>Объект</th><th>Инженер</th><th class="num">СМР за месяц, руб.</th><th class="num">Своими силами</th><th class="num">Субподряд</th><th>Процентовка заказчику</th><th>С-29</th></tr></thead><tbody>${rows.map(r=>`<tr><td><button class="link" data-action="project" data-id="${e(r.p.id)}">${e(r.p.name)}</button></td><td>${e(r.eng)}</td><td class="num">${money(r.a.total)} ${delta(r.d)}</td><td${Number(r.a.own)<0?` class="num neg" title="${negHint}"`:' class="num"'}>${money(r.a.own)}</td><td class="num">${money(r.a.subcontract)}</td><td>${pill(r.claim)}</td><td>${pill(r.c29)}</td></tr>`).join('')}</tbody></table></div>`;
  const toggle=`<div class="view-toggle">${[['tiles','Плитки'],['table','Таблица']].map(([id,label])=>`<button class="${view===id?'on':''}" data-action="portfolio-view" data-id="${id}" aria-pressed="${view===id}">${label}</button>`).join('')}</div>`;
  const head=`<div class="heading"><div><h1>Портфель</h1><div class="muted">Объекты и выполнение за отчётный месяц.</div></div><div class="actions">${toggle}</div></div>`;
- if(!n)return head+`<div class="empty">${profile?.role==='head'?'Пока нет объектов. Добавьте первый в разделе «Ещё → Объекты».':'Пока нет объектов.'}</div>`;
+ if(!n)return head+`<div class="empty">${profile?.role==='head'?'Пока нет объектов. Добавьте первый в разделе «Объекты».':'Пока нет объектов.'}</div>`;
  return head+band+(view==='table'?table:`<div class="pf-grid">${rows.map(tile).join('')}</div>`);
 }
 
-// «Ещё → Объекты»: список объектов; создаёт объекты только начальник ПТО.
+// «Объекты»: список объектов; строка открывает карточку объекта. Создаёт объекты только начальник ПТО.
 export function objectListPage({data,profile}){
  const add=profile?.role==='head'?`<button class="primary" data-action="new-project" data-id="">Добавить объект</button>`:'';
  const list=data.projects||[];
- return `<div class="heading"><div><h1>Объекты</h1><div class="muted">Справочник объектов. Ответственного инженера назначает начальник ПТО в разделе «Команда и права».</div></div><div class="actions">${add}</div></div>`+
- (list.length?`<div class="table-wrap"><table><thead><tr><th>Объект</th><th>Полное наименование</th><th>Адрес</th><th>Инженер</th></tr></thead><tbody>${list.map(p=>`<tr><td><button class="link" data-action="object-card" data-id="${e(p.id)}">${e(p.name)}</button></td><td>${e(p.full_name||'')}</td><td>${e(p.address||'')}</td><td>${e(engineerName(data,p.id))}</td></tr>`).join('')}</tbody></table></div>`:`<div class="empty">Пока нет объектов.</div>`);
+ return `<div class="heading"><div><h1>Объекты</h1><div class="muted">Справочник объектов. Строка открывает карточку: название, адрес, ответственный инженер и цвет.</div></div><div class="actions">${add}</div></div>`+
+ (list.length?`<div class="table-wrap"><table class="ob-list"><thead><tr><th>Объект</th><th>Полное наименование</th><th>Адрес</th><th>Инженер</th></tr></thead><tbody>${list.map(p=>`<tr class="ob-row" data-action="object-card" data-id="${e(p.id)}" tabindex="0" role="button"><td class="ct-nw"><i class="ob-dot2" style="background:${objectColor(list,p.id)}"></i><b>${e(p.name)}</b></td><td>${e(p.full_name||'')}</td><td>${e(p.address||'')}</td><td>${e(engineerName(data,p.id))}</td></tr>`).join('')}</tbody></table></div>`:`<div class="empty">Пока нет объектов.</div>`);
 }

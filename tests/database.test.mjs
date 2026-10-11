@@ -658,3 +658,41 @@ test('object card: head edits name, full name and address; duplicate name and en
  await as(users.engineer);
  await assert.rejects(command({op:'update_project',project_id:a,name:'Инженер',full_name:'x'}),/начальник ПТО/);
 });
+test('contract levels and roles: derived for new contracts, edited in the card; engineer of the object; addendum signed by scan path',async()=>{
+ await as(users.head);
+ const pid=(await command({op:'create_project',name:'Уровни'})).project_id,pid2=(await command({op:'create_project',name:'Уровни-2'})).project_id;
+ const mps=(await command({op:'create_counterparty',unp:'191426885',short_name:'МПС',full_name:'МПС полностью',roles:['general_contractor']})).counterparty_id;
+ const sub=(await command({op:'create_counterparty',unp:'191426886',short_name:'Суб',full_name:'Суб полностью',roles:['contractor']})).counterparty_id;
+ await command({op:'create_contract',project_id:pid,number:'21',counterparty_id:mps,our_role:'subcontractor',counterparty_role:'general_contractor'});
+ await command({op:'create_contract',project_id:pid,number:'21-01',counterparty_id:sub,our_role:'customer',counterparty_role:'subcontractor'});
+ await command({op:'create_contract',project_id:pid2,number:'5',counterparty_id:sub,our_role:'customer',counterparty_role:'subcontractor'});
+ const get=async(p,n)=>(await db.query('select * from pto_contract_list where project_id=$1 and number=$2',[p,n])).rows[0];
+ const top=await get(pid,'21'),s=await get(pid,'21-01'),s2=await get(pid2,'5');
+ assert.deepEqual([top.chain_level,top.our_side,top.party_side],[2,'contractor','general_contractor']);
+ assert.deepEqual([s.chain_level,s.our_side,s.party_side],[3,'contractor','subcontractor'],'на объекте есть договор с генподрядчиком');
+ assert.deepEqual([s2.chain_level,s2.our_side,s2.party_side],[2,'general_contractor','contractor'],'СУ-22 генподрядчик');
+ // Правка всего договора: уровень и роли выводят прежние роли и направление; объект меняется без документов.
+ const base={op:'update_contract',contract_id:s2.id,number:'5',project_id:pid2,counterparty_id:sub};
+ await command({...base,chain_level:'1',our_side:'',party_side:'customer',note:'справочно',checked:'false',advance_current_percent:'15'});
+ let c=await get(pid2,'5');
+ assert.deepEqual([c.chain_level,c.our_side,c.direction,c.contract_type,c.note,c.checked,c.advance_current_percent],[1,null,'outgoing','mps_customer','справочно',false,'15.00']);
+ await assert.rejects(command({...base,chain_level:'3',our_side:'',party_side:'subcontractor'}),/Роль СУ-22 не указана/);
+ await assert.rejects(command({...base,chain_level:'3',our_side:'contractor',party_side:'contractor'}),/разные роли/);
+ await command({...base,project_id:pid,number:'21-02',chain_level:'3',our_side:'contractor',party_side:'subcontractor'});
+ c=await get(pid,'21-02');assert.deepEqual([c.direction,c.contract_type,c.our_role,c.counterparty_role],['incoming','su22_sub','customer','subcontractor']);
+ assert.ok((await db.query("select 1 from pto_counterparty_roles where counterparty_id=$1 and role='subcontractor'",[sub])).rows.length);
+ await assert.rejects(command({...base,contract_id:c.id,number:'21-01',project_id:pid,chain_level:'3',our_side:'contractor',party_side:'subcontractor'}),/уже есть договор/);
+ // Допсоглашение: путь к скану — подписано, без скана — в работе.
+ const ds=(await command({op:'create_addendum',contract_id:top.id,number:'1',agreement_date:'2026-05-15',amount_after:'500.00',scan_path:''})).addendum_id;
+ assert.equal((await get(pid,'21')).signed_addenda,0);
+ await command({op:'update_addendum',addendum_id:ds,number:'1',agreement_date:'2026-05-15',amount_after:'500.00',work_end_date:'2027-01-31',scan_path:'ДОГОВОРА/Уровни/21/ДС1.pdf'});
+ c=await get(pid,'21');assert.deepEqual([c.current_amount,c.amount_addendum_number,c.signed_addenda],['500.00','1',1]);
+ await command({op:'update_addendum',addendum_id:ds,number:'1',agreement_date:'2026-05-15',amount_after:'500.00',scan_path:''});
+ assert.equal((await get(pid,'21')).signed_addenda,0,'скан убран — снова в работе');
+ // Ответственный инженер объекта получает доступ к объекту.
+ await assert.rejects(command({op:'update_project',project_id:pid2,name:'Уровни-2',full_name:'x',engineer_id:users.director}),/только инженер/);
+ await command({op:'update_project',project_id:pid2,name:'Уровни-2',full_name:'x',engineer_id:users.engineer});
+ assert.equal((await db.query('select engineer_id from pto_projects where id=$1',[pid2])).rows[0].engineer_id,users.engineer);
+ assert.ok((await db.query('select 1 from pto_memberships where project_id=$1 and user_id=$2',[pid2,users.engineer])).rows.length);
+ await command({op:'update_counterparty',counterparty_id:sub,unp:'191426886',short_name:'Суб',full_name:'Суб полностью',roles:['contractor','subcontractor']});
+});

@@ -18,13 +18,14 @@ export const actionNames={workflow_advance:'Комплект передан на
 export const emptyMatrix={columns:[],rows:[],total:{total:'0.00',own:'0.00',subcontract:'0.00',cells:{}}};
 export const matrixOf=value=>value&&!Array.isArray(value)&&Array.isArray(value.rows)?value:emptyMatrix;
 export const rowLabel=r=>r.kind==='project'?`Итого по объекту ${r.project}`:r.kind==='part'?`${r.project} · ${r.number} · ${r.part}${r.vat_rate===null||r.vat_rate===undefined?'':Number(r.vat_rate)===0?' (без НДС)':` (НДС ${Number(r.vat_rate)} %)`}`:`${r.project} · ${r.number} · Итого по договору`;
+// Подписи внизу печатной формы: директор (утверждает), начальник ПТО.
 const cellNumber=value=>value===undefined||value===null||value===''?null:Number(value);
 export function registerSheetRows(value,month){
  const m=matrixOf(value),line=r=>[cellNumber(r.total),cellNumber(r.own),cellNumber(r.subcontract),...m.columns.map(c=>cellNumber(r.cells?.[c.id]))];
  return [
-  {values:['Реестр выполнения · '+month],bold:true},
-  {values:['Объект / договор','Всего, руб.','Своими силами','Субподряд',...m.columns.map(c=>c.label)],bold:true},
+  {values:['Реестр актов С-15 · '+month],bold:true},
+  {values:['Объект / договор','Генподряд всего, с НДС','Собственные силы','Субподряд всего',...m.columns.map(c=>c.label)],bold:true},
   ...m.rows.map(r=>({values:[rowLabel(r),...line(r)],bold:r.kind==='project'})),
-  ...(m.rows.length?[{values:['Итого',...line(m.total)],bold:true}]:[])
+  ...(m.rows.length?[{values:['Всего',...line(m.total)],bold:true},{values:[]},{values:['Утверждаю: директор ____________________']},{values:['Начальник ПТО ____________________']}]:[])
  ];
 }

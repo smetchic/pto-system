@@ -35,8 +35,8 @@ test('all workspace routes render empty and populated data with escaped user con
 });
 
 test('dashboard financial bars retain accepted values while the new draft is in the conveyor',()=>{
- const ctx=fixture();let html=renderWorkspace(ctx);
- assert.match(html,/Выполнение за месяц, 100,00 руб/);
+ const ctx=fixture();ctx.ui.route='objects';let html=renderWorkspace(ctx);
+ assert.match(html,/СМР всего за месяц[^]*?100,00/);
  assert.match(html,/Своими силами 75,00, субподряд 25,00/);
  assert.doesNotMatch(html,/9[\s\u00a0]999,00/);
  ctx.ui.route='flow';html=renderWorkspace(ctx);assert.match(html,/9[\s\u00a0]999,00/);
@@ -62,11 +62,11 @@ test('conveyor: six shared columns, card opens the side panel, no step button; "
 
 test('Today lists kits awaiting PTO with the remark and the next move; transferred kits need no action',()=>{
  const ctx=fixture();let html=renderWorkspace(ctx);
- assert.match(html,/Требует действий ПТО/);assert.match(html,/Процентовка заказчику · Готовятся акты/);assert.match(html,/3 дн\./);
- assert.match(html,/замечание: Нет подписи &lt;i&gt;/);assert.match(html,/Ваш ход: передать технадзору/);
+ assert.match(html,/<h1>Сегодня<\/h1>/);assert.match(html,/Передать технадзору[^]*?СУ-22, дог\. № Д-1/);assert.match(html,/3 дн\./);
+ assert.match(html,/замечание: Нет подписи &lt;i&gt;/);
  assert.doesNotMatch(html,/У бухгалтерии/);
  Object.assign(ctx.data.workflows[0],{step_code:'accepted',actor:'none'});html=renderWorkspace(ctx);
- assert.match(html,/Нет комплектов, ожидающих действий ПТО/);
+ assert.doesNotMatch(html,/Передать технадзору/);
  assert.doesNotMatch(html,/data-action="view-as"|Бухгалтерия<\/button>/);
 });
 
@@ -91,7 +91,7 @@ test('register renders the database matrix: sub-contract columns, object subtota
  assert.match(html,/Субподрядчик &lt;b&gt;/);assert.match(html,/Мегалит · №7/);
  assert.match(html,/Итого по объекту/);
  // Итог берётся из матрицы, а не складывается в браузере (100,00 + 0,10 ≠ 999,99).
- assert.match(html,/<td>Итого<\/td><td class="num">999,99</);
+ assert.match(html,/<td>Всего<\/td><td class="num">999,99</);
 });
 
 test('register shows the operative estimate separately and marks the basis of accepted sums',()=>{
@@ -101,7 +101,7 @@ test('register shows the operative estimate separately and marks the basis of ac
  html=renderWorkspace(ctx);
  assert.match(html,/Оценка, предв\./);assert.match(html,/<td class="num muted">150,00</);
  assert.match(html,/по актам, С-3а не принята/);
- ctx.data.matrix.rows[0].basis='c3a';assert.match(renderWorkspace(ctx),/Итого по договору · по С-3а/);
+ ctx.data.matrix.rows[0].basis='c3a';assert.match(renderWorkspace(ctx),/дог\. № Д-1 · по С-3а/);
  ctx.ui.route='project';ctx.ui.projectTab='month';assert.match(renderWorkspace(ctx),/Оценка выполнения[^]*?150,00/);
 });
 
@@ -111,8 +111,8 @@ test('contracts tab shows computed current price and term and opens the contract
  ctx.data.addenda=[{id:'a2',contract_id:'contract',number:'2',status:'draft'}];
  const html=renderWorkspace(ctx);
  assert.match(html,/data-action="contract" data-id="contract"/);
- assert.match(html,/159[\s ]559,72<small>по ДС № 1 · ДС № 2 в работе/);
- assert.match(html,/Истёк · 31\.01\.2000/);
+ assert.match(html,/159[\s ]559,72<small>по ДС № 1 · <span class="ct-warn">ДС № 2 в работе/);
+ assert.match(html,/31\.01\.2000<small>срок истёк/);
  ctx.data.contracts[0].current_amount=null;assert.match(renderWorkspace(ctx),/<td class="num"><span class="muted">—<\/span>/);
 });
 

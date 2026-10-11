@@ -9,9 +9,14 @@
 .ct-table td{vertical-align:top}.ct-table td small{display:block;color:var(--mu);font-size:12px}
 .ct-nw{white-space:nowrap}
 .ct-row{cursor:pointer}.ct-row:focus-visible td{background:var(--acs)}
-.ct-grp td{background:var(--bg);font-size:12px;font-weight:600;color:var(--mu);text-transform:uppercase;letter-spacing:.04em;padding:6px 12px}
-.ct-grp span{margin-left:8px;font-weight:500;letter-spacing:0}
-.ct-table tr.ct-grp:hover td{background:var(--bg)}
+.ct-grp td{background:color-mix(in srgb,var(--ac) 9%,var(--sf));border-top:2px solid color-mix(in srgb,var(--ac) 30%,var(--ln));font-size:13px;font-weight:700;color:var(--ink);padding:7px 12px}
+.ct-grp td{position:relative}.ct-grp-n{float:right;font-weight:600;color:var(--ac)}
+.ct-table tr.ct-grp:hover td{background:color-mix(in srgb,var(--ac) 9%,var(--sf))}
+.ct-off td{color:var(--mu)}
+.ct-flag{margin:0 0 10px;font-size:13px}.ct-flag .link{margin-left:8px}
+.ct-click{cursor:pointer;border-radius:4px}.ct-click:hover{background:var(--hv)}
+.cp-auto{field-sizing:content;min-height:2.3em;max-height:40vh;resize:none;width:100%;line-height:1.4}
+.cp-chip-auto{background:var(--hv);cursor:default}
 .ct-dot{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px;vertical-align:1px}
 .ct-sub{color:var(--mu);font-size:12px;margin:3px 0 0}
 .ct-side{font-size:12px;align-self:center}
@@ -33,8 +38,8 @@
 .ct-path{display:block;word-break:break-all;color:var(--mu)}
 .ct-unchecked{display:flex;gap:12px;align-items:center;justify-content:space-between;margin:8px 0;padding:8px 10px;border:1px solid var(--ln);border-radius:6px}
 .ob-colors{display:flex;flex-wrap:wrap;gap:8px}
-.ob-color{position:relative;margin:0;cursor:pointer;flex:none}
-.ob-color input{position:absolute;opacity:0;width:1px;height:1px;margin:0}
-.ob-color i{display:block;width:28px;height:28px;border-radius:6px;border:2px solid transparent;box-shadow:inset 0 0 0 2px var(--sf)}
-.ob-color input:checked+i{border-color:var(--ink)}
-.ob-color input:focus-visible+i{outline:2px solid var(--ac);outline-offset:2px}
+.ob-sw{position:relative;margin:0;cursor:pointer;flex:none}
+.ob-sw input{position:absolute;opacity:0;width:1px;height:1px;margin:0}
+.ob-sw i{display:grid;place-items:center;width:30px;height:30px;border-radius:50%;border:2px solid transparent;box-shadow:inset 0 0 0 2px var(--sf);font-style:normal}
+.ob-sw input:checked+i{border-color:var(--ink)}.ob-sw input:checked+i::after{content:"✓";color:#fff;font-size:15px;font-weight:700}
+.ob-sw input:focus-visible+i{outline:2px solid var(--ac);outline-offset:2px}

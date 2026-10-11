@@ -10,11 +10,14 @@ import './contracts.css';
 import './conveyor.css';
 import './object.css';
 import {signingPanel} from './signing-panel.js';
-import {expectedCards} from './conveyor.js';
+import {expectedCards,subExpected} from './conveyor.js';
+import {genCumulative,genSheetRows,REGISTER_VIEWS} from './registers.js';
 const $=s=>document.querySelector(s),app=$('#app'),dialog=$('#dialog');
 const url=import.meta.env.VITE_SUPABASE_URL,key=import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const monthNow=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Minsk',year:'numeric',month:'2-digit'}).format(new Date());
 const ui={route:'today',month:monthNow,project:null,doc:null,busy:false,recovery:false,wide:false,more:false,portfolioView:'tiles',projectTab:'month',historyKind:'',flowProject:'',flowKind:'',theme:'system',textScale:100};
+// Прошлый вход — для «Изменилось с прошлого входа» в «Сегодня» (удобство одного браузера, не данные системы).
+try{ui.lastVisit=localStorage.getItem('pto-last-visit');localStorage.setItem('pto-last-visit',new Date().toISOString());}catch{}
 try{ui.wide=localStorage.getItem('pto-wide')==='true';ui.theme=localStorage.getItem('pto-theme')||'system';ui.textScale=Number(localStorage.getItem('pto-text-scale'))||100;}catch{}
 function applyTheme(){if(ui.theme==='system')delete document.documentElement.dataset.theme;else document.documentElement.dataset.theme=ui.theme;}
 // Размер текста масштабирует всю страницу, как Ctrl +; --zoom возвращает высоту окна и боковых карточек к размеру экрана.
@@ -72,6 +75,25 @@ const objectChecks=(chosen=new Set())=>data.projects.length?`<fieldset class="me
 const checkedObjects=()=>new FormData($('#modal-form')).getAll('project_ids');
 // Временный пароль для нового сотрудника: 10 символов без похожих букв и цифр.
 const tempPassword=()=>Array.from(crypto.getRandomValues(new Uint8Array(10)),b=>'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789'[b%55]).join('');
+function shiftMonth(month,n){const [y,m]=month.split('-').map(Number),d=new Date(Date.UTC(y,m-1+n,1));return d.toISOString().slice(0,7);}
+// Смена отчётного месяца: при ошибке загрузки остаётся прежний.
+async function setMonth(month){if(!/^\d{4}-\d{2}$/.test(month)||month===ui.month){ui.monthPick=false;return render();}const previous=ui.month;ui.month=month;ui.monthPick=false;ui.genCum=null;try{await load();}catch(err){ui.month=previous;render();toast(errorMessage(err));}}
+// «Подаёт в этом месяце» (вкладка «Месяц»): первая галочка сама открывает месяц объекта.
+async function subExpect(id){
+ const c=contractOf(id);let p=(data.periods||[]).find(x=>x.project_id===c.project_id);
+ if(p?.status==='closed')return toast('Месяц закрыт');
+ if(!p){await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'open_period',project_id:c.project_id,month:ui.month+'-01'}}));await load();p=(data.periods||[]).find(x=>x.project_id===c.project_id);if(!p)throw Error('Месяц не открылся');}
+ const now=subExpected(data,c,ui.month)||(data.workflows||[]).some(w=>w.template_code==='sub_claim'&&w.contract_id===id);
+ await mutate({op:'set_sub_month',period_id:p.id,contract_id:id,expected:!now});
+}
+// «С начала работ» реестра по генуслугам: реестры всех месяцев объекта до отчётного.
+async function loadGenCumulative(pid){
+ if(!pid||(ui.genCum?.pid===pid&&ui.genCum.month===ui.month))return;
+ const periods=await all('pto_periods',q=>q.eq('project_id',pid).lte('month',ui.month+'-01'));
+ const months=[...new Set(periods.map(p=>String(p.month).slice(0,10)))];
+ const [matrices,subMonths]=await Promise.all([Promise.all(months.map(m=>query(client.rpc('pto_register_matrix',{p_month:m})).catch(()=>emptyMatrix))),periods.length?all('pto_sub_month_current',q=>q.in('period_id',periods.map(p=>p.id))):[]]);
+ ui.genCum={pid,month:ui.month,value:genCumulative(pid,matrices,subMonths,periods)};render();
+}
 function prevMonth(month){const [y,m]=month.split('-').map(Number),d=new Date(Date.UTC(y,m-2,1));return d.toISOString().slice(0,7);}
 function render(){app.innerHTML=renderWorkspace({ui,data,profile});}
 function modal(title,html,drawer=false){delete dialog.dataset.dirty;dialog.classList.remove('proc-drawer','cp-drawer');dialog.classList.toggle('document-drawer',drawer);dialog.innerHTML=`<div class="row"><h2>${e(title)}</h2>${btn('Закрыть','dismiss')}</div>${html}`;if(!dialog.open)dialog.showModal();}
@@ -81,7 +103,7 @@ function periodPayload(op,extra={}){const p=currentPeriod();if(!p)throw Error('�
 // Отметки месяца (docs/month.md): пустое поле очищает значение; каждая запись — строка журнала.
 const blankNull=x=>Object.fromEntries(Object.entries(x).map(([k,v])=>[k,String(v).trim()===''?null:v]));
 const ordered=(list,cur)=>list.slice().sort(([a],[b])=>(b===String(cur??''))-(a===String(cur??'')));
-// «Все наши проверены»: ставит «ТН подписал» каждому нашему акту комплекта, у которого его ещё нет.
+// «Все акты СУ-22 проверены»: ставит «ТН подписал» каждому акту СУ-22 комплекта, у которого его ещё нет.
 async function actsAllOk(workflowId){
  const list=(data.documents||[]).filter(d=>d.workflow_id===workflowId&&['c2a','c2b'].includes(d.kind)&&(data.docMarks||[]).find(m=>m.document_id===d.id)?.tn_status!=='ok');
  if(!list.length)return toast('Все акты уже подписаны технадзором');
@@ -96,7 +118,7 @@ function subMonthForm(id){
   ${select('expected','В этом месяце',ordered([['true','Подаёт процентовку'],['false','Не подаёт']],s.expected===false?'false':'true'))}
   ${field('plan','План, их цены, руб.','number',s.plan??'',false)}
   ${select('tn_status','Технадзор',ordered([['','—'],['tn','У технадзора'],['oral','ТН устно'],['ok','ТН подписал']],s.tn_status))}
-  ${field('on_customer','На заказчика, наши цены, руб.','number',s.on_customer??'',false)}
+  ${field('on_customer','На заказчика, цены СУ-22, руб.','number',s.on_customer??'',false)}
   ${field('equipment','Оборудование по их С-3а, руб.','number',s.equipment??'',false)}
   ${field('target_offset','Зачёт целевого аванса, руб.','number',s.target_offset??'',false)}
   ${field('current_offset','Зачёт текущего аванса, руб.','number',s.current_offset??'',false)}
@@ -192,7 +214,7 @@ const c3aHint='<p class="muted">СМР с НДС за период не ввод
 // Боковая панель «Подписания» (signing-panel.js): шаг, комплект, замечания, история; команды — по формам панели.
 const wfOf=id=>data.workflows.find(w=>w.id===id)||(data.prevWorkflows||[]).find(w=>w.id===id);
 const periodOf=w=>[...data.periods,...(data.prevPeriods||[])].find(p=>p.id===w.period_id);
-const panelItem=()=>ui.panel?.kind==='wf'?wfOf(ui.panel.id):expectedCards({projects:data.projects,contracts:data.contracts,workflows:data.workflows,skips:data.skips||[]},ui.month).find(x=>x.key===ui.panel?.id);
+const panelItem=()=>ui.panel?.kind==='wf'?wfOf(ui.panel.id):expectedCards(data,ui.month).find(x=>x.key===ui.panel?.id);
 async function openPanel(kind,id,mode=''){
  ui.panel={kind,id,mode};const x=panelItem();if(!x){ui.panel=null;if(dialog.open)dialog.close();throw Error(kind==='wf'?'Комплект не найден':'Карточка уже не ожидает действий');}
  let events=[],files=[];
@@ -243,10 +265,10 @@ const todayKey=()=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Minsk',year
 const contractOf=id=>{const c=data.contracts.find(x=>x.id===id);if(!c)throw Error('Договор не найден');return c;};
 function contractModal(id,editing=false){
  const c=contractOf(id),canEdit=editor(c.project_id);
- contractDrawer(contractCard({data,contract:c,canEdit,editing,today:todayKey()}),'contract-form',canEdit&&editing?async form=>{
+ contractDrawer(contractCard({data,contract:c,canEdit,editing,today:todayKey(),profile}),'contract-form',canEdit&&editing?async form=>{
   await mutate({op:'update_contract',...Object.fromEntries(form)});contractModal(id);}:null);
 }
-// Карточка объекта («Ещё → Объекты»): боковая панель, правит начальник ПТО.
+// Карточка объекта (раздел «Объекты»): боковая панель, правит начальник ПТО.
 function objectModal(id,editing=false){
  const p=data.projects.find(x=>x.id===id);if(!p)throw Error('Объект не найден');
  const canEdit=['head','admin'].includes(profile?.role);
@@ -277,10 +299,16 @@ function newContract(){
   const c=data.contracts.find(x=>x.project_id===payload.project_id&&x.number===String(payload.number).trim()&&x.our_role===payload.our_role);
   if(c)contractModal(c.id,true);else dialog.close();});
 }
+// Допсоглашение: новое и правка в одной форме; путь к скану указан — подписано (база ставит статус сама).
 function newAddendum(id){
  const c=contractOf(id);
  contractDrawer(addendumCard({data,contract:c}),'addendum-form',async form=>{
   await mutate({op:'create_addendum',...Object.fromEntries(form)});contractModal(id);});
+}
+function editAddendum(id){
+ const a=(data.addenda||[]).find(x=>x.id===id);if(!a)throw Error('Допсоглашение не найдено');
+ contractDrawer(addendumCard({data,contract:contractOf(a.contract_id),addendum:a}),'addendum-form',async form=>{
+  await mutate({op:'update_addendum',...Object.fromEntries(form)});contractModal(a.contract_id);});
 }
 function partForm(c,p){
  contractDrawer(partCard({data,contract:c,part:p}),'part-form',async form=>{
@@ -304,10 +332,22 @@ async function action(name,id){
  if(name==='dismiss')return dialog.close();
  if(name==='logout'){++loadId;data={};profile=null;await client.auth.signOut();session=null;return login();}
  if(name==='refresh')return load();
- if(name==='nav'){ui.route=id;ui.more=false;return render();}
+ if(name==='nav'){ui.route=id;ui.more=false;ui.monthPick=false;render();if(id==='register'&&ui.registerView==='gen')return loadGenCumulative(document.querySelector('#gen-project')?.value);return;}
  if(name==='more'){ui.more=!ui.more;return render();}
  if(name==='wide'){ui.wide=!ui.wide;try{localStorage.setItem('pto-wide',String(ui.wide));}catch{}return render();}
  if(name==='party-letter'){ui.partyLetter=id||'';return render();}
+ if(name==='party-role'){ui.partyRole=id||'';ui.partyLetter='';return render();}
+ if(name==='party-flag'){ui.partyFlag=id||'';return render();}
+ if(name==='contract-flag'){ui.contractFlag=id||'';return render();}
+ if(name==='month-step')return setMonth(shiftMonth(ui.month,Number(id)||0));
+ if(name==='month-pick'){ui.monthPick=id==='close'?false:!ui.monthPick;ui.pickYear=Number(ui.month.slice(0,4));return render();}
+ if(name==='month-year'){ui.pickYear=Number(id);return render();}
+ if(name==='month-set')return setMonth(id);
+ if(name==='today-scope'){ui.todayScope=id;return render();}
+ if(name==='today-filter'){ui.todayFilter=id;return render();}
+ if(name==='today-link'){if(id==='mns'){ui.route='parties';ui.partyFlag='mns';ui.partyRole='';ui.partyLetter='';}else{ui.route='contracts';ui.contractFlag=id;ui.contractKind='all';ui.contractObject='';}return render();}
+ if(name==='register-view'){ui.registerView=REGISTER_VIEWS.some(([v])=>v===id)?id:'c15';render();if(ui.registerView==='gen')return loadGenCumulative(document.querySelector('#gen-project')?.value);return;}
+ if(name==='sub-expect')return subExpect(id);
  if(name==='portfolio-view'){ui.portfolioView=id;return render();}
  if(name==='project-tab'){ui.projectTab=id;if(ui.route!=='project')ui.route='project';return render();}
  if(name==='history-kind'){ui.historyKind=id||'';return render();}
@@ -353,7 +393,7 @@ async function action(name,id){
  if(name==='new-part')return partForm(contractOf(id),null);
  if(name==='edit-part'){const p=(data.contractParts||[]).find(x=>x.id===id);if(!p)throw Error('Часть не найдена');return partForm(contractOf(p.contract_id),p);}
  if(name==='sent-customer')return sentForm();
- if(name==='sign-addendum')return addendumStatus(id,'signed');
+ if(name==='edit-addendum')return editAddendum(id);
  if(name==='cancel-addendum')return addendumStatus(id,'cancelled');
  if(name==='contract-kind'){ui.contractKind=id;return render();}
  if(name==='contract-state'){ui.contractState=id;return render();}
@@ -389,8 +429,13 @@ async function action(name,id){
   await query(client.auth.updateUser({password:x.password}));toast('Пароль изменён');});
  if(name==='download'){const r=await query(client.storage.from('pto-documents').createSignedUrl(id,60,{download:true}));const a=document.createElement('a');a.href=r.signedUrl;a.target='_blank';a.rel='noopener';a.click();return;}
  if(name==='print')return window.print();
- if(name==='export')return exportXlsx();
+ if(name==='export')return id==='gen'?exportGen():exportXlsx();
 }
+// Excel реестра по генуслугам — в том же виде, что на экране.
+async function exportGen(){const pid=document.querySelector('#gen-project')?.value;if(!pid)return;const {default:ExcelJS}=await import('exceljs');const book=new ExcelJS.Workbook();book.creator='СУ-22 · ПТО';const sheet=book.addWorksheet('Генуслуги',{views:[{state:'frozen',xSplit:1,ySplit:3}]});
+ for(const line of genSheetRows(data,pid,ui.month,ui.genCum?.pid===pid?ui.genCum.value:null)){const row=sheet.addRow(line.values);if(line.bold)row.font={bold:true};}
+ sheet.columns.forEach((c,i)=>{c.width=i?17:44;if(i)c.numFmt='#,##0.00;[Red]-#,##0.00';});
+ const buffer=await book.xlsx.writeBuffer();const link=document.createElement('a');link.href=URL.createObjectURL(new Blob([buffer],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));link.download=`Генуслуги_${(data.projects.find(p=>p.id===pid)?.name||'объект').replace(/[^\wА-Яа-яЁё-]+/g,'_')}_${ui.month}.xlsx`;link.click();setTimeout(()=>URL.revokeObjectURL(link.href),10000);}
 async function exportXlsx(){const {default:ExcelJS}=await import('exceljs');const book=new ExcelJS.Workbook();book.creator='СУ-22 · ПТО';const sheet=book.addWorksheet('Реестр',{views:[{state:'frozen',xSplit:1,ySplit:2}]});const lines=registerSheetRows(data.matrix,ui.month);for(const line of lines){const row=sheet.addRow(line.values);if(line.bold)row.font={bold:true};}const width=lines[1].values.length;sheet.columns.forEach((c,i)=>{c.width=i?22:58;if(i)c.numFmt='#,##0.00;[Red]-#,##0.00';});sheet.autoFilter={from:{row:2,column:1},to:{row:2,column:width}};const buffer=await book.xlsx.writeBuffer();const link=document.createElement('a');link.href=URL.createObjectURL(new Blob([buffer],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));link.download=`Реестр_ПТО_${ui.month}.xlsx`;link.click();setTimeout(()=>URL.revokeObjectURL(link.href),10000);}
 function login(){app.innerHTML=`<section class="login"><div class="mark">П</div><div class="eyebrow">СУ-22 · единая система ПТО</div><h1>${ui.recovery?'Новый пароль':'Вход в рабочее пространство'}</h1><p class="muted">Объекты, документы и выполнение за месяц.</p><form id="login-form">${ui.recovery?'':field('email','Электронная почта','email')}${field('password','Пароль','password')}<p class="error" id="login-error" role="alert"></p><button class="primary">${ui.recovery?'Сохранить пароль':'Войти'}</button></form><p class="muted">Доступ выдаёт администратор системы.</p></section>`;$('#login-form').onsubmit=async ev=>{ev.preventDefault();const button=ev.submitter;button.disabled=true;try{const f=Object.fromEntries(new FormData(ev.target));if(ui.recovery){await query(client.auth.updateUser({password:f.password}));ui.recovery=false;toast('Пароль сохранён');await load();}else{const result=await query(client.auth.signInWithPassword(f));session=result.session;await load();}}catch(err){$('#login-error')&&($('#login-error').textContent=errorMessage(err));}finally{button.disabled=false;}};}
 // Поиск по справочнику контрагентов: строки скрываются на месте, без перерисовки страницы.
@@ -411,7 +456,7 @@ dialog.addEventListener('click',ev=>{if(ev.target!==dialog||!/drawer/.test(dialo
 document.addEventListener('click',async ev=>{const b=ev.target.closest('[data-action]');if(!b||b.disabled||ui.busy)return;ui.busy=true;try{await action(b.dataset.action,b.dataset.id);}catch(err){toast(errorMessage(err));}finally{ui.busy=false;}});
 // Карточки конвейера — не кнопки: открываются клавишами Enter и пробел.
 document.addEventListener('keydown',ev=>{const card=ev.target.closest?.('[role="button"][data-action]');if(card&&ev.target===card&&(ev.key==='Enter'||ev.key===' ')){ev.preventDefault();card.click();}});
-document.addEventListener('change',async ev=>{if(ev.target.id==='contract-object'){ui.contractObject=ev.target.value;return render();}if(ev.target.id==='party-project'){ui.partyProject=ev.target.value;ui.partyLetter='';return render();}if(ev.target.id==='jump'&&ev.target.value){const value=ev.target.value;return action(value.startsWith('project:')?'project':'nav',value.split(':')[1]);}if(ev.target.id==='month'&&ev.target.value){const previous=ui.month;ui.month=ev.target.value;try{await load();}catch(err){ui.month=previous;ev.target.value=previous;toast(errorMessage(err));}}});
+document.addEventListener('change',async ev=>{if(ev.target.id==='contract-object'){ui.contractObject=ev.target.value;return render();}if(ev.target.id==='party-project'){ui.partyProject=ev.target.value;ui.partyLetter='';return render();}if(ev.target.id==='jump'&&ev.target.value){const value=ev.target.value;return action(value.startsWith('project:')?'project':'nav',value.split(':')[1]);}if(ev.target.id==='gen-project'){ui.genProject=ev.target.value;render();return loadGenCumulative(ui.genProject).catch(err=>toast(errorMessage(err)));}});
 if(!url||!key||!key.startsWith('sb_publishable_'))app.innerHTML=`<section class="login"><div class="mark">П</div><h1>Подключение ещё не настроено</h1><p>Для запуска администратор должен подключить базу системы ПТО и опубликовать сборку.</p></section>`;
 else{
  client=createClient(url,key);
