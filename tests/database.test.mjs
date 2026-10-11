@@ -701,3 +701,24 @@ test('contract levels and roles: derived for new contracts, edited in the card; 
  assert.ok((await db.query('select 1 from pto_memberships where project_id=$1 and user_id=$2',[pid2,users.engineer])).rows.length);
  await command({op:'update_counterparty',counterparty_id:sub,unp:'191426886',short_name:'Суб',full_name:'Суб полностью',roles:['contractor','subcontractor']});
 });
+
+test('delete contract: only the head, only without documents or month records; addenda go with it, the journal keeps a snapshot',async()=>{
+ await as(users.head);
+ const pid=(await command({op:'create_project',name:'Удаление'})).project_id;
+ await command({op:'member',project_id:pid,user_id:users.engineer});
+ await command({op:'create_contract',project_id:pid,number:'б/н',party:'.docx',direction:'incoming'});
+ await command({op:'create_contract',project_id:pid,number:'7',party:'Живой',direction:'incoming'});
+ const id=async n=>(await db.query('select id from pto_contracts where project_id=$1 and number=$2',[pid,n])).rows[0]?.id;
+ const junk=await id('б/н'),live=await id('7');
+ await command({op:'create_addendum',contract_id:junk,number:'1',agreement_date:'2026-05-01',scan_path:''});
+ const per=(await command({op:'open_period',project_id:pid,month:'2026-11-01'})).period_id;
+ await command({op:'set_sub_month',period_id:per,contract_id:live,expected:true});
+ await as(users.engineer);await assert.rejects(command({op:'delete_contract',contract_id:junk}),/начальник ПТО/);
+ await as(users.head);
+ await assert.rejects(command({op:'delete_contract',contract_id:live}),/удалить нельзя/);
+ const r=await command({op:'delete_contract',contract_id:junk});assert.equal(r.deleted,true);
+ assert.equal(await id('б/н'),undefined);
+ assert.equal((await db.query('select count(*)::int n from pto_contract_addenda where contract_id=$1',[junk])).rows[0].n,0);
+ const ev=(await db.query("select detail from pto_events where action='delete_contract' and project_id=$1",[pid])).rows[0].detail;
+ assert.deepEqual([ev.number,ev.contract.party_text,ev.contract.addenda.length],['б/н','.docx',1]);
+});

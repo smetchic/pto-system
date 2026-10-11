@@ -170,7 +170,7 @@ export function contractCard({data,contract:c,canEdit,editing=false,today,profil
   ${partsBlock(data,c,canEdit)}
   <section class="cp-block"><div class="cp-block-head"><h3>Допсоглашения <span class="muted">${addenda.length||''}</span></h3>${canEdit?`<button type="button" class="cp-small" data-action="new-addendum" data-id="${e(c.id)}">+ Допсоглашение</button>`:''}</div>${addenda.length?addenda.map(a=>addendumLine(a,canEdit)).join(''):'<div class="cp-no-data">Допсоглашений нет.</div>'}</section>
  </div>
- <div class="cp-drawer-foot"><span class="cp-foot-note">${c.created_at?'Внесён '+e(day(c.created_at)):''}</span>${canEdit?`<button class="primary" type="button" data-action="edit-contract" data-id="${e(c.id)}">Изменить</button>`:''}</div></form>`;
+ <div class="cp-drawer-foot"><span class="cp-foot-note">${c.created_at?'Внесён '+e(day(c.created_at)):''}</span>${canEdit&&profile?.role==='head'&&!c.has_documents?`<button class="cp-danger" type="button" data-action="delete-contract" data-id="${e(c.id)}" title="Для ошибочных записей: договор и его допсоглашения удаляются, в журнале остаётся запись">Удалить</button>`:''}${canEdit?`<button class="primary" type="button" data-action="edit-contract" data-id="${e(c.id)}">Изменить</button>`:''}</div></form>`;
 }
 
 // Новый договор: объект, сторона из справочника контрагентов, роли сторон. Цену и срок вносят потом в карточке.
