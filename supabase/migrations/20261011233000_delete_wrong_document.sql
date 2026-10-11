@@ -53,7 +53,6 @@ begin
 
     select * into d from public.pto_documents where id=p_document for update;
     if not found then raise exception 'Документ не найден'; end if;
-    if d.kind not in ('c2a','c2b','c3a') then raise exception 'Удалять этой командой можно только акт С-2а/С-2б или справку С-3а'; end if;
 
     select * into per from public.pto_periods where id=d.period_id for update;
     if per.status='closed' then raise exception 'Отчётный месяц закрыт. Сначала откройте месяц повторно'; end if;
