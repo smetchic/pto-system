@@ -6,7 +6,10 @@ import { randomUUID } from 'node:crypto';
 let db, project, otherProject, period, contract, doc, summary, materials;
 const users={head:randomUUID(),engineer:randomUUID(),outsider:randomUUID(),director:randomUUID(),second:randomUUID(),inactive:randomUUID()};
 async function as(user) { await db.exec('reset role'); await db.query("select set_config('request.jwt.claim.sub',$1,false)",[user]); await db.exec('set role authenticated'); }
-async function command(payload,request=randomUUID()){const r=await db.query('select public.pto_command($1,$2::jsonb) result',[request,JSON.stringify(payload)]);return r.rows[0].result;}
+// Часы PGlite идут с точностью до миллисекунды: без паузы две команды подряд получают одно время created_at,
+// и «последняя запись» (журналы отметок только на добавление) выбирается случайно. В Postgres время в микросекундах.
+let lastCommand=0;
+async function command(payload,request=randomUUID()){while(Date.now()<=lastCommand)await new Promise(r=>setTimeout(r,1));try{const r=await db.query('select public.pto_command($1,$2::jsonb) result',[request,JSON.stringify(payload)]);return r.rows[0].result;}finally{lastCommand=Date.now();}}
 async function rev(){return (await db.query('select revision from pto_periods where id=$1',[period])).rows[0].revision;}
 async function run(op,extra={}){return command({op,period_id:period,expected_revision:await rev(),...extra});}
 async function create(kind,number,amount='100.00'){return (await run('create_document',{contract_id:contract,kind,number,amount})).document_id;}
