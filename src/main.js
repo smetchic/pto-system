@@ -1,6 +1,7 @@
 import {renderWorkspace} from './views.js';
 import {createClient} from '@supabase/supabase-js';
-import {escapeHtml as e,money,isDone,canWrite,kindNames,roleNames,actionNames,emptyMatrix,registerSheetRows} from './domain.js';
+import {escapeHtml as e,money,isDone,canWrite,kindNames,roleNames,actionNames,emptyMatrix,registerSheetRows,moneyText,moneyLive,plainMoney,parseMoney,vatInfo} from './domain.js';
+import {nativePick,pickNative,forgetRoot,folderPaths,pickListHtml} from './folder-pick.js';
 import {contractCard,newContractCard,newContractPayload,addendumCard,addendumStatusCard,partCard,partsOf,vatLabel,objectCard,memberCard} from './contracts.js';
 import {parseContractsFile,previewContracts,previewHtml} from './contracts-import.js';
 import {partyCard,contactCard,contactPayload,partyPayload,parseMnsXml,mnsPreview,mnsPreviewHtml} from './parties.js';
@@ -29,7 +30,10 @@ let client,session,profile,data={},loadId=0;
 const btn=(text,action,id='',primary=false)=>`<button ${primary?'class="primary"':''} data-action="${action}" data-id="${e(id)}">${e(text)}</button>`;
 const badge=(text,good=false)=>`<span class="badge ${good?'good':''}">${e(text)}</span>`;
 const empty=text=>`<div class="empty">${e(text)}</div>`;
-const field=(name,label,type='text',value='',required=true)=>`<label>${e(label)}<input name="${name}" type="${type}" value="${e(value)}" ${required?'required':''} ${type==='number'?'step="0.01" min="0"':''}></label>`;
+// Поле суммы (type 'number') — текст с разделителем тысяч, как в карточках договора (domain.js moneyText).
+const field=(name,label,type='text',value='',required=true)=>type==='number'
+ ?`<label>${e(label)}<input name="${name}" type="text" inputmode="decimal" data-money pattern="\\s*-?[0-9 \\u00a0]*([.,][0-9]{0,2})?\\s*" title="Сумма, например 1 234 567,89" value="${e(moneyText(value))}" ${required?'required':''} autocomplete="off"></label>`
+ :`<label>${e(label)}<input name="${name}" type="${type}" value="${e(value)}" ${required?'required':''}></label>`;
 const select=(name,label,options)=>`<label>${e(label)}<select name="${name}" required>${options.map(([id,title])=>`<option value="${e(id)}">${e(title)}</option>`).join('')}</select></label>`;
 const note=(name,label,value='')=>`<label>${e(label)}<textarea name="${name}" required>${e(value)}</textarea></label>`;
 const fmtDate=x=>x?new Date(x).toLocaleString('ru-RU',{timeZone:'Europe/Minsk'}):'';
@@ -97,8 +101,13 @@ async function loadGenCumulative(pid){
 }
 function prevMonth(month){const [y,m]=month.split('-').map(Number),d=new Date(Date.UTC(y,m-2,1));return d.toISOString().slice(0,7);}
 function render(){app.innerHTML=renderWorkspace({ui,data,profile});}
-function modal(title,html,drawer=false){delete dialog.dataset.dirty;dialog.classList.remove('proc-drawer','cp-drawer');dialog.classList.toggle('document-drawer',drawer);dialog.innerHTML=`<div class="row"><h2>${e(title)}</h2>${btn('Закрыть','dismiss')}</div>${html}`;if(!dialog.open)dialog.showModal();}
-function form(title,fields,submit){modal(title,`<form id="modal-form">${fields}<p id="form-error" class="error" role="alert"></p><div class="actions"><button class="primary" type="submit">Сохранить</button></div></form>`);$('#modal-form').onsubmit=async ev=>{ev.preventDefault();const button=ev.submitter;button.disabled=true;try{await submit(Object.fromEntries(new FormData(ev.target)));dialog.close();}catch(err){$('#form-error').textContent=errorMessage(err);}finally{button.disabled=false;}};}
+// Все окна — боковая панель одной ширины, «Закрыть ×» вверху слева (решение пользователя: единый стиль, без окон по центру).
+const drawerHead=title=>`<div class="cp-drawer-head"><button type="button" class="cp-drawer-close" data-action="dismiss">Закрыть ×</button><h2>${e(title)}</h2></div>`;
+function modal(title,html){delete dialog.dataset.dirty;dialog.className='cp-drawer';dialog.innerHTML=`<div class="cp-drawer-shell ob">${drawerHead(title)}<div class="cp-drawer-content md-body">${html}</div></div>`;if(!dialog.open)dialog.showModal();}
+function form(title,fields,submit){delete dialog.dataset.dirty;dialog.className='cp-drawer';
+ dialog.innerHTML=`<form id="modal-form" class="cp-drawer-shell ob" autocomplete="off" data-editing>${drawerHead(title)}<div class="cp-drawer-content md-body">${fields}</div><div class="cp-drawer-foot"><p id="form-error" class="error" role="alert"></p><button type="button" data-action="dismiss">Отмена</button><button class="primary" type="submit">Сохранить</button></div></form>`;
+ if(!dialog.open)dialog.showModal();
+ $('#modal-form').onsubmit=async ev=>{ev.preventDefault();const button=ev.submitter;button.disabled=true;try{await submit(Object.fromEntries(new FormData(ev.target)));dialog.close();}catch(err){$('#form-error').textContent=errorMessage(err);}finally{button.disabled=false;}};}
 async function mutate(payload){const result=await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload}));await load();toast('Сохранено');return result;}
 function periodPayload(op,extra={}){const p=currentPeriod();if(!p)throw Error('Откройте месяц');return {op,period_id:p.id,expected_revision:p.revision,...extra};}
 // Отметки месяца (docs/month.md): пустое поле очищает значение; каждая запись — строка журнала.
@@ -313,11 +322,16 @@ async function applyExcelImport(form){
  ui.excel=null;await load();
  contractDrawer(importResult({created:created.length,failed,moved,step:(data.steps||[]).find(s=>s.code===step)?.label||step}));
 }
+// Ставка НДС не вводится: считается по сумме и НДС и сохраняется для реестра и подписей частей (domain.js vatInfo).
+const rateOf=(total,vat)=>{const r=vatInfo(total,vat);return r?String(r.rate):'';};
 const contractOf=id=>{const c=data.contracts.find(x=>x.id===id);if(!c)throw Error('Договор не найден');return c;};
 function contractModal(id,editing=false){
  const c=contractOf(id),canEdit=editor(c.project_id);
  contractDrawer(contractCard({data,contract:c,canEdit,editing,today:todayKey(),profile}),'contract-form',canEdit&&editing?async form=>{
-  await mutate({op:'update_contract',...Object.fromEntries(form)});contractModal(id);}:null);
+  const {files,...x}=Object.fromEntries(form),paths=String(files||'').split('\n').map(t=>t.trim()).filter(Boolean);
+  await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'update_contract',...x,vat_rate:rateOf(x.initial_amount,x.vat_amount)}}));
+  if(paths.join('\n')!==(c.files||[]).map(f=>f.path).join('\n'))await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'set_contract_files',contract_id:id,files:paths}}));
+  await load();toast('Сохранено');contractModal(id);}:null);
 }
 // Карточка объекта (раздел «Объекты»): боковая панель, правит начальник ПТО.
 function objectModal(id,editing=false){
@@ -354,17 +368,17 @@ function newContract(){
 function newAddendum(id){
  const c=contractOf(id);
  contractDrawer(addendumCard({data,contract:c}),'addendum-form',async form=>{
-  await mutate({op:'create_addendum',...Object.fromEntries(form)});contractModal(id);});
+  const x=Object.fromEntries(form);await mutate({op:'create_addendum',...x,vat_rate:rateOf(x.amount_after,x.vat_amount)});contractModal(id);});
 }
 function editAddendum(id){
  const a=(data.addenda||[]).find(x=>x.id===id);if(!a)throw Error('Допсоглашение не найдено');
  contractDrawer(addendumCard({data,contract:contractOf(a.contract_id),addendum:a}),'addendum-form',async form=>{
-  await mutate({op:'update_addendum',...Object.fromEntries(form)});contractModal(a.contract_id);});
+  const x=Object.fromEntries(form);await mutate({op:'update_addendum',...x,vat_rate:rateOf(x.amount_after,x.vat_amount)});contractModal(a.contract_id);});
 }
 function partForm(c,p){
  contractDrawer(partCard({data,contract:c,part:p}),'part-form',async form=>{
   const x=Object.fromEntries(form);if('active' in x)x.active=x.active==='true';
-  await mutate({op:'set_contract_part',...x,vat_rate:x.vat_rate?.trim()||null,amount:x.amount?.trim()||null});contractModal(c.id);});
+  await mutate({op:'set_contract_part',...x,vat_rate:rateOf(x.amount,x.vat_amount),amount:x.amount?.trim()||null,vat_amount:x.vat_amount?.trim()||null});contractModal(c.id);});
 }
 // «Отправлено заказчику» (шаг «На проверке»): дата; повторная отправка — с причиной.
 function sentForm(){
@@ -420,7 +434,7 @@ async function action(name,id){
  const head=select('contract_id','Договор',contracts.map(c=>[c.id,c.number+' · '+c.party]));
  if(name==='new-c3a')return form('Справка С-3а',head+field('number','Номер')+c3aHint+c3aFields()+field('due_date','Срок','date','',false)+note('note','Содержание / основание').replace(' required',''),x=>mutate(periodPayload('create_document',{...x,kind:'c3a'})));
  if(name==='new-c29')return form('Отчёт С-29',head+field('number','Номер')+field('due_date','Срок','date','',false)+note('note','Содержание / основание').replace(' required',''),x=>mutate(periodPayload('create_document',{...x,kind:'c29'})));
- return form('Новый акт',head+select('kind','Форма',[['c2a','С-2а'],['c2b','С-2б']])+field('number','Номер')+field('amount','Сумма акта с НДС, руб.','number','0')+field('due_date','Срок','date','',false)+note('note','Содержание / основание'),x=>mutate(periodPayload('create_document',x)));
+ return form('Новый акт',head+select('kind','Форма',[['c2a','С-2а'],['c2b','С-2б']])+field('number','Номер')+field('amount','Сумма акта с НДС, руб.','number','0')+`<label class="md-check"><input type="checkbox" name="correction" value="true"> Корректировка: сумма может быть ноль или меньше</label>`+field('corrects','Что исправляет (например, акт №1 за июнь 2026)','text','',false)+field('due_date','Срок','date','',false)+note('note','Содержание / основание'),x=>mutate(periodPayload('create_document',x)));
  }
  if(name==='estimate'){
  const contracts=data.contracts.filter(c=>c.project_id===ui.project&&c.direction==='outgoing');if(!contracts.length)return toast('Сначала добавьте договор с заказчиком.');
@@ -430,6 +444,9 @@ async function action(name,id){
  if(name==='mns-xml')return $('#mns-xml')?.click();
  if(name==='contracts-json')return $('#contracts-json')?.click();
  if(name==='excel-acts')return $('#excel-acts')?.click();
+ if(name==='pick-file')return pickFile(id);
+ if(name==='pick-path')return setPicked(id);
+ if(name==='pick-folder'){if(nativePick()){await forgetRoot();return pickFile(pickTarget?.field);}folderList=null;dialog.querySelector('.fp-box')?.remove();return folderInput().click();}
  if(name==='ci-apply')return applyContractsImport();
  if(name==='contract-checked'){await mutate({op:'set_contract_checked',contract_id:id,checked:true});return contractModal(id);}
  if(name==='party'||name==='new-party')return partyModal(name==='party'?id:null);
@@ -498,6 +515,43 @@ document.addEventListener('change',async ev=>{if(ev.target.id==='excel-acts'&&ev
  if(ev.target.id!=='mns-xml'||!ev.target.files.length)return;try{await importMns([...ev.target.files]);}catch(err){toast(errorMessage(err));}finally{ev.target.value='';}});
 document.addEventListener('input',ev=>{if(!['party-search','contract-search'].includes(ev.target.id))return;const s=ev.target.value.trim().toLowerCase();if(ev.target.id==='contract-search')ui.contractQuery=s;let shown=0;for(const tr of document.querySelectorAll('tr[data-search]')){tr.hidden=!!s&&!tr.dataset.search.includes(s);if(!tr.hidden)shown++;}for(const g of document.querySelectorAll('tr.ct-grp')){let n=g.nextElementSibling,any=false;while(n&&!n.classList.contains('ct-grp')){if(n.dataset.search!==undefined&&!n.hidden)any=true;n=n.nextElementSibling;}g.hidden=!any;}const none=$('#party-empty')||$('#contract-empty');if(none)none.hidden=shown>0;});
 // Боковая карточка на просмотре закрывается кликом мимо неё. При правке (форма с data-editing или уже что-то введено) — нет, чтобы не потерять ввод.
+// Поля сумм: разделитель тысяч при вводе, полный вид после ввода; в обработчики форм значения уходят без пробелов, с точкой.
+function liveMoney(el){const pos=el.selectionStart??el.value.length,before=el.value.slice(0,pos).replace(/[\s ]/g,'').length,next=moneyLive(el.value);if(next===el.value)return;el.value=next;let n=0,i=0;while(i<next.length&&n<before){if(!/\s/.test(next[i]))n++;i++;}el.setSelectionRange?.(i,i);}
+// Посчитанная ставка НДС рядом с полем НДС и сверка «части = итог» (карточки договора, ДС, части договора).
+function refreshVat(root=dialog){
+ const val=n=>root.querySelector(`[name="${n}"]`)?.value;
+ root.querySelectorAll('[data-rate-of]').forEach(el=>{const r=vatInfo(val(el.dataset.rateOf),val(el.dataset.rateVat));el.textContent=r?r.text:'';el.classList.toggle('bad',!!r&&!r.ok);el.title=r?(r.ok?'Ставка посчитана по сумме и НДС':'НДС не равен 20 % от суммы: проверьте'):'';});
+ root.querySelectorAll('[data-sum-check]').forEach(el=>{const bad=el.dataset.sumCheck.split(';').map(pair=>{const [t,list]=pair.split(':'),total=parseMoney(val(t)),parts=list.split(',').map(n=>parseMoney(val(n))).filter(x=>x!==null);
+  return total!==null&&parts.length&&Math.abs(parts.reduce((a,b)=>a+b,0)-total)>0.01?{t,sum:parts.reduce((a,b)=>a+b,0),total}:null;}).filter(Boolean);
+  el.innerHTML=bad.map(b=>`<span class="cp-rate bad">${b.t.includes('vat')?'НДС частей':'СМР + ПНР + оборудование'} ${money(b.sum)} не равно ${b.t.includes('vat')?'НДС договора':'цене'} ${money(b.total)}</span>`).join(' ');});
+}
+new MutationObserver(()=>refreshVat()).observe(dialog,{childList:true});
+document.addEventListener('input',ev=>{const t=ev.target;if(t.matches?.('input[data-money]'))liveMoney(t);if(t.closest?.('dialog'))refreshVat();if(t.matches?.('.fp-q'))showPickList(t.value);});
+document.addEventListener('focusout',ev=>{const t=ev.target;if(t.matches?.('input[data-money]'))t.value=moneyText(t.value);});
+document.addEventListener('submit',ev=>{const list=[...ev.target.querySelectorAll('input[data-money]')];if(!list.length)return;
+ for(const i of list)i.value=plainMoney(i.value);setTimeout(()=>list.forEach(i=>{if(i.isConnected)i.value=moneyText(i.value);}),0);},true);
+// «Выбрать файл…» (folder-pick.js): путь от папки ДОГОВОРА в поле карточки. Chrome/Edge — окно выбора в папке договора;
+// другие браузеры — папку выбирают один раз за сеанс, файл берут из списка с поиском.
+let pickTarget=null,folderList=null;
+function folderInput(){let i=$('#folder-pick');if(!i){i=document.createElement('input');i.type='file';i.id='folder-pick';i.hidden=true;i.webkitdirectory=true;i.multiple=true;document.body.append(i);
+ i.addEventListener('change',()=>{if(i.files.length){folderList=folderPaths(i.files);showPickList('');}i.value='';});}return i;}
+function setPicked(path){
+ const el=pickTarget&&dialog.querySelector(`[name="${pickTarget.field}"]`);if(!el)return;
+ if(el.tagName==='TEXTAREA'){const lines=el.value.split('\n').map(x=>x.trim()).filter(Boolean);if(!lines.includes(path))lines.push(path);el.value=lines.join('\n');}else el.value=path;
+ el.dispatchEvent(new Event('input',{bubbles:true}));dialog.querySelector('.fp-box')?.remove();
+}
+function showPickList(q){
+ const b=pickTarget&&dialog.querySelector(`[data-action="pick-file"][data-id="${pickTarget.field}"]`);if(!b||!folderList)return;
+ const box=dialog.querySelector('.fp-box'),html=pickListHtml(folderList,pickTarget.base,q);
+ if(box){box.querySelector('.fp-list').outerHTML=new DOMParser().parseFromString(html,'text/html').querySelector('.fp-list').outerHTML;}
+ else{b.insertAdjacentHTML('afterend',html);dialog.querySelector('.fp-q')?.focus();}
+}
+async function pickFile(field){
+ const b=dialog.querySelector(`[data-action="pick-file"][data-id="${field}"]`);pickTarget={field,base:b?.dataset.base||''};
+ if(nativePick()){try{setPicked(await pickNative(pickTarget.base));}catch(err){if(err?.name!=='AbortError')throw err;}return;}
+ if(folderList)return showPickList('');
+ toast('Выберите папку ДОГОВОРА: файлы не загружаются, читаются только их пути.');folderInput().click();
+}
 dialog.addEventListener('input',()=>{dialog.dataset.dirty='1';});
 dialog.addEventListener('submit',async ev=>{const f=ev.target.closest('form.sp-move');if(!f)return;ev.preventDefault();if(ui.busy)return;ui.busy=true;const b=f.querySelector('[type=submit]');b.disabled=true;
  try{await panelSubmit(f);}catch(err){const out=f.querySelector('.sp-error');if(out&&f.isConnected)out.textContent=errorMessage(err);else toast(errorMessage(err));}finally{b.disabled=false;ui.busy=false;}});

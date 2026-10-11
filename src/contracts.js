@@ -1,6 +1,6 @@
 // Раздел «Договоры» (раздел «Договоры»): все договоры организации и боковая карточка договора.
 // Здесь только разметка из данных; запись — команды pto_command (create_contract, update_contract, create_addendum, set_addendum_status).
-import {escapeHtml as e,money,canWrite} from './domain.js';
+import {escapeHtml as e,money,canWrite,moneyText,vatInfo} from './domain.js';
 import {objectColor,OBJECT_COLORS,COLOR_NAMES,activeIn,expectedCards,openNotes} from './conveyor.js';
 import {engineerName} from './portfolio.js';
 
@@ -127,7 +127,15 @@ const head=(title,sub='')=>`<div class="cp-drawer-head"><button type="button" cl
 const input=(name,label,value='',type='text',extra='')=>`<label>${e(label)}<input name="${e(name)}" type="${e(type)}" value="${e(value??'')}" autocomplete="off" ${extra}></label>`;
 // Многострочное поле, высота по тексту (полное наименование, предмет, примечание).
 const area=(name,label,value='',extra='')=>`<label>${e(label)}<textarea class="cp-auto" name="${e(name)}" rows="1" ${extra}>${e(value??'')}</textarea></label>`;
-const amount=(name,label,value)=>input(name,label,has(value)?String(value):'','text','inputmode="decimal"');
+// Сумма — с разделителем тысяч (domain.js moneyText; на сервер main.js отправляет без пробелов).
+const MONEY_ATTRS='inputmode="decimal" data-money pattern="\\s*-?[0-9 \\u00a0]*([.,][0-9]{0,2})?\\s*" title="Сумма, например 1 234 567,89"';
+const amount=(name,label,value)=>input(name,label,has(value)?moneyText(value):'','text',MONEY_ATTRS);
+const percent=(name,label,value)=>input(name,label,has(value)?String(value):'','text','inputmode="decimal"');
+// НДС с посчитанной ставкой рядом с подписью: ставка = НДС / (сумма − НДС); красным, если не 20 % (main.js обновляет при вводе).
+const vatAmount=(name,label,value,of)=>`<label>${e(label)} <small class="cp-rate" data-rate-of="${e(of)}" data-rate-vat="${e(name)}"></small><input name="${e(name)}" type="text" value="${e(has(value)?moneyText(value):'')}" autocomplete="off" ${MONEY_ATTRS}></label>`;
+export const rateHtml=(total,vat)=>{const r=vatInfo(total,vat);return r?`<small class="cp-rate${r.ok?'':' bad'}" title="${r.ok?'Ставка посчитана по сумме и НДС':'НДС не равен 20 % от суммы: проверьте'}">${e(r.text)}</small>`:'';};
+// «Выбрать файл…»: путь от папки ДОГОВОРА подставляется в поле (main.js, folder-pick.js); окно открывается в папке договора.
+const pickButton=(field,c)=>`<button type="button" class="cp-small cp-pick" data-action="pick-file" data-id="${e(field)}" data-base="${e(c.source_key||'')}">Выбрать файл…</button>`;
 const section=(title,body)=>`<section class="cp-section"><div class="cp-section-title">${title}</div>${body}</section>`;
 const options=(list,cur)=>list.map(([v,label])=>`<option value="${e(v)}" ${String(v)===String(cur??'')?'selected':''}>${e(label)}</option>`).join('');
 const subLine=(data,c)=>`<div class="ct-sub">${c.contract_date?`от ${e(day(c.contract_date))} · `:''}<i class="ct-dot" style="background:${objectColor(data.projects||[],c.project_id)}"></i>${e(projectOf(data,c.project_id)?.name||'')} · ${e(groupName(c,data))} · ${e(ourSideLabel(c,data))}</div>`;
@@ -171,12 +179,14 @@ export function contractCard({data,contract:c,canEdit,editing=false,today,profil
    ${input('our_role_title','СУ-22 в договоре',c.our_role_title||'','text','maxlength="100" placeholder="как написано в договоре"')}${input('party_role_title','Контрагент в договоре',c.party_role_title||'','text','maxlength="100" placeholder="как написано в договоре"')}
    <div class="wide">${area('subject','Предмет',c.subject||'','maxlength="1000"')}</div>
    <div class="wide"><label>К основному договору<select name="parent_contract_id"><option value="">—</option>${parents.map(p=>`<option value="${e(p.id)}" ${p.id===c.parent_contract_id?'selected':''}>№ ${e(p.number)} · ${e(p.party||'')}</option>`).join('')}</select></label></div></div>`)}
-  ${section('Цена по договору, руб. (без допсоглашений)',`<div class="cp-work-grid">${amount('initial_amount','Цена с НДС',c.initial_amount)}${amount('vat_amount','В т. ч. НДС',c.vat_amount)}${amount('vat_rate','Ставка НДС, %',c.vat_rate)}<span></span>
-   ${amount('smr_amount','СМР',c.smr_amount)}${amount('smr_vat_amount','НДС СМР',c.smr_vat_amount)}${amount('pnr_amount','ПНР',c.pnr_amount)}${amount('pnr_vat_amount','НДС ПНР',c.pnr_vat_amount)}${amount('equipment_amount','Оборудование',c.equipment_amount)}${amount('equipment_vat_amount','НДС оборудования',c.equipment_vat_amount)}</div>`)}
+  ${section('Цена по договору, руб. (без допсоглашений)',`<div class="cp-work-grid">${amount('initial_amount','Цена с НДС',c.initial_amount)}${vatAmount('vat_amount','В т. ч. НДС',c.vat_amount,'initial_amount')}
+   ${amount('smr_amount','СМР',c.smr_amount)}${vatAmount('smr_vat_amount','НДС СМР',c.smr_vat_amount,'smr_amount')}${amount('pnr_amount','ПНР',c.pnr_amount)}${vatAmount('pnr_vat_amount','НДС ПНР',c.pnr_vat_amount,'pnr_amount')}${amount('equipment_amount','Оборудование',c.equipment_amount)}${vatAmount('equipment_vat_amount','НДС оборудования',c.equipment_vat_amount,'equipment_amount')}
+   <p class="wide cp-sum-check" data-sum-check="initial_amount:smr_amount,pnr_amount,equipment_amount;vat_amount:smr_vat_amount,pnr_vat_amount,equipment_vat_amount"></p></div>`)}
   ${section('Срок по договору',`<div class="cp-work-grid">${input('work_start_date','Начало работ',c.work_start_date||'','date')}${input('work_end_date','Окончание работ',c.work_end_date||'','date')}</div>`)}
-  ${section('Аванс и прочее',`<div class="cp-work-grid">${amount('advance_current_percent','Текущий аванс, %',c.advance_current_percent)}${amount('advance_target_amount','Целевой аванс, руб.',c.advance_target_amount)}
+  ${section('Аванс и прочее',`<div class="cp-work-grid">${percent('advance_current_percent','Текущий аванс, %',c.advance_current_percent)}${amount('advance_target_amount','Целевой аванс, руб.',c.advance_target_amount)}
    <div class="wide">${area('note','Примечание',c.note||'','maxlength="1000"')}</div>
    <label>Проверен<select name="checked">${options([['true','Да, проверен'],['false','Нет, не проверен']],String(c.checked!==false))}</select></label></div>`)}
+  ${section('Файлы в папке ДОГОВОРА',`<div class="cp-work-grid"><div class="wide">${area('files','Пути к файлам, по одному в строке',(c.files||[]).map(f=>f.path).join('\n'),'maxlength="20000"')}</div><div class="wide">${pickButton('files',c)}</div></div>`)}
   <p class="cp-hint">Текущие цена и срок считаются по подписанным допсоглашениям (у которых указан скан), их здесь не правят. Не проверенный договор не участвует в «Подписании».</p>
   <input type="hidden" name="contract_id" value="${e(c.id)}"></div>
  <div class="cp-drawer-foot"><p id="contract-error" class="error" role="alert"></p><button type="button" data-action="contract" data-id="${e(c.id)}">Отмена</button><button class="primary" type="submit">Сохранить</button></div></form>`;
@@ -197,9 +207,9 @@ export function contractCard({data,contract:c,canEdit,editing=false,today,profil
   <dt>Инженер</dt><dd>${e(engineerName(data,c.project_id)||'—')}</dd>
   ${c.advance_current_percent||c.advance_target_amount?`<dt>Аванс</dt><dd>${[c.advance_current_percent?`текущий ${e(Number(c.advance_current_percent))} %`:'',c.advance_target_amount?`целевой ${money(c.advance_target_amount)}`:''].filter(Boolean).join(' · ')}</dd>`:''}
   ${c.replaced_by||c.note?`<dt>Примечание</dt><dd>${e([c.replaced_by?'заменён: '+c.replaced_by:'',c.note].filter(Boolean).join(' · '))}</dd>`:''}
-  ${(c.files||[]).length?`<dt>Сканы</dt><dd>${c.files.map(f=>`<small class="ct-path">${e(f.path)}</small>`).join('')}</dd>`:''}</dl>
+  ${(c.files||[]).length?`<dt>Файлы</dt><dd>${c.files.map(f=>`<small class="ct-path">${e(f.path)}</small>`).join('')}</dd>`:''}</dl>
   ${c.checked===false?`<div class="ct-unchecked"><span class="ct-warn">Не проверен: загружен из реестра или имени файла. В «Подписании» не участвует, пока не отмечен.</span>${canEdit?`<button type="button" class="cp-small" data-action="contract-checked" data-id="${e(c.id)}">Проверен</button>`:''}</div>`:''}
-  ${terms.length?`<section class="cp-block"><div class="cp-block-head"><h3>Условия договора</h3>${has(c.vat_rate)?`<span class="muted">НДС ${e(c.vat_rate)} %</span>`:''}</div>${terms.map(([label,v,vat])=>`<div class="ct-line"><span>${label}</span><span class="ct-line-r ct-one">${has(vat)?`<small>НДС ${money(vat)}</small>`:''}${money(v)}</span></div>`).join('')}</section>`:''}
+  ${terms.length?`<section class="cp-block"><div class="cp-block-head"><h3>Условия договора</h3></div>${terms.map(([label,v,vat])=>`<div class="ct-line"><span>${label}</span><span class="ct-line-r ct-one">${has(vat)?`<small>НДС ${money(vat)} ${rateHtml(v,vat)}</small>`:''}${money(v)}</span></div>`).join('')}</section>`:''}
   ${partsBlock(data,c,canEdit)}
   <section class="cp-block"><div class="cp-block-head"><h3>Допсоглашения <span class="muted">${addenda.length?`${addenda.length} · подписано ${signed}${wip?` · в работе ${wip}`:''}`:''}</span></h3>${canEdit?`<button type="button" class="cp-small" data-action="new-addendum" data-id="${e(c.id)}">+ Допсоглашение</button>`:''}</div>${addenda.length?`<div class="ct-line ct-edge"><div><b>Договор</b> <span class="muted">${c.contract_date?'от '+e(day(c.contract_date)):''}</span><small>начальная цена</small></div><div class="ct-line-r">${has(c.initial_amount)?money(c.initial_amount):''}</div></div>${addenda.map(a=>addendumLine(a,canEdit)).join('')}<div class="ct-line ct-edge"><div><b>Действует сейчас</b><small>${c.amount_addendum_number?'по ДС № '+e(c.amount_addendum_number):'по договору'}${wip?' · ДС в работе не учтены':''}</small></div><div class="ct-line-r"><b>${has(c.current_amount)?money(c.current_amount):'—'}</b></div></div>`:'<div class="cp-no-data">Допсоглашений нет.</div>'}</section>
  </div>
@@ -235,11 +245,13 @@ function partsBlock(data,c,canEdit){
  if(!parts.length&&!canEdit)return '';
  return `<section class="cp-block"><div class="cp-block-head"><h3>Части договора</h3>${canEdit?`<button type="button" class="cp-small" data-action="new-part" data-id="${e(c.id)}">+ Часть</button>`:''}</div>${parts.length?parts.map(p=>`<div class="ct-line${p.active?'':' muted'}"${canEdit?` data-action="edit-part" data-id="${e(p.id)}" role="button" tabindex="0"`:''}><span>${e(p.name)}${p.active?'':' · не действует'}</span><span class="ct-line-r ct-one"><small>${e(vatLabel(p))}</small>${has(p.amount)?money(p.amount):''}</span></div>`).join(''):'<div class="cp-no-data">Одна часть: акты и справка С-3а на весь договор.</div>'}</section>`;
 }
+// НДС части: у частей, внесённых до 11.10.2026, есть только ставка — НДС считается из стоимости и ставки.
+const partVat=p=>has(p?.vat_amount)?p.vat_amount:has(p?.vat_rate)&&has(p?.amount)?(Math.round(Number(p.amount)*Number(p.vat_rate)/(100+Number(p.vat_rate))*100)/100):null;
 export function partCard({data,contract:c,part:p}){
  return `<form id="part-form" class="cp-drawer-shell ob" autocomplete="off" data-editing>${head(p?`Часть договора № ${c.number}`:`Новая часть договора № ${c.number}`,subLine(data,c))}
  <div class="cp-drawer-content"><div class="cp-work-grid">
   <div class="wide">${input('name','Название (как в ССР)',p?.name||'','text','required maxlength="200"')}</div>
-  ${amount('vat_rate','Ставка НДС, % (0 — без НДС)',p?.vat_rate)}${amount('amount','Стоимость части, руб.',p?.amount)}
+  ${amount('amount','Стоимость части с НДС, руб.',p?.amount)}${vatAmount('vat_amount','В т. ч. НДС, руб. (0 — без НДС)',partVat(p),'amount')}
   ${p?`<div class="wide"><label>Состояние<select name="active"><option value="true">Действует</option><option value="false" ${p.active?'':'selected'}>Не действует</option></select></label></div>`:''}</div>
   <p class="cp-hint">Акт и справку С-3а относят к части в карточке документа («Отметки»). В реестре строка на каждую часть и «Итого по договору».</p>
   <input type="hidden" name="${p?'part_id':'contract_id'}" value="${e(p?p.id:c.id)}"></div>
@@ -250,10 +262,10 @@ export function addendumCard({data,contract:c,addendum:a=null}){
  return `<form id="addendum-form" class="cp-drawer-shell ob" autocomplete="off" data-editing>${head(a?`ДС № ${a.number} к договору № ${c.number}`:`Допсоглашение к договору № ${c.number}`,subLine(data,c))}
  <div class="cp-drawer-content"><div class="cp-work-grid">
   ${input('number','Номер ДС',a?.number||'','text','required')}${input('agreement_date','Дата ДС',a?.agreement_date||'','date','required')}
-  ${amount('amount_after','Цена договора после ДС, руб.',a?.amount_after)}${amount('vat_amount','В т. ч. НДС, руб.',a?.vat_amount)}
-  ${amount('vat_rate','Ставка НДС, %',a?.vat_rate)}${input('work_end_date','Новый срок окончания',a?.work_end_date||'','date')}
+  ${amount('amount_after','Цена договора после ДС, руб.',a?.amount_after)}${vatAmount('vat_amount','В т. ч. НДС, руб.',a?.vat_amount,'amount_after')}
+  ${input('work_end_date','Новый срок окончания',a?.work_end_date||'','date')}
   <div class="wide">${area('note','Что меняет',a?.note||'')}</div>
-  <div class="wide">${input('scan_path','Скан: путь к файлу в папке ДОГОВОРА',a?.scan_path||'','text','maxlength="500" placeholder="ДОГОВОРА/ПРУЖАНЫ/21/ДС 3.pdf"')}</div></div>
+  <div class="wide">${input('scan_path','Скан: путь к файлу в папке ДОГОВОРА',a?.scan_path||'','text',`maxlength="500" placeholder="${e(c.source_key||'ПРУЖАНЫ/05_21-03 БЕЛТОПМЕД')}/ДС 3.pdf"`)}${pickButton('scan_path',c)}</div></div>
   <p class="cp-hint">Пока скан не указан, ДС «в работе» и в цене не учитывается. Указали путь к скану — ДС подписано, цена и срок договора пересчитываются. Пустые цена и срок значат «не меняется».</p>
   <input type="hidden" name="${a?'addendum_id':'contract_id'}" value="${e(a?a.id:c.id)}"></div>
  <div class="cp-drawer-foot"><p id="contract-error" class="error" role="alert"></p>${a?`<button type="button" class="cp-danger" data-action="cancel-addendum" data-id="${e(a.id)}">Отменить ДС</button>`:''}<button type="button" data-action="contract" data-id="${e(c.id)}">Назад</button><button class="primary" type="submit">Сохранить</button></div></form>`;
