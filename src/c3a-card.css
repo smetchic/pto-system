@@ -1,0 +1,11 @@
+.c3a-form .cp-drawer-content{display:block}
+.c3a-main-grid{display:grid;grid-template-columns:minmax(0,1fr) 160px;gap:12px;align-items:end}
+.c3a-main-grid label,.c3a-field-grid label{margin:0}
+.c3a-auto-box{margin:18px 0 0;padding:11px 12px;border:1px solid var(--ln);border-radius:8px;background:var(--hv);color:var(--mu)}
+.c3a-auto-box strong{display:block;color:var(--ink);font-weight:600;margin-bottom:2px}
+.c3a-auto-box span{display:block;line-height:1.45}
+.c3a-section{margin-top:20px;padding-top:16px;border-top:1px solid var(--ln)}
+.c3a-section h3{margin:0 0 10px;font-size:13px;font-weight:600;color:var(--ink)}
+.c3a-field-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.c3a-form input,.c3a-form select{width:100%}
+@media(max-width:620px){.c3a-main-grid,.c3a-field-grid{grid-template-columns:1fr}}
