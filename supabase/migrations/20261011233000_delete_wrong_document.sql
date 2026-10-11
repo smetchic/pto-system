@@ -115,7 +115,8 @@ begin
 end
 $$;
 
-revoke all on function pto_private.delete_wrong_document(uuid,text) from public, anon, authenticated;
+revoke all on function pto_private.delete_wrong_document(uuid,text) from public,anon,authenticated;
+grant execute on function pto_private.delete_wrong_document(uuid,text) to authenticated;
 
 -- Публичный dispatcher остаётся SECURITY INVOKER; привилегированная логика живёт только в pto_private.
 drop function if exists public.pto_delete_document(uuid,text);
