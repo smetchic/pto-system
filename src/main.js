@@ -10,6 +10,7 @@ import './contracts.css';
 import './conveyor.css';
 import './object.css';
 import {signingPanel} from './signing-panel.js';
+import {parseSheets,sheetsOf,matchContract,importCard,importPlan,createPayload,importResult} from './excel-import.js';
 import {expectedCards,subExpected} from './conveyor.js';
 import {genCumulative,genSheetRows,REGISTER_VIEWS} from './registers.js';
 const $=s=>document.querySelector(s),app=$('#app'),dialog=$('#dialog');
@@ -263,6 +264,55 @@ function contractDrawer(html,formId,submit){
   try{await submit(new FormData(f));}catch(err){const out=$('#contract-error');if(out)out.textContent=errorMessage(err);else toast(errorMessage(err));}finally{button.disabled=false;}};
 }
 const todayKey=()=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Minsk',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+// Загрузка актов и справок С-3а из Excel (src/excel-import.js): каждый лист книги — документ; предпросмотр в боковой панели.
+async function excelImport(list){
+ const {default:ExcelJS}=await import('exceljs'),projectId=ui.project,files=[];
+ for(const file of list){
+  const book=new ExcelJS.Workbook();
+  try{await book.xlsx.load(await file.arrayBuffer());}catch{files.push({name:file.name,doc:{type:null,problems:['файл не открылся как книга Excel (.xlsx)']}});continue;}
+  const docs=parseSheets(sheetsOf(book));
+  if(!docs.length)files.push({name:file.name,doc:{type:null,problems:['нет видимого листа с надписью «Форма С-2а», «С-2б» или «С-3а»']}});
+  for(const doc of docs)files.push({name:file.name,doc,contract:matchContract(data,projectId,doc)});
+ }
+ // Уже внесённые документы тех же месяцев — чтобы не загрузить второй раз.
+ const months=[...new Set(files.map(f=>f.doc.month).filter(Boolean))];
+ const periods=months.length?await all('pto_periods',q=>q.eq('project_id',projectId).in('month',months.map(m=>m+'-01'))):[];
+ const docs=periods.length?await all('pto_document_list',q=>q.in('period_id',periods.map(p=>p.id))):[];
+ const existing=docs.map(d=>({...d,month:String(periods.find(p=>p.id===d.period_id)?.month||'')}));
+ // Шаг «Подписания» сразу — как «Внести сразу»: начальник ПТО, только прошлые месяцы.
+ const canJump=profile?.role==='head'&&months.length>0&&months.every(m=>m<todayKey().slice(0,7));
+ ui.excel={projectId,files,existing,canJump};
+ contractDrawer(importCard({data,projectId,files,existing,canJump}),'excel-import-form',applyExcelImport);
+}
+async function applyExcelImport(form){
+ const {projectId,files,existing,canJump}=ui.excel||{};if(!files)return;
+ const plan=importPlan(files,form,existing);
+ if(!plan.length)throw Error('Отметьте хотя бы один документ');
+ if(plan.some(f=>!f.contract))throw Error('Выберите договор у каждого отмеченного документа');
+ const step=canJump?String(form.get('to_step')||''):'',rpc=payload=>query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload}));
+ const rev=async pid=>(await query(client.from('pto_periods').select('revision').eq('id',pid).single())).revision;
+ const periodIds={},created=[],failed=[];
+ for(const f of plan){
+  const label=`${f.doc.type==='c3a'?'Справка С-3а':'Акт'} № ${f.number} (лист «${f.doc.sheet||f.name}»)`;
+  try{
+   const m=f.doc.month+'-01';
+   periodIds[m]??=(await rpc({op:'open_period',project_id:projectId,month:m})).period_id;
+   created.push((await rpc({...createPayload(f),period_id:periodIds[m],expected_revision:await rev(periodIds[m])})).document_id);
+  }catch(err){failed.push(`${label}: ${errorMessage(err)}`);}
+ }
+ let moved=0;
+ if(step&&created.length){
+  const rows=await all('pto_document_list',q=>q.in('id',created));
+  for(const w of [...new Set(rows.map(d=>d.workflow_id).filter(Boolean))]){
+   const d=rows.find(x=>x.workflow_id===w),target=(data.steps||[]).find(s=>s.template_code===d.template_code&&s.code===step);
+   if(!target||Number(d.step_ordinal)>=Number(target.ordinal))continue;
+   try{await rpc({op:'workflow_jump',workflow_id:w,to_step:step,note:'загружено из Excel'});moved++;}
+   catch(err){failed.push(`Комплект дог. № ${data.contracts.find(c=>c.id===d.contract_id)?.number||''}: шаг не поставлен — ${errorMessage(err)}`);}
+  }
+ }
+ ui.excel=null;await load();
+ contractDrawer(importResult({created:created.length,failed,moved,step:(data.steps||[]).find(s=>s.code===step)?.label||step}));
+}
 const contractOf=id=>{const c=data.contracts.find(x=>x.id===id);if(!c)throw Error('Договор не найден');return c;};
 function contractModal(id,editing=false){
  const c=contractOf(id),canEdit=editor(c.project_id);
@@ -379,6 +429,7 @@ async function action(name,id){
  if(name==='mns-apply'){const r=await mutate({op:'import_counterparties',checked_at:new Date().toLocaleDateString('sv-SE',{timeZone:'Europe/Minsk'}),rows:ui.mnsRows||[]});ui.mnsRows=null;dialog.close();return toast(`Сведения МНС загружены: новых ${r.created}, обновлено ${r.updated}, без изменений ${r.unchanged}.`);}
  if(name==='mns-xml')return $('#mns-xml')?.click();
  if(name==='contracts-json')return $('#contracts-json')?.click();
+ if(name==='excel-acts')return $('#excel-acts')?.click();
  if(name==='ci-apply')return applyContractsImport();
  if(name==='contract-checked'){await mutate({op:'set_contract_checked',contract_id:id,checked:true});return contractModal(id);}
  if(name==='party'||name==='new-party')return partyModal(name==='party'?id:null);
@@ -443,7 +494,7 @@ async function exportGen(){const pid=document.querySelector('#gen-project')?.val
 async function exportXlsx(){const {default:ExcelJS}=await import('exceljs');const book=new ExcelJS.Workbook();book.creator='СУ-22 · ПТО';const sheet=book.addWorksheet('Реестр',{views:[{state:'frozen',xSplit:1,ySplit:2}]});const lines=registerSheetRows(data.matrix,ui.month);for(const line of lines){const row=sheet.addRow(line.values);if(line.bold)row.font={bold:true};}const width=lines[1].values.length;sheet.columns.forEach((c,i)=>{c.width=i?22:58;if(i)c.numFmt='#,##0.00;[Red]-#,##0.00';});sheet.autoFilter={from:{row:2,column:1},to:{row:2,column:width}};const buffer=await book.xlsx.writeBuffer();const link=document.createElement('a');link.href=URL.createObjectURL(new Blob([buffer],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));link.download=`Реестр_ПТО_${ui.month}.xlsx`;link.click();setTimeout(()=>URL.revokeObjectURL(link.href),10000);}
 function login(){app.innerHTML=`<section class="login"><div class="mark">П</div><div class="eyebrow">СУ-22 · единая система ПТО</div><h1>${ui.recovery?'Новый пароль':'Вход в рабочее пространство'}</h1><p class="muted">Объекты, документы и выполнение за месяц.</p><form id="login-form">${ui.recovery?'':field('email','Электронная почта','email')}${field('password','Пароль','password')}<p class="error" id="login-error" role="alert"></p><button class="primary">${ui.recovery?'Сохранить пароль':'Войти'}</button></form><p class="muted">Доступ выдаёт администратор системы.</p></section>`;$('#login-form').onsubmit=async ev=>{ev.preventDefault();const button=ev.submitter;button.disabled=true;try{const f=Object.fromEntries(new FormData(ev.target));if(ui.recovery){await query(client.auth.updateUser({password:f.password}));ui.recovery=false;toast('Пароль сохранён');await load();}else{const result=await query(client.auth.signInWithPassword(f));session=result.session;await load();}}catch(err){$('#login-error')&&($('#login-error').textContent=errorMessage(err));}finally{button.disabled=false;}};}
 // Поиск по справочнику контрагентов: строки скрываются на месте, без перерисовки страницы.
-document.addEventListener('change',async ev=>{if(ev.target.id==='contracts-json'&&ev.target.files.length){try{await importContracts(ev.target.files[0]);}catch(err){toast(errorMessage(err));}finally{ev.target.value='';}return;}
+document.addEventListener('change',async ev=>{if(ev.target.id==='excel-acts'&&ev.target.files.length){try{await excelImport([...ev.target.files]);}catch(err){toast(errorMessage(err));}finally{ev.target.value='';}return;}if(ev.target.id==='contracts-json'&&ev.target.files.length){try{await importContracts(ev.target.files[0]);}catch(err){toast(errorMessage(err));}finally{ev.target.value='';}return;}
  if(ev.target.id!=='mns-xml'||!ev.target.files.length)return;try{await importMns([...ev.target.files]);}catch(err){toast(errorMessage(err));}finally{ev.target.value='';}});
 document.addEventListener('input',ev=>{if(!['party-search','contract-search'].includes(ev.target.id))return;const s=ev.target.value.trim().toLowerCase();if(ev.target.id==='contract-search')ui.contractQuery=s;let shown=0;for(const tr of document.querySelectorAll('tr[data-search]')){tr.hidden=!!s&&!tr.dataset.search.includes(s);if(!tr.hidden)shown++;}for(const g of document.querySelectorAll('tr.ct-grp')){let n=g.nextElementSibling,any=false;while(n&&!n.classList.contains('ct-grp')){if(n.dataset.search!==undefined&&!n.hidden)any=true;n=n.nextElementSibling;}g.hidden=!any;}const none=$('#party-empty')||$('#contract-empty');if(none)none.hidden=shown>0;});
 // Боковая карточка на просмотре закрывается кликом мимо неё. При правке (форма с data-editing или уже что-то введено) — нет, чтобы не потерять ввод.

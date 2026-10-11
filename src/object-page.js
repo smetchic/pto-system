@@ -9,6 +9,8 @@ export const objectTab=t=>OBJECT_TABS.some(([id])=>id===t)?t:'month';
 const day=x=>x?new Date(String(x).slice(0,10)+'T12:00:00Z').toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric',timeZone:'Europe/Minsk'}):'';
 const dm=x=>x?new Date(String(x).slice(0,10)+'T12:00:00Z').toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',timeZone:'Europe/Minsk'}):'';
 const st=(text,cls='n',title='')=>`<span class="ob-st ${cls}"${title?` title="${e(title)}"`:''}>${e(text)}</span>`;
+// Акт-корректировка (сумма может быть ноль или меньше): пометка и что он исправляет.
+const corr=d=>d.correction?` <span class="pill w" title="${e(d.corrects?'Исправляет '+d.corrects:'Корректировка')}">корр.${d.corrects?' '+e(d.corrects):''}</span>`:'';
 const btn=(text,action,id='',primary=false)=>`<button ${primary?'class="primary"':''} data-action="${action}" data-id="${e(id)}">${e(text)}</button>`;
 const KIND_LONG={claim:'Процентовка СУ-22 заказчику',sub_claim:'Процентовка субподрядчика',c29:'С-29'};
 const monthName=month=>new Date(month+'-01T12:00:00Z').toLocaleDateString('ru-RU',{month:'long',timeZone:'Europe/Minsk'});
@@ -144,14 +146,14 @@ export function objectPage({ui,data,profile,today,now=Date.now()}){
    const base=early&&m.tn_status?st(TN[m.tn_status][0],TN[m.tn_status][1],m.note||''):d.step_label?st(d.step_label,d.step_code==='accepted'?'ok':'w'):st('Без комплекта','n');
    return base+(m.original?` <span class="muted">· ${ORIG[m.original]}</span>`:'');};
   const docRow=d=>{const v=ver(d),c3a=d.kind==='c3a',m=dmOf(d.id);
-   return `<tr class="ob-row${c3a?' mo-tot':''}" data-action="doc" data-id="${e(d.id)}" tabindex="0" role="button"><td><span class="link">${e(kindNames[d.kind])} № ${e(d.number)}</span>${v?.version>1?` <span class="muted">в.${v.version}</span>`:''}${m.part?` · ${e(m.part)}`:''}${num(m.materials)?` <span class="muted">· в т.ч. материалы заказчика ${money(m.materials)}</span>`:''}</td>
+   return `<tr class="ob-row${c3a?' mo-tot':''}" data-action="doc" data-id="${e(d.id)}" tabindex="0" role="button"><td><span class="link">${e(kindNames[d.kind])} № ${e(d.number)}</span>${corr(d)}${v?.version>1?` <span class="muted">в.${v.version}</span>`:''}${m.part?` · ${e(m.part)}`:''}${num(m.materials)?` <span class="muted">· в т.ч. материалы заказчика ${money(m.materials)}</span>`:''}</td>
     <td class="num">${c3a?(reports.length?money(rs('smr')):money(v?.amount)):money(v?.amount)}</td><td></td><td></td><td class="num">${c3a&&reports.length?money(rs('equipment')):'<span class="muted">—</span>'}</td><td>${docState(d)}</td></tr>`;};
   // Оценка выполнения = план месяца (шаг 1): одна сумма до актов, в реестре отдельно.
   const est=(data.matrix?.rows||[]).filter(r=>r.kind==='contract'&&r.project_id===pid&&r.estimate!==null&&r.estimate!==undefined);
   const estSum=est.reduce((t,r)=>t+Number(r.estimate),0);
   const estRow=est.length||(canEdit&&ix<=1&&!acts.length)?`<tr class="ob-row${est.length?'':' mo-off'}" ${canEdit?'data-action="estimate" data-id="" tabindex="0" role="button"':''}><td>Оценка выполнения <span class="muted">план до актов, в реестре отдельно</span></td>
     <td class="num">${est.length?money(estSum):'<span class="muted">—</span>'}</td><td></td><td></td><td></td><td>${est.length?st('оценка','n'):canEdit?'<span class="link">ввести</span>':''}</td></tr>`:'';
-  const docsHtml=`<section class="ob-panel" aria-label="Документы заказчику"><div class="ob-ph"><h2>Документы заказчику</h2><span class="muted">${acts.length?`${acts.length} ${acts.length===1?'акт':acts.length>=2&&acts.length<=4?'акта':'актов'} · сумма ${money(actsSum)}`:''}</span>${canEdit?`<span class="mo-marks">В месяце будет: <button class="mo-cb" role="checkbox" aria-checked="${!!mm.equipment_expected}" data-action="month-mark" data-id="equipment">оборудование</button><button class="mo-cb" role="checkbox" aria-checked="${!!mm.materials_expected}" data-action="month-mark" data-id="materials">материалы заказчика</button></span>`:''}${canEdit?`<span class="mo-add">${btn('Новый акт','new-doc')}${btn('Справка С-3а','new-c3a')}</span>`:''}</div>
+  const docsHtml=`<section class="ob-panel" aria-label="Документы заказчику"><div class="ob-ph"><h2>Документы заказчику</h2><span class="muted">${acts.length?`${acts.length} ${acts.length===1?'акт':acts.length>=2&&acts.length<=4?'акта':'актов'} · сумма ${money(actsSum)}`:''}</span>${canEdit?`<span class="mo-marks">В месяце будет: <button class="mo-cb" role="checkbox" aria-checked="${!!mm.equipment_expected}" data-action="month-mark" data-id="equipment">оборудование</button><button class="mo-cb" role="checkbox" aria-checked="${!!mm.materials_expected}" data-action="month-mark" data-id="materials">материалы заказчика</button></span>`:''}${canEdit?`<span class="mo-add">${btn('Новый акт','new-doc')}${btn('Справка С-3а','new-c3a')}${btn('Из Excel','excel-acts')}<input type="file" id="excel-acts" accept=".xlsx" multiple hidden></span>`:''}</div>
    <div class="table-wrap"><table class="ob-table mo-grid">${cols}<thead><tr><th>Документ</th><th class="num">СМР</th><th></th><th></th><th class="num">Оборудование</th><th>Статус</th></tr></thead><tbody>
    ${estRow}${acts.map(docRow).join('')}${kit.filter(d=>d.kind==='c3a').map(docRow).join('')}
    ${mm.equipment_expected&&!(reports.length&&rs('equipment'))?`<tr class="mo-off"><td>Ведомости оборудования</td><td></td><td></td><td></td><td></td><td>ожидается</td></tr>`:''}
@@ -201,11 +203,11 @@ export function objectPage({ui,data,profile,today,now=Date.now()}){
 
  // ——— Документы ———
  function documentsTab(){
-  const add=canEdit?btn('Новый акт','new-doc','',true)+btn('Справка С-3а','new-c3a')+btn('С-29','new-c29'):'';
+  const add=canEdit?btn('Новый акт','new-doc','',true)+btn('Справка С-3а','new-c3a')+btn('С-29','new-c29')+`${btn('Из Excel','excel-acts')}<input type="file" id="excel-acts" accept=".xlsx" multiple hidden>`:'';
   const groups=[...ws.map(w=>({title:`${KIND_LONG[w.template_code]||w.template_name} · ${w.template_code==='c29'?'':w.template_code==='sub_claim'?(w.party||'')+' · ':''}дог. № ${w.contract_number||''}`,w,list:docs.filter(d=>d.workflow_id===w.id)})),
    {title:'Без комплекта',list:docs.filter(d=>!d.workflow_id||!ws.some(w=>w.id===d.workflow_id))}].filter(g=>g.list.length);
   const row=d=>{const v=ver(d),acc=(data.versions||[]).find(x=>x.id===d.accepted_version);
-   return `<tr class="ob-row" data-action="doc" data-id="${e(d.id)}" tabindex="0" role="button"><td><b>${e(kindNames[d.kind])} № ${e(d.number)}</b></td><td>в.${v?.version||1}${d.accepted_version&&d.current_version!==d.accepted_version?' <span class="muted">есть изменения</span>':''}</td>
+   return `<tr class="ob-row" data-action="doc" data-id="${e(d.id)}" tabindex="0" role="button"><td><b>${e(kindNames[d.kind])} № ${e(d.number)}</b>${corr(d)}</td><td>в.${v?.version||1}${d.accepted_version&&d.current_version!==d.accepted_version?' <span class="muted">есть изменения</span>':''}</td>
     <td class="num">${d.kind==='c29'?'<span class="muted">—</span>':money(v?.amount)}</td><td class="num">${acc&&d.kind!=='c29'?money(acc.amount):''}</td><td>${d.step_label?st(d.step_label,d.step_code==='accepted'?'ok':'w'):st('Без комплекта','n')}</td><td>${d.due_date?e(day(d.due_date)):''}</td></tr>`;};
   return `<div class="ob-bar"><span class="muted">Документы за ${e(monthName(month))} по комплектам. Строка открывает карточку документа: версии и файлы.</span><div class="actions">${add}</div></div>
    ${groups.length?`<div class="table-wrap"><table class="ob-table"><thead><tr><th>Документ</th><th>Версия</th><th class="num">Рабочая версия, руб.</th><th class="num">Принято, руб.</th><th>Где</th><th>Срок</th></tr></thead><tbody>

@@ -101,3 +101,12 @@
 .mo-cb[aria-checked="true"]::before{border-color:var(--ac)}
 .ob-steps span.d{border-top-color:var(--ok)}
 .mo-now{color:var(--ac)}
+/* Загрузка из Excel (src/excel-import.js): строка на лист книги, поля в одну строку — семь листов без прокрутки на 24″. */
+.xi-row{display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--ln)}.xi-row.off{color:var(--mu)}.xi-row.off .xi-sum b{color:inherit}
+.xi-c{flex:none;padding-top:2px}.xi-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}.xi-main small{font-size:12px}
+.xi-top{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}.xi-sum{margin-left:auto;white-space:nowrap}
+.xi-where{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.xi-grid{display:grid;grid-template-columns:120px 1fr;gap:8px}.xi-grid.corr{grid-template-columns:90px minmax(0,1fr) minmax(0,1fr)}.xi-grid label{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--mu);white-space:nowrap}
+.xi-grid input,.xi-grid select{min-width:0;flex:1;padding:4px 8px;min-height:30px}
+.xi-step{display:flex;align-items:center;gap:10px;margin:12px 0 4px}.xi-step select{flex:1}.xi-ok{color:var(--ok)}
+@media(max-width:800px){.xi-grid,.xi-grid.corr{grid-template-columns:1fr}}
