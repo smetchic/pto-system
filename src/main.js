@@ -6,6 +6,7 @@ import {contractCard,newContractCard,newContractPayload,addendumCard,addendumSta
 import {parseContractsFile,previewContracts,previewHtml} from './contracts-import.js';
 import {partyCard,contactCard,contactPayload,partyPayload,parseMnsXml,mnsPreview,mnsPreviewHtml} from './parties.js';
 import './style.css';
+import './documents-native.css';
 import './parties.css';
 import './contracts.css';
 import './conveyor.css';
@@ -164,6 +165,7 @@ function docEditForm(id){
   const dec=s=>{const n=String(s??'').replace(/[\s\u00a0]/g,'').replace(',','.');return n===''?null:n;};
   const num=s=>{const n=dec(s);return n===null?null:Number(n);};
   const same=(a,b)=>num(a)===null&&num(b)===null||num(a)!==null&&num(b)!==null&&Math.abs(num(a)-num(b))<0.005;
+  if(act&&clean(x.tn_status)==='remarks'&&!clean(x.mark_note))throw Error('Для замечания технадзора укажите комментарий');
   let changed=false;
   if(act&&!same(x.amount,v.amount)){
    const p=data.periods.find(z=>z.id===d.period_id);
@@ -177,7 +179,6 @@ function docEditForm(id){
    }
   }
   if(act){
-   if(clean(x.tn_status)==='remarks'&&!clean(x.mark_note))throw Error('Для замечания технадзора укажите комментарий');
    const mark={part_id:parts.length?(clean(x.part_id)||null):null,part:parts.length?null:(clean(x.part)||null),tn_status:clean(x.tn_status)||null,original:clean(x.original)||null,note:clean(x.mark_note)||''};
    const differs=(parts.length?clean(mark.part_id)!==clean(m.part_id):clean(mark.part)!==clean(m.part))||clean(mark.tn_status)!==clean(m.tn_status)||clean(mark.original)!==clean(m.original)||clean(mark.note)!==clean(m.note);
    if(differs){await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'set_document_mark',document_id:id,...mark}}));changed=true;}
