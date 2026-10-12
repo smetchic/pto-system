@@ -70,12 +70,17 @@ test('director sees the same page without a single action',()=>{
 
 test('close conditions and contract term',()=>{
  const {data}=fixture();
- let c=closeConditions(data,'p1','2026-10');assert.deepEqual(c.map(x=>x.ok),[false,false,false,false]);
+ const strict=c=>c.filter(x=>!x.warn).map(x=>x.ok);
+ let c=closeConditions(data,'p1','2026-10');assert.deepEqual(strict(c),[false,false,false,false]);
  data.workflows[0].step_code='accepted';data.workflows[1].step_ordinal=4;
  data.workflows.push(wf('w29','c29','accepted',{contract_id:'c21'}));
  data.skips=[{template_code:'sub_claim',contract_id:'s12',project_id:'p1',reason:'нет ДС'}];
  data.periods[0].reviewed_revision=3;
- c=closeConditions(data,'p1','2026-10');assert.deepEqual(c.map(x=>x.ok),[true,true,true,true]);
+ c=closeConditions(data,'p1','2026-10');assert.deepEqual(strict(c),[true,true,true,true]);
+ // «На заказчика» не введено — предупреждение, закрытие не держит (решение 12.10.2026).
+ assert.deepEqual(c.filter(x=>x.warn).map(x=>x.text),['«На заказчика» введено у 0 из 1 субподрядчиков · закрыть можно']);
+ data.subMonth=[{period_id:data.periods[0].id,contract_id:data.workflows[1].contract_id,on_customer:'10.00'}];
+ assert.deepEqual(closeConditions(data,'p1','2026-10').filter(x=>x.warn),[]);
  assert.equal(termPassed({work_start_date:'2026-01-01',current_end_date:'2026-12-31'},'2026-07-02'),50);
  assert.equal(termPassed({current_end_date:'2026-12-31'},'2026-07-02'),null);
  assert.equal(objectTab('summary'),'month');assert.equal(objectTab('history'),'history');
@@ -144,4 +149,11 @@ test('month tab: «Отправлено заказчику» on the check step, 
  assert.match(html,/у заказчика с 06\.10/);assert.match(html,/переделка: отправлено повторно 09\.10 · ТН изменил Мегалит/);
  assert.match(objectPage({...fixture('director'),data:{...ctx.data}}),/у заказчика с 06\.10/);
  assert.doesNotMatch(objectPage({...fixture('director'),data:{...ctx.data}}),/sent-customer/);
+});
+
+test('«ТН устно» in the subcontractor month card does not hold sending our claim (decision 12.10.2026)',()=>{
+ const ctx=fixture();ctx.data.subMonth=[{period_id:'per',contract_id:'s12',tn_status:'oral'}];
+ const html=objectPage(ctx);
+ assert.match(html,/Отправить заказчику нельзя: нет справки С-3а\./);
+ assert.doesNotMatch(html,/не прошли технадзор/);
 });

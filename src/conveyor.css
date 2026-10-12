@@ -82,6 +82,8 @@
 .sp-rows li.no .m,.sp-rows li.no .t,.sp-rows li.no .t .link{color:var(--er)}
 .sp-rows li.ex .t{color:var(--mu);text-decoration:line-through}.sp-rows li.ex .m{color:var(--mu)}
 .sp-rows .r{color:var(--mu);font-size:12px;text-align:right}
+.sp-rows .r .sp-warn{color:var(--wa)}
+.sp-rows li.wa .m{color:var(--wa)}
 .sp-hist li{grid-template-columns:3.4em 1fr auto}.sp-hist .m{color:var(--mu);font-weight:400;text-align:left;font-variant-numeric:tabular-nums}
 .sp-note{background:var(--ers);color:var(--er);border-radius:5px;padding:7px 10px;font-size:13px;line-height:1.45;margin-bottom:6px}
 .sp-note span{display:block;color:var(--mu);font-size:12px}

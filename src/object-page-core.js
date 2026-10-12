@@ -31,11 +31,16 @@ export function closeConditions(data,projectId,month){
  const subs=subsOf(data,projectId,month),subsDone=subs.filter(s=>s.passed||s.skip).length;
  const per=(data.periods||[]).find(p=>p.project_id===projectId);
  const reviewed=!!per&&per.reviewed_revision===per.revision;
+ const cells={};for(const r of (data.matrix?.rows||[]).filter(r=>r.kind==='contract'&&r.project_id===projectId))Object.assign(cells,r.customer_cells||{});
+ const filed=subs.filter(s=>s.workflow&&!s.skip);
+ const withF=filed.filter(s=>{const m=per&&(data.subMonth||[]).find(x=>x.period_id===per.id&&x.contract_id===s.contract.id);return (m&&m.on_customer!==null&&m.on_customer!==undefined)||cells[s.contract.id]!==undefined;}).length;
  return [
   {ok:claimOk,text:ours.length>1?'Процентовки заказчику в бухгалтерии или сняты':'Процентовка заказчику в бухгалтерии или снята'},
   {ok:c29Ok,text:'С-29 в бухгалтерии'},
   {ok:subsDone===subs.length,text:`Субподрядчики прошли технадзор или исключены · ${subsDone} из ${subs.length}`},
-  {ok:reviewed,text:'Месяц проверен начальником ПТО'}
+  {ok:reviewed,text:'Месяц проверен начальником ПТО'},
+  // «На заказчика» (F) не держит закрытие: только предупреждение (решение 12.10.2026).
+  ...(filed.length&&withF<filed.length?[{ok:false,warn:true,text:`«На заказчика» введено у ${withF} из ${filed.length} субподрядчиков · закрыть можно`}]:[])
  ];
 }
 
@@ -115,7 +120,7 @@ export function objectPage({ui,data,profile,today,now=Date.now()}){
   const stepsBar=x=>{const cur=ixOf(x),dates=x.step_dates||{};
    return `<div class="ob-steps" aria-label="Шаги маршрута">${COLUMNS.map(([c,l],i)=>`<span class="${i<cur?'d':i===cur?'c':''}">${e(l)}${i<cur&&dates[c]?' '+dm(dates[c]):''}</span>`).join('')}</div>`;};
   const blocked=x=>{if(x.expected||x.step_code!=='tn')return '';const why=[];
-   const left=subs.filter(s=>s.expected&&!s.passed&&!s.skip).map(s=>s.contract.party||s.contract.number);if(left.length)why.push('не прошли технадзор: '+left.join(', '));
+   const left=subs.filter(s=>s.expected&&!s.cleared&&!s.skip).map(s=>s.contract.party||s.contract.number);if(left.length)why.push('не прошли технадзор: '+left.join(', '));
    const t=tnOf(x);if(t&&!t.all)why.push('ТН не подписал акты СУ-22: '+t.hold.join(', '));
    if(!docs.some(d=>d.workflow_id===x.id&&d.kind==='c3a'))why.push('нет справки С-3а');
    return why.length?`<span class="ob-why">Отправить заказчику нельзя: ${e(why.join('; '))}.</span>`:'';};
@@ -204,9 +209,9 @@ export function objectPage({ui,data,profile,today,now=Date.now()}){
   const c29s=c29Status(data.workflows||[],pid,month,today,now);
   const c29Html=c29w?`<section class="ob-panel"><div class="ob-item ob-click" ${open(c29w)} tabindex="0" role="button"><span class="ob-dot ${c29s.done?'ok':c29s.cls==='e'||c29s.cls==='o'?'e':c29w.expected?'n':'w'}"></span>
    <div class="ob-it"><b>С-29 за ${e(monthName(month))}</b>${st(c29s.text,c29s.cls==='o'?'e':c29s.cls,c29s.title||'')}<span class="muted">отдельно от процентовки · срок ${e(dm(c29s.deadline))}</span>${turn(c29w)}</div><div class="ob-act"></div></div></section>`:'';
-  const cond=closeConditions(data,pid,month),allOk=cond.every(c=>c.ok);
+  const cond=closeConditions(data,pid,month),allOk=cond.every(c=>c.ok||c.warn);
   const closeBtns=head&&per?(per.status==='open'?btn('Проверить месяц','review')+btn('Закрыть месяц','close','',allOk):btn('Открыть повторно','reopen')):'';
-  const closeHtml=`<section class="ob-panel"><div class="ob-item"><span class="ob-dot ${per?.status==='closed'?'ok':'n'}"></span><div class="ob-it"><b>Закрытие месяца</b>${per?.status==='closed'?st('Закрыт, снимок сохранён','ok'):st(allOk?'можно закрыть':'ждёт','n')}<ul class="ob-cond">${cond.map(c=>`<li class="${c.ok?'ok':''}">${c.ok?'✓':'—'} ${e(c.text)}</li>`).join('')}</ul>${head?'':'<span class="muted">Проверяет и закрывает начальник ПТО.</span>'}</div><div class="ob-act">${closeBtns}</div></div></section>`;
+  const closeHtml=`<section class="ob-panel"><div class="ob-item"><span class="ob-dot ${per?.status==='closed'?'ok':'n'}"></span><div class="ob-it"><b>Закрытие месяца</b>${per?.status==='closed'?st('Закрыт, снимок сохранён','ok'):st(allOk?'можно закрыть':'ждёт','n')}<ul class="ob-cond">${cond.map(c=>`<li class="${c.ok?'ok':c.warn?'wa':''}">${c.ok?'✓':c.warn?'!':'—'} ${e(c.text)}</li>`).join('')}</ul>${head?'':'<span class="muted">Проверяет и закрывает начальник ПТО.</span>'}</div><div class="ob-act">${closeBtns}</div></div></section>`;
   return `<div class="mo">${stepHtml}${moneyHtml}${docsHtml}${subsHtml}${c29Html}${closeHtml}</div>`;
  }
 

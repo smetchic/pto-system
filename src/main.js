@@ -196,7 +196,7 @@ function docEditForm(id){
  const rates=Object.fromEntries(parts.map(p=>[p.id,vatRateOf(data,d.contract_id,p.id)]));
  const versionFields=act?field('amount','Сумма акта с НДС, руб.','number',v.amount)+vatField(v.smr_vat,{rate:vatRateOf(data,d.contract_id,m.part_id),key:parts.length?'part_id':'',rates}):c3a?c3aHint+c3aFields(v,{vat:false}):'';
  const head=field('number','Номер','text',d.number)+(signed?field('signed_on','Дата подписания процентовки (весь комплект)','date',signed):'');
- const fields=head+(act?versionFields+markFields:c3a?versionFields+note('note','Содержание / основание',v.note||'').replace(' required',''):'')
+ const fields=head+(act?versionFields+markFields:c3a?(parts.length?partField:'')+versionFields+note('note','Содержание / основание',v.note||'').replace(' required',''):'')
   +'<p class="muted">Договор, объект и месяц не меняются: если документ внесён не туда, удалите его и внесите заново. Изменение проверенного комплекта ставит замечание, комплект в бухгалтерии меняется только после отмены перехода.</p>';
  form(`Изменить: ${kindNames[d.kind]} № ${d.number}`,fields,async x=>{
   const clean=s=>String(s??'').trim();
@@ -223,6 +223,8 @@ function docEditForm(id){
   }
   if(clean(x.number)!==clean(d.number)){await rpc({op:'set_document_number',document_id:id,number:clean(x.number)});changed=true;}
   if(signed&&clean(x.signed_on)!==String(signed).slice(0,10)){await rpc({op:'workflow_redate',workflow_id:w.id,step:'check',date:clean(x.signed_on),note:`в карточке ${kindNames[d.kind]} № ${clean(x.number)}`});changed=true;}
+  // Справка С-3а: смена части пересчитывает её по актам новой части (новая версия в базе).
+  if(c3a&&parts.length&&clean(x.part_id)!==clean(m.part_id)){await rpc({op:'set_document_mark',document_id:id,part_id:clean(x.part_id)||null});changed=true;}
   if(act){
    const mark={part_id:parts.length?(clean(x.part_id)||null):null,part:parts.length?null:(clean(x.part)||null),tn_status:clean(x.tn_status)||null,original:clean(x.original)||null,note:clean(x.mark_note)||''};
    const differs=(parts.length?clean(mark.part_id)!==clean(m.part_id):clean(mark.part)!==clean(m.part))||clean(mark.tn_status)!==clean(m.tn_status)||clean(mark.original)!==clean(m.original)||clean(mark.note)!==clean(m.note);
@@ -522,7 +524,9 @@ async function action(name,id){
  if(['new-doc','new-c3a','new-c29'].includes(name)){
  const outgoingOnly=name==='new-c29'||(name==='new-c3a'&&!id),contracts=data.contracts.filter(c=>c.project_id===ui.project&&(!outgoingOnly||c.direction==='outgoing')).sort((a,b)=>(b.id===id)-(a.id===id));if(!contracts.length)return toast(outgoingOnly?'Сначала добавьте договор с заказчиком.':'Сначала добавьте договор.');
  const head=select('contract_id','Договор',contracts.map(c=>[c.id,c.number+' · '+c.party]));
- if(name==='new-c3a')return form('Справка С-3а',head+field('number','Номер')+c3aHint+c3aFields()+field('due_date','Срок','date','',false)+note('note','Содержание / основание').replace(' required','')+jumpFields(),x=>createAndJump({...x,kind:'c3a'}));
+ const c3aParts=contracts.flatMap(c=>partsOf(data,c.id).filter(p=>p.active).map(p=>[p.id,`${contracts.length>1?'дог. № '+c.number+' · ':''}${p.name} · ${vatLabel(p)}`]));
+ const c3aPart=c3aParts.length?select('part_id','Часть договора (у каждой части своя справка)',[['','Весь договор'],...c3aParts]):'';
+ if(name==='new-c3a')return form('Справка С-3а',head+c3aPart+field('number','Номер')+c3aHint+c3aFields()+field('due_date','Срок','date','',false)+note('note','Содержание / основание').replace(' required','')+jumpFields(),x=>createAndJump({...x,kind:'c3a'}));
  if(name==='new-c29')return form('Отчёт С-29',head+field('number','Номер')+field('due_date','Срок','date','',false)+note('note','Содержание / основание').replace(' required',''),x=>mutate(periodPayload('create_document',{...x,kind:'c29'})));
  return form('Новый акт',head+select('kind','Форма',[['c2a','С-2а'],['c2b','С-2б']])+field('number','Номер')+field('amount','Сумма акта с НДС, руб.','number','0')+vatField('',{rate:vatRateOf(data,contracts[0]?.id),key:'contract_id',rates:Object.fromEntries(contracts.map(c=>[c.id,vatRateOf(data,c.id)]))})+`<label class="md-check"><input type="checkbox" name="correction" value="true"> Корректировка: сумма может быть ноль или меньше</label>`+field('corrects','Что исправляет (например, акт №1 за июнь 2026)','text','',false)+field('due_date','Срок','date','',false)+note('note','Содержание / основание')+jumpFields(),x=>createAndJump(x));
  }

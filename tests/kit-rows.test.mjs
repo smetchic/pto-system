@@ -35,3 +35,18 @@ test('subcontractor card: view first, documents of the month, fields only by «�
  assert.ok(html.indexOf('С-3а № 04/2026')<html.indexOf('С-2б № 1'));
  assert.match(html,/data-action="sub-month" data-id="k">Изменить/);assert.doesNotMatch(html,/<input|<select/);
 });
+test('kit rows: one C-3a per contract part, acts of each part under its C-3a and checked against it',()=>{
+ const d={versions:[{id:'v1',amount:'700.00',version:1},{id:'v2',amount:'300.00',version:1},{id:'vz',version:1},{id:'vb',version:2}],
+  c3aReports:[{version_id:'vz',document_id:'z',smr:'700.00',equipment:'0',target_offset:'0',current_offset:'0',to_pay:'700.00'},{version_id:'vb',document_id:'b',smr:'300.00',equipment:'0',target_offset:'0',current_offset:'0',to_pay:'300.00'}],
+  docMarks:[{document_id:'a1',part_id:'pl'},{document_id:'a2',part_id:'ps'},{document_id:'z',part_id:'pl'},{document_id:'b',part_id:'ps'}],
+  contractParts:[{id:'pl',contract_id:'c',name:'Жилая часть',active:true},{id:'ps',contract_id:'c',name:'Встроенные',active:true}],files:[]};
+ const kit=[{id:'a2',kind:'c2b',number:'2',current_version:'v2'},{id:'a1',kind:'c2b',number:'1',current_version:'v1'},
+  {id:'z',kind:'c3a',number:'10-Ж',current_version:'vz'},{id:'b',kind:'c3a',number:'10-В',current_version:'vb'}];
+ const html=kitRows({data:d,list:kit,contract:{id:'c'},canEdit:true});
+ assert.ok(html.indexOf('С-3а № 10-В')<html.indexOf('С-2б № 2')&&html.indexOf('С-2б № 2')<html.indexOf('С-3а № 10-Ж')&&html.indexOf('С-3а № 10-Ж')<html.indexOf('С-2б № 1'));
+ assert.doesNotMatch(html,/разница/,'каждая справка сходится со своей частью');
+ assert.match(html,/class="kt-ok">700,00<i class="kt-chk">✓/);assert.match(html,/class="kt-ok">300,00<i class="kt-chk">✓/);
+ assert.doesNotMatch(html,/new-c3a/,'обе части со справками');
+ const one=kitRows({data:d,list:kit.filter(x=>x.id!=='b'),contract:{id:'c'},canEdit:true});
+ assert.match(one,/data-action="new-c3a"/,'части без справки — ссылка на новую справку');
+});

@@ -100,7 +100,7 @@ test('register shows the operative estimate separately and marks the basis of ac
  Object.assign(ctx.data.matrix.rows[0],{estimate:'150.00',basis:'acts'});ctx.data.matrix.total.estimate='150.00';
  html=renderWorkspace(ctx);
  assert.match(html,/Оценка, предв\./);assert.match(html,/<td class="num muted">150,00</);
- assert.match(html,/по актам, С-3а не принята/);
+ assert.match(html,/по актам, предварительно<\/small>[^]*?75,00 <small class="rg-pre"/,'до бухгалтерии собственные силы предварительные');
  ctx.data.matrix.rows[0].basis='c3a';assert.match(renderWorkspace(ctx),/дог\. № Д-1 · по С-3а/);
  ctx.ui.route='project';ctx.ui.projectTab='month';assert.match(renderWorkspace(ctx),/Оценка выполнения[^]*?150,00/);
 });
