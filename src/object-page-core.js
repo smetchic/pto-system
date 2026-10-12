@@ -1,5 +1,5 @@
 // Страница объекта (docs/object.md, вкладка «Месяц» — docs/month.md): Месяц · Договоры · Документы · История. Чистая функция: данные из main.js, шаги делаются в боковой панели «Подписания».
-import {escapeHtml as e,money,kindNames,actionNames,canWrite} from './domain.js';
+import {escapeHtml as e,money,kindNames,actionNames,canWrite,ourReports} from './domain.js';
 import {COLUMNS,openNotes,objectColor,subsOf,canMoveCard,turnOf,daysOnStep,expectedCards,activeIn,oursContract} from './conveyor.js';
 import {projectAmounts,c29Status,engineerName} from './portfolio.js';
 import {groupsOf,endCell,addendaCell,addendaRows} from './contracts.js';
@@ -86,7 +86,8 @@ export function objectPage({ui,data,profile,today,now=Date.now()}){
   const claimIds=new Set(live.filter(k=>!k.x.expected).map(k=>k.x.id));
   const kit=docs.filter(d=>claimIds.has(d.workflow_id));
   const acts=kit.filter(d=>d.kind==='c2a'||d.kind==='c2b').sort((a,b)=>String(a.number).localeCompare(String(b.number),'ru',{numeric:true}));
-  const reports=(data.c3aReports||[]).filter(r=>r.project_id===pid&&r.is_current);
+  // Только наши С-3а (исходящие договоры): справки субподрядчиков в СМР месяца не входят.
+  const reports=ourReports(data,pid);
   const rs=f=>reports.reduce((t,r)=>t+Number(r[f]||0),0);
   // «на заказчика» по субподрядчикам: customer_cells реестра (до миграции 20261010230000 — cells). Отметка месяца важнее.
   const cells={};for(const r of (data.matrix?.rows||[]).filter(r=>r.kind==='contract'&&r.project_id===pid))for(const [k,v] of Object.entries(r.customer_cells||r.cells||{}))cells[k]=(cells[k]||0)+Number(v);
