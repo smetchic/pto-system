@@ -120,11 +120,19 @@ export function matchContract(data,projectId,doc){
 const monthName=m=>m?new Date(m+'-01T12:00:00Z').toLocaleDateString('ru-RU',{month:'long',year:'numeric',timeZone:'UTC'}):'—';
 // Уже внесённый документ: тот же договор, месяц, форма и номер.
 export const isLoaded=(existing,f,contract,number)=>(existing||[]).some(x=>x.contract_id===contract&&String(x.month).slice(0,7)===f.doc.month&&x.kind===f.doc.kind&&String(x.number).trim()===String(number).trim());
+// Похоже на уже внесённый акт с другим номером: тот же договор, месяц, форма и сумма (12.10.2026) — чтобы ошибка в номере
+// не стала вторым документом. Пользователь выбирает: заменить номер у внесённого или добавить как новый.
+export const lookAlike=(existing,f,contract,number)=>f.doc.type!=='act'?null:(existing||[]).find(x=>x.contract_id===contract&&String(x.month).slice(0,7)===f.doc.month&&x.kind===f.doc.kind
+ &&String(x.number).trim()!==String(number).trim()&&x.amount!==null&&x.amount!==undefined&&Math.abs(Number(x.amount)-Number(f.doc.amount))<0.005)||null;
 const STEPS=[['','Не ставить: комплект в начале «Подписания»'],['check','На проверке'],['signed','Проверено'],['accepted','В бухгалтерии']];
 
 // Предпросмотр: строка на лист, галочка, договор, номер; С-3а сверяется с суммой актов того же договора и месяца.
 // canJump: начальник ПТО и все месяцы прошлые — тогда можно сразу поставить шаг «Подписания».
 export function importCard({data,projectId,files,existing=[],canJump=false}){
+ const like=(f,i)=>{const x=!isLoaded(existing,f,f.contract,f.doc.number)&&lookAlike(existing,f,f.contract,f.doc.number);if(!x)return '';
+  return `<div class="xi-like ct-warn">Похоже на акт № ${e(x.number)} с другим номером (тот же договор, месяц и сумма).
+   <label><input type="radio" name="mode-${i}" value="renumber:${e(x.id)}" checked> заменить номер у № ${e(x.number)} на номер из файла</label>
+   <label><input type="radio" name="mode-${i}" value="new"> добавить как новый акт</label></div>`;};
  const contracts=(data.contracts||[]).filter(c=>c.project_id===projectId);
  const opt=(sel,dir)=>`<option value="">— выберите договор —</option>${contracts.filter(c=>!dir||c.direction===dir).map(c=>`<option value="${e(c.id)}"${c.id===sel?' selected':''}>№ ${e(c.number)} · ${e(c.party||'')}</option>`).join('')}`;
  const acts=files.filter(f=>f.doc.type==='act');
@@ -138,19 +146,21 @@ export function importCard({data,projectId,files,existing=[],canJump=false}){
    <div class="xi-main"><div class="xi-top"><b>${what}${d.number?` № ${e(d.number)}`:''}</b>${d.correction?'<span class="pill w">Корректировка</span>':''}<span class="xi-sum num">${sum}</span></div>
     <small class="muted xi-where" title="${e(d.part||'')}">${e(monthName(d.month))} · лист «${e(d.sheet||f.name)}»${d.part?` · ${e(d.part)}`:''}</small>
     ${d.type?`<div class="xi-grid${d.correction?' corr':''}"><label>№<input name="number-${i}" value="${e(d.number)}" maxlength="40" required></label><label>Договор<select name="contract-${i}">${opt(f.contract,d.type==='c3a'?(isOurs(d)?'outgoing':'incoming'):'')}</select></label>${d.correction?`<label>Исправляет<input name="corrects-${i}" value="${e(d.corrects)}" maxlength="120"></label>`:''}</div>`:''}
-    ${loaded?'<small class="muted">Уже внесён: пропускается</small>':''}${check}${d.problems.map(p=>`<small class="${ok||loaded?'ct-warn':'error'}">${e(p)}</small>`).join('')}</div></div>`;}).join('');
+    ${loaded?'<small class="muted">Уже внесён: пропускается</small>':''}${like(f,i)}${check}${d.problems.map(p=>`<small class="${ok||loaded?'ct-warn':'error'}">${e(p)}</small>`).join('')}</div></div>`;}).join('');
  const n=files.filter(f=>f.doc.type).length,corr=files.filter(f=>f.doc.correction).length;
  // Дата подписания процентовки (замечание 12.10.2026) обязательна для шага «Проверено» и дальше: это не дата ввода в базу.
- const step=canJump?`<label class="xi-step">Шаг «Подписания» после загрузки<select name="to_step">${STEPS.map(([v,l])=>`<option value="${v}"${v==='accepted'?' selected':''}>${l}</option>`).join('')}</select></label><label class="xi-step">Дата подписания процентовки<input type="date" name="signed_on"></label><small class="muted">Нужна для шагов «Проверено» и «В бухгалтерии». Если месяцы подписаны в разные дни, исправьте дату в месяце ссылкой «Исправить дату».</small>`:'';
+ const step=canJump?`<label class="xi-step">Шаг «Подписания» после загрузки<select name="to_step">${STEPS.map(([v,l])=>`<option value="${v}"${v==='accepted'?' selected':''}>${l}</option>`).join('')}</select></label><label class="xi-step">Дата подписания процентовки<input type="date" name="signed_on"></label><small class="muted">Нужна для шагов «Проверено» и «В бухгалтерии». Если месяцы подписаны в разные дни, исправьте дату в «Изменить» карточки любого документа месяца.</small>`:'';
  return `<form id="excel-import-form" class="cp-drawer-shell ob" autocomplete="off" data-editing><div class="cp-drawer-head"><button type="button" class="cp-drawer-close" data-action="dismiss">Закрыть ×</button><h2>Загрузка из Excel</h2><div class="ct-sub">Распознано ${n} из ${files.length}${corr?` · корректировок ${corr}`:''}${acts.length?` · акты на ${money(round(acts.reduce((t,f)=>t+(f.doc.amount||0),0)))}`:''}. Документы попадут в месяц из файла; уже внесённые с тем же номером пропускаются.</div></div>
  <div class="cp-drawer-content">${rows}${step}<p class="cp-hint">Сумма акта — «Всего стоимость работ» за отчётный период с НДС. Акт с суммой ноль или меньше вносится как корректировка. Справка С-3а вносится после актов своего договора: СМР в ней база считает по актам, остальные строки берутся из файла.</p></div>
  <div class="cp-drawer-foot"><p id="contract-error" class="error" role="alert"></p><button type="button" data-action="dismiss">Отмена</button><button class="primary" type="submit">Загрузить</button></div></form>`;
 }
 
 // Порядок загрузки: по месяцам, внутри — акты раньше справки С-3а.
+// renumber — id внесённого акта, у которого меняется номер, вместо создания нового (только если договор тот же).
 export function importPlan(files,form,existing=[]){
  const picked=new Set(form.getAll('pick').map(Number));
- return files.map((f,i)=>({...f,i,number:String(form.get('number-'+i)||'').trim(),contract:String(form.get('contract-'+i)||''),corrects:String(form.get('corrects-'+i)??f.doc.corrects??'').trim()}))
+ const target=(f,i)=>{const m=String(form.get('mode-'+i)||'');if(!m.startsWith('renumber:'))return null;const x=(existing||[]).find(y=>y.id===m.slice(9));return x&&x.contract_id===String(form.get('contract-'+i)||'')?x.id:null;};
+ return files.map((f,i)=>({...f,i,number:String(form.get('number-'+i)||'').trim(),contract:String(form.get('contract-'+i)||''),corrects:String(form.get('corrects-'+i)??f.doc.corrects??'').trim(),renumber:target(f,i)}))
   .filter(f=>picked.has(f.i)&&f.doc.type&&!isLoaded(existing,f,f.contract,f.number))
   .sort((a,b)=>a.doc.month.localeCompare(b.doc.month)||(a.doc.type==='c3a')-(b.doc.type==='c3a'));
 }
@@ -174,9 +184,9 @@ export function sheetsOf(book){
 }
 
 // Итог загрузки — в той же боковой панели.
-export function importResult({created,failed,moved,step}){
+export function importResult({created,failed,moved,step,renumbered=0}){
  return `<div class="cp-drawer-shell ob"><div class="cp-drawer-head"><button type="button" class="cp-drawer-close" data-action="dismiss">Закрыть ×</button><h2>Загрузка из Excel</h2>
- <div class="ct-sub">Внесено документов: ${created}${moved?` · комплектов на шаге «${e(step)}»: ${moved}`:''}</div></div>
+ <div class="ct-sub">Внесено документов: ${created}${renumbered?` · заменён номер у ${renumbered}`:''}${moved?` · комплектов на шаге «${e(step)}»: ${moved}`:''}</div></div>
  <div class="cp-drawer-content">${failed.length?`<h3>Не внесены (${failed.length})</h3>${failed.map(x=>`<p class="error">${e(x)}</p>`).join('')}`:'<p class="xi-ok">Всё отмеченное внесено.</p>'}</div>
  <div class="cp-drawer-foot"><button class="primary" type="button" data-action="dismiss">Готово</button></div></div>`;
 }

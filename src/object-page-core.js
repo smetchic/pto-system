@@ -178,7 +178,7 @@ export function objectPage({ui,data,profile,today,now=Date.now()}){
    !acts.length&&!needC3a&&!kit.length?`<tr class="mo-off"><td colspan="7">${per?'Акты месяца появятся на шаге «Готовятся акты».':'Отчётный месяц ещё не открыт.'}</td></tr>`:''].join('');
   const marks=canEdit?`<span class="mo-marks">В месяце будет: <button class="mo-cb" role="checkbox" aria-checked="${!!mm.equipment_expected}" data-action="month-mark" data-id="equipment">оборудование</button><button class="mo-cb" role="checkbox" aria-checked="${!!mm.materials_expected}" data-action="month-mark" data-id="materials">материалы заказчика</button></span>`:'';
   const docsHtml=(live.length?live:[{c:ours[0]||null,x:null}]).map(({c,x},i)=>{const w=x&&!x.expected?x:null,list=w?kit.filter(d=>d.workflow_id===w.id):[];
-   return `<section class="ob-panel" aria-label="${e(kitTitle(w,c))}"><div class="ob-ph"><h2>${e(kitTitle(w,c))}</h2>${kitStatus(w,{canEdit:writer&&per?.status!=='closed'})}${i===0?marks:''}</div>
+   return `<section class="ob-panel" aria-label="${e(kitTitle(w,c))}"><div class="ob-ph"><h2>${e(kitTitle(w,c))}</h2>${kitStatus(w)}${i===0?marks:''}</div>
    ${i===0&&canEdit?'<input type="file" id="excel-acts" accept=".xlsx" multiple hidden>':''}<div class="table-wrap"><table class="ob-table dt-table kt-table">${KIT_COLS}${KIT_HEAD}<tbody>${i===0?extra:''}${kitRows({data,list,contract:c,canEdit,tn:tnPill})}</tbody></table></div></section>`;}).join('');
   const subState=s=>{const w=s.workflow,n=openNotes(w);
    if(s.skip)return st('Исключён','n',s.skip.reason||'');if(s.off)return '<span class="muted">не подаёт</span>';if(!w)return st('Ждём процентовку','n');

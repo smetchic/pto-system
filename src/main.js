@@ -1,6 +1,7 @@
 import {renderWorkspace} from './views.js';
 import {createClient} from '@supabase/supabase-js';
-import {escapeHtml as e,money,isDone,canWrite,kindNames,roleNames,actionNames,emptyMatrix,registerSheetRows,moneyText,moneyLive,plainMoney,parseMoney,vatInfo} from './domain.js';
+import {escapeHtml as e,money,isDone,canWrite,kindNames,roleNames,actionNames,emptyMatrix,registerSheetRows,moneyText,moneyLive,plainMoney,parseMoney,vatInfo,vatRateOf,actVatCalc,actVatCheck} from './domain.js';
+import {signedOn} from './kit-rows.js';
 import {nativePick,pickNative,forgetRoot,folderPaths,pickListHtml} from './folder-pick.js';
 import {contractCard,newContractCard,newContractPayload,addendumCard,addendumStatusCard,partCard,partsOf,vatLabel,objectCard,memberCard} from './contracts.js';
 import {parseContractsFile,previewContracts,previewHtml} from './contracts-import.js';
@@ -38,6 +39,9 @@ const field=(name,label,type='text',value='',required=true)=>type==='number'
  :`<label>${e(label)}<input name="${name}" type="${type}" value="${e(value)}" ${required?'required':''}></label>`;
 const select=(name,label,options)=>`<label>${e(label)}<select name="${name}" required>${options.map(([id,title])=>`<option value="${e(id)}">${e(title)}</option>`).join('')}</select></label>`;
 const note=(name,label,value='')=>`<label>${e(label)}<textarea name="${name}" required>${e(value)}</textarea></label>`;
+// НДС акта: поле с подсказкой по ставке (бледно в пустом поле, Enter принимает) и пометкой расхождения больше 0,01 руб.
+// rates — ставка по значению поля key (часть или договор), иначе rate.
+const vatField=(value,{rate=20,key='',rates={}}={})=>`<label>в т.ч. НДС, руб.<input name="smr_vat" type="text" inputmode="decimal" data-money data-vat-of="amount" data-vat-rate="${e(rate)}" data-vat-key="${e(key)}" data-vat-rates="${e(JSON.stringify(rates))}" pattern="\\s*-?[0-9 \\u00a0]*([.,][0-9]{0,2})?\\s*" title="Сумма, например 1 234,56" value="${e(moneyText(value))}" autocomplete="off"><small class="vat-chk" data-vat-chk></small></label>`;
 const currentPeriod=()=>data.periods?.find(p=>p.project_id===ui.project);
 const editor=(pid=ui.project)=>canWrite(profile,data.memberships,pid);
 const canEdit=()=>editor()&&currentPeriod()?.status==='open';
@@ -162,38 +166,67 @@ function docMarkForm(id){
   x=>mutate({op:'set_document_mark',document_id:id,...blankNull(x),note:x.note||''}));
 }
 
-// Единое редактирование карточки: версия и отметки сохраняются штатными командами журнала.
+// Прошлый месяц при ручном вводе — сразу на шаг «Подписания», как при загрузке из Excel (12.10.2026):
+// только начальник ПТО и только прошлые месяцы; в текущем месяце комплект идёт по шагам.
+const JUMP_STEPS=[['','Не ставить: комплект в начале «Подписания»'],['check','На проверке'],['signed','Проверено'],['accepted','В бухгалтерии']];
+const canJumpNow=()=>profile?.role==='head'&&!!ui.month&&ui.month<todayKey().slice(0,7);
+const jumpFields=()=>canJumpNow()?select('to_step','Шаг «Подписания» после сохранения',JUMP_STEPS.slice().sort((a,b)=>(b[0]==='accepted')-(a[0]==='accepted')))+field('signed_on','Дата подписания процентовки','date','',false)+'<p class="muted">Прошлый месяц: комплект встанет сразу на выбранный шаг. Для «Проверено» и «В бухгалтерии» нужна дата подписания. Если комплект уже на этом шаге или дальше, шаг не меняется.</p>':'';
+async function createAndJump(x){
+ const {to_step:step='',signed_on:signed='',...rest}=x;
+ if(['signed','accepted'].includes(step)&&!signed)throw Error('Укажите дату подписания процентовки');
+ const r=await mutate(periodPayload('create_document',rest));
+ if(!step||!canJumpNow())return r;
+ const d=data.documents.find(z=>z.id===r.document_id),w=d&&(data.workflows||[]).find(z=>z.id===d.workflow_id);
+ const target=w&&(data.steps||[]).find(z=>z.template_code===w.template_code&&z.code===step);
+ if(!w||!target||Number(w.step_ordinal)>=Number(target.ordinal))return r;
+ await mutate({op:'workflow_jump',workflow_id:w.id,to_step:step,date:signed||undefined,note:'внесено вручную'});
+ return r;
+}
+// Единое редактирование карточки (решения пользователя 12.10.2026): правится всё, что видно в карточке —
+// номер, дата подписания комплекта, сумма и НДС акта, суммы справки, отметки. Договор, объект и месяц не правятся:
+// ошибочный документ удаляют и вносят заново. Каждое изменение — своя команда журнала.
 function docEditForm(id){
  const d=data.documents.find(x=>x.id===id);if(!d)throw Error('Документ не найден');
  const v=ver(d),m=(data.docMarks||[]).find(x=>x.document_id===id)||{},c=data.contracts.find(x=>x.id===d.contract_id);
  const act=['c2a','c2b'].includes(d.kind),c3a=d.kind==='c3a';
+ const w=(data.workflows||[]).find(x=>x.id===d.workflow_id),signed=signedOn(w);
  const parts=partsOf(data,d.contract_id).filter(p=>p.active||p.id===m.part_id);
  const partField=parts.length?select('part_id','Часть договора',ordered([['','Не указана'],...parts.map(p=>[p.id,`${p.name} · ${vatLabel(p)}`])],m.part_id)):field('part','Часть объекта','text',m.part||'',false);
  const markFields=act?partField+select('tn_status','Технадзор',ordered([['','—'],['prep','Готовится'],['tn','У ТН'],['remarks','Замечания ТН'],['ok','ТН подписал']],m.tn_status))+select('original','Где оригинал',ordered([['','—'],['party',`В ${c?.party||'у заказчика'}`],['ours','У нас'],['accounting','Передан в бухгалтерию']],m.original))+note('mark_note','Комментарий (для замечания ТН обязателен)',m.note||'').replace(' required',''):'';
- const versionFields=act?field('amount','Сумма акта с НДС, руб.','number',v.amount):c3a?c3aHint+c3aFields(v):'';
- const fields=(act?versionFields+markFields:c3a?versionFields+note('note','Содержание / основание',v.note||'').replace(' required',''):'');
+ const rates=Object.fromEntries(parts.map(p=>[p.id,vatRateOf(data,d.contract_id,p.id)]));
+ const versionFields=act?field('amount','Сумма акта с НДС, руб.','number',v.amount)+vatField(v.smr_vat,{rate:vatRateOf(data,d.contract_id,m.part_id),key:parts.length?'part_id':'',rates}):c3a?c3aHint+c3aFields(v,{vat:false}):'';
+ const head=field('number','Номер','text',d.number)+(signed?field('signed_on','Дата подписания процентовки (весь комплект)','date',signed):'');
+ const fields=head+(act?versionFields+markFields:c3a?versionFields+note('note','Содержание / основание',v.note||'').replace(' required',''):'')
+  +'<p class="muted">Договор, объект и месяц не меняются: если документ внесён не туда, удалите его и внесите заново. Изменение проверенного комплекта ставит замечание, комплект в бухгалтерии меняется только после отмены перехода.</p>';
  form(`Изменить: ${kindNames[d.kind]} № ${d.number}`,fields,async x=>{
   const clean=s=>String(s??'').trim();
   const dec=s=>{const n=String(s??'').replace(/[\s\u00a0]/g,'').replace(',','.');return n===''?null:n;};
   const num=s=>{const n=dec(s);return n===null?null:Number(n);};
   const same=(a,b)=>num(a)===null&&num(b)===null||num(a)!==null&&num(b)!==null&&Math.abs(num(a)-num(b))<0.005;
+  const rpc=payload=>query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload}));
+  if(!clean(x.number))throw Error('Укажите номер');
   if(act&&clean(x.tn_status)==='remarks'&&!clean(x.mark_note))throw Error('Для замечания технадзора укажите комментарий');
+  if(signed&&!clean(x.signed_on))throw Error('Укажите дату подписания');
   let changed=false;
-  if(act&&!same(x.amount,v.amount)){
+  // Сначала новая версия (ей нужна текущая ревизия месяца), затем номер, дата и отметки.
+  // Акт: сумма и НДС идут вместе — новая версия без НДС оставила бы его пустым.
+  if(act&&(!same(x.amount,v.amount)||!same(x.smr_vat,v.smr_vat))){
    const p=data.periods.find(z=>z.id===d.period_id);
-   await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'revise',period_id:d.period_id,expected_revision:p.revision,document_id:id,amount:dec(x.amount),note:v.note||'',reason:'Изменено в карточке'}}));changed=true;
+   await rpc({op:'revise',period_id:d.period_id,expected_revision:p.revision,document_id:id,amount:dec(x.amount),smr_vat:dec(x.smr_vat),note:v.note||'',reason:'Изменено в карточке'});changed=true;
   }
   if(c3a){
-   const keys=['smr_vat','equipment_amount','equipment_vat','advance_target_offset','advance_current_offset'];
+   const keys=['equipment_amount','equipment_vat','advance_target_offset','advance_current_offset'];
    if(keys.some(k=>!same(x[k],v[k]))||clean(x.note)!==clean(v.note)){
     const p=data.periods.find(z=>z.id===d.period_id);
-    await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'revise',period_id:d.period_id,expected_revision:p.revision,document_id:id,...Object.fromEntries(keys.map(k=>[k,dec(x[k])])),note:x.note??v.note??'',reason:'Изменено в карточке'}}));changed=true;
+    await rpc({op:'revise',period_id:d.period_id,expected_revision:p.revision,document_id:id,...Object.fromEntries(keys.map(k=>[k,dec(x[k])])),note:x.note??v.note??'',reason:'Изменено в карточке'});changed=true;
    }
   }
+  if(clean(x.number)!==clean(d.number)){await rpc({op:'set_document_number',document_id:id,number:clean(x.number)});changed=true;}
+  if(signed&&clean(x.signed_on)!==String(signed).slice(0,10)){await rpc({op:'workflow_redate',workflow_id:w.id,step:'check',date:clean(x.signed_on),note:`в карточке ${kindNames[d.kind]} № ${clean(x.number)}`});changed=true;}
   if(act){
    const mark={part_id:parts.length?(clean(x.part_id)||null):null,part:parts.length?null:(clean(x.part)||null),tn_status:clean(x.tn_status)||null,original:clean(x.original)||null,note:clean(x.mark_note)||''};
    const differs=(parts.length?clean(mark.part_id)!==clean(m.part_id):clean(mark.part)!==clean(m.part))||clean(mark.tn_status)!==clean(m.tn_status)||clean(mark.original)!==clean(m.original)||clean(mark.note)!==clean(m.note);
-   if(differs){await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'set_document_mark',document_id:id,...mark}}));changed=true;}
+   if(differs){await rpc({op:'set_document_mark',document_id:id,...mark});changed=true;}
   }
   if(!changed){toast('Изменений нет');return;}
   await load();await docModal(id);dialog.dataset.keepOpen='1';toast('Изменения сохранены в журнале');
@@ -314,7 +347,7 @@ async function panelSubmit(f){
  return openPanel(ui.panel.kind,ui.panel.id);
 }
 function dialogReset(){dialog.className='';}
-const c3aFields=(v={})=>[['smr_vat','в т.ч. НДС в СМР, руб.'],['equipment_amount','Оборудование с НДС, руб.'],['equipment_vat','в т.ч. НДС на оборудование, руб.'],['advance_target_offset','Зачёт целевого аванса, руб.'],['advance_current_offset','Зачёт текущего аванса, руб.']].map(([k,label])=>field(k,label,'number',v[k]??'',false)).join('');
+const c3aFields=(v={},{vat=true}={})=>[...(vat?[['smr_vat','в т.ч. НДС в СМР, руб.']]:[]),['equipment_amount','Оборудование с НДС, руб.'],['equipment_vat','в т.ч. НДС на оборудование, руб.'],['advance_target_offset','Зачёт целевого аванса, руб.'],['advance_current_offset','Зачёт текущего аванса, руб.']].map(([k,label])=>field(k,label,'number',v[k]??'',false)).join('');
 // Карточка договора — боковая панель, как у контрагента (src/contracts.js). Правят начальник ПТО и инженер своего объекта.
 function contractDrawer(html,formId,submit){
  delete dialog.dataset.dirty;dialog.className='cp-drawer';dialog.innerHTML=html;if(!dialog.open)dialog.showModal();
@@ -337,7 +370,8 @@ async function excelImport(list){
  const months=[...new Set(files.map(f=>f.doc.month).filter(Boolean))];
  const periods=months.length?await all('pto_periods',q=>q.eq('project_id',projectId).in('month',months.map(m=>m+'-01'))):[];
  const docs=periods.length?await all('pto_document_list',q=>q.in('period_id',periods.map(p=>p.id))):[];
- const existing=docs.map(d=>({...d,month:String(periods.find(p=>p.id===d.period_id)?.month||'')}));
+ const vers=docs.length?await all('pto_versions',q=>q.in('id',docs.map(d=>d.current_version).filter(Boolean))):[];
+ const existing=docs.map(d=>({...d,month:String(periods.find(p=>p.id===d.period_id)?.month||''),amount:vers.find(v=>v.id===d.current_version)?.amount??null}));
  // Шаг «Подписания» сразу — как «Внести сразу»: начальник ПТО, только прошлые месяцы.
  const canJump=profile?.role==='head'&&months.length>0&&months.every(m=>m<todayKey().slice(0,7));
  ui.excel={projectId,files,existing,canJump};
@@ -352,12 +386,13 @@ async function applyExcelImport(form){
  if(['signed','accepted'].includes(step)&&!signedOn)throw Error('Укажите дату подписания процентовки');
  const rpc=payload=>query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload}));
  const rev=async pid=>(await query(client.from('pto_periods').select('revision').eq('id',pid).single())).revision;
- const periodIds={},created=[],failed=[];
+ const periodIds={},created=[],failed=[];let renumbered=0;
  for(const f of plan){
   const label=`${f.doc.type==='c3a'?'Справка С-3а':'Акт'} № ${f.number} (лист «${f.doc.sheet||f.name}»)`;
   try{
    const m=f.doc.month+'-01';
    periodIds[m]??=(await rpc({op:'open_period',project_id:projectId,month:m})).period_id;
+   if(f.renumber){await rpc({op:'set_document_number',document_id:f.renumber,number:f.number});renumbered++;continue;}
    created.push((await rpc({...createPayload(f),period_id:periodIds[m],expected_revision:await rev(periodIds[m])})).document_id);
   }catch(err){failed.push(`${label}: ${errorMessage(err)}`);}
  }
@@ -372,7 +407,7 @@ async function applyExcelImport(form){
   }
  }
  ui.excel=null;await load();
- contractDrawer(importResult({created:created.length,failed,moved,step:(data.steps||[]).find(s=>s.code===step)?.label||step}));
+ contractDrawer(importResult({created:created.length,renumbered,failed,moved,step:(data.steps||[]).find(s=>s.code===step)?.label||step}));
 }
 // Ставка НДС не вводится: считается по сумме и НДС и сохраняется для реестра и подписей частей (domain.js vatInfo).
 const rateOf=(total,vat)=>{const r=vatInfo(total,vat);return r?String(r.rate):'';};
@@ -449,6 +484,9 @@ async function action(name,id){
  if(name==='dismiss')return dialog.close();
  if(name==='logout'){++loadId;data={};profile=null;await client.auth.signOut();session=null;return login();}
  if(name==='refresh')return load();
+ // «Настройки» запоминают, откуда пришли: «Закрыть ×» и Esc возвращают на тот же экран (12.10.2026).
+ if(name==='nav'&&id==='settings'&&ui.route!=='settings')ui.back={route:ui.route,project:ui.project,projectTab:ui.projectTab};
+ if(name==='settings-close'){const b=ui.back||{route:'today'};ui.back=null;Object.assign(ui,b);ui.more=false;return render();}
  if(name==='nav'){ui.route=id;ui.more=false;ui.monthPick=false;render();if(id==='register'&&ui.registerView==='gen')return loadGenCumulative(document.querySelector('#gen-project')?.value);return;}
  if(name==='more'){ui.more=!ui.more;return render();}
  if(name==='wide'){ui.wide=!ui.wide;try{localStorage.setItem('pto-wide',String(ui.wide));}catch{}return render();}
@@ -484,9 +522,9 @@ async function action(name,id){
  if(['new-doc','new-c3a','new-c29'].includes(name)){
  const outgoingOnly=name==='new-c29'||(name==='new-c3a'&&!id),contracts=data.contracts.filter(c=>c.project_id===ui.project&&(!outgoingOnly||c.direction==='outgoing')).sort((a,b)=>(b.id===id)-(a.id===id));if(!contracts.length)return toast(outgoingOnly?'Сначала добавьте договор с заказчиком.':'Сначала добавьте договор.');
  const head=select('contract_id','Договор',contracts.map(c=>[c.id,c.number+' · '+c.party]));
- if(name==='new-c3a')return form('Справка С-3а',head+field('number','Номер')+c3aHint+c3aFields()+field('due_date','Срок','date','',false)+note('note','Содержание / основание').replace(' required',''),x=>mutate(periodPayload('create_document',{...x,kind:'c3a'})));
+ if(name==='new-c3a')return form('Справка С-3а',head+field('number','Номер')+c3aHint+c3aFields()+field('due_date','Срок','date','',false)+note('note','Содержание / основание').replace(' required','')+jumpFields(),x=>createAndJump({...x,kind:'c3a'}));
  if(name==='new-c29')return form('Отчёт С-29',head+field('number','Номер')+field('due_date','Срок','date','',false)+note('note','Содержание / основание').replace(' required',''),x=>mutate(periodPayload('create_document',{...x,kind:'c29'})));
- return form('Новый акт',head+select('kind','Форма',[['c2a','С-2а'],['c2b','С-2б']])+field('number','Номер')+field('amount','Сумма акта с НДС, руб.','number','0')+`<label class="md-check"><input type="checkbox" name="correction" value="true"> Корректировка: сумма может быть ноль или меньше</label>`+field('corrects','Что исправляет (например, акт №1 за июнь 2026)','text','',false)+field('due_date','Срок','date','',false)+note('note','Содержание / основание'),x=>mutate(periodPayload('create_document',x)));
+ return form('Новый акт',head+select('kind','Форма',[['c2a','С-2а'],['c2b','С-2б']])+field('number','Номер')+field('amount','Сумма акта с НДС, руб.','number','0')+vatField('',{rate:vatRateOf(data,contracts[0]?.id),key:'contract_id',rates:Object.fromEntries(contracts.map(c=>[c.id,vatRateOf(data,c.id)]))})+`<label class="md-check"><input type="checkbox" name="correction" value="true"> Корректировка: сумма может быть ноль или меньше</label>`+field('corrects','Что исправляет (например, акт №1 за июнь 2026)','text','',false)+field('due_date','Срок','date','',false)+note('note','Содержание / основание')+jumpFields(),x=>createAndJump(x));
  }
  if(name==='estimate'){
  const contracts=data.contracts.filter(c=>c.project_id===ui.project&&c.direction==='outgoing');if(!contracts.length)return toast('Сначала добавьте договор с заказчиком.');
@@ -574,9 +612,18 @@ document.addEventListener('input',ev=>{if(!['party-search','contract-search'].in
 // Боковая карточка на просмотре закрывается кликом мимо неё. При правке (форма с data-editing или уже что-то введено) — нет, чтобы не потерять ввод.
 // Поля сумм: разделитель тысяч при вводе, полный вид после ввода; в обработчики форм значения уходят без пробелов, с точкой.
 function liveMoney(el){const pos=el.selectionStart??el.value.length,before=el.value.slice(0,pos).replace(/[\s ]/g,'').length,next=moneyLive(el.value);if(next===el.value)return;el.value=next;let n=0,i=0;while(i<next.length&&n<before){if(!/\s/.test(next[i]))n++;i++;}el.setSelectionRange?.(i,i);}
+const vatRateFor=(el,val)=>{let map={};try{map=JSON.parse(el.dataset.vatRates||'{}');}catch{}const k=el.dataset.vatKey?val(el.dataset.vatKey):'';return k&&map[k]!==undefined?map[k]:Number(el.dataset.vatRate||20);};
+// Enter в пустом поле НДС принимает подсказку, а не отправляет форму.
+document.addEventListener('keydown',ev=>{const t=ev.target;if(ev.key!=='Enter'||!t.matches?.('input[data-vat-of]')||t.value.trim())return;
+ const root=t.form||document,val=n=>root.querySelector(`[name="${n}"]`)?.value,calc=actVatCalc(val(t.dataset.vatOf),vatRateFor(t,val));
+ if(calc===null)return;ev.preventDefault();t.value=moneyText(calc);refreshVat();});
 // Посчитанная ставка НДС рядом с полем НДС и сверка «части = итог» (карточки договора, ДС, части договора).
 function refreshVat(root=dialog){
  const val=n=>root.querySelector(`[name="${n}"]`)?.value;
+ root.querySelectorAll('input[data-vat-of]').forEach(el=>{const calc=actVatCalc(val(el.dataset.vatOf),vatRateFor(el,val));
+  el.placeholder=calc===null?'':`${moneyText(calc)} — Enter, чтобы принять`;
+  const chk=actVatCheck(val(el.dataset.vatOf),el.value,vatRateFor(el,val)),out=el.parentElement?.querySelector('[data-vat-chk]');
+  if(out){out.textContent=chk&&chk.bad?`по расчёту ${money(chk.calc)}, разница ${money(chk.diff)}`:'';out.classList.toggle('neg',!!chk?.bad);}});
  root.querySelectorAll('[data-rate-of]').forEach(el=>{const r=vatInfo(val(el.dataset.rateOf),val(el.dataset.rateVat));el.textContent=r?r.text:'';el.classList.toggle('bad',!!r&&!r.ok);el.title=r?(r.ok?'Ставка посчитана по сумме и НДС':'НДС не равен 20 % от суммы: проверьте'):'';});
  root.querySelectorAll('[data-sum-check]').forEach(el=>{const bad=el.dataset.sumCheck.split(';').map(pair=>{const [t,list]=pair.split(':'),total=parseMoney(val(t)),parts=list.split(',').map(n=>parseMoney(val(n))).filter(x=>x!==null);
   return total!==null&&parts.length&&Math.abs(parts.reduce((a,b)=>a+b,0)-total)>0.01?{t,sum:parts.reduce((a,b)=>a+b,0),total}:null;}).filter(Boolean);
@@ -621,6 +668,7 @@ dialog.addEventListener('click',ev=>{if(ev.target!==dialog||!/drawer/.test(dialo
  if(dialog.querySelector('[data-editing]')||dialog.dataset.dirty)return;dialog.close();});
 document.addEventListener('click',async ev=>{const b=ev.target.closest('[data-action]');if(!b||b.disabled||ui.busy)return;ui.busy=true;try{await action(b.dataset.action,b.dataset.id);}catch(err){toast(errorMessage(err));}finally{ui.busy=false;}});
 // Карточки конвейера — не кнопки: открываются клавишами Enter и пробел.
+document.addEventListener('keydown',ev=>{if(ev.key==='Escape'&&ui.route==='settings'&&!dialog.open){ev.preventDefault();return action('settings-close','');}});
 document.addEventListener('keydown',ev=>{const card=ev.target.closest?.('[role="button"][data-action]');if(card&&ev.target===card&&(ev.key==='Enter'||ev.key===' ')){ev.preventDefault();card.click();}});
 document.addEventListener('change',async ev=>{if(ev.target.id==='contract-object'){ui.contractObject=ev.target.value;return render();}if(ev.target.id==='party-project'){ui.partyProject=ev.target.value;ui.partyLetter='';return render();}if(ev.target.id==='jump'&&ev.target.value){const value=ev.target.value;return action(value.startsWith('project:')?'project':'nav',value.split(':')[1]);}if(ev.target.id==='gen-project'){ui.genProject=ev.target.value;render();return loadGenCumulative(ui.genProject).catch(err=>toast(errorMessage(err)));}});
 if(!url||!key||!key.startsWith('sb_publishable_'))app.innerHTML=`<section class="login"><div class="mark">П</div><h1>Подключение ещё не настроено</h1><p>Для запуска администратор должен подключить базу системы ПТО и опубликовать сборку.</p></section>`;

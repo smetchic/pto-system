@@ -39,7 +39,7 @@ function documentsPage({ui,data,profile}){
  const ours=contracts.filter(c=>oursContract(c)&&(activeIn(c,month)||ws.some(w=>w.contract_id===c.id&&w.template_code==='claim')));
  const ticked=id=>(data.subMonth||[]).some(x=>x.period_id===per?.id&&x.contract_id===id&&x.expected===true);
  const subs=subsOf(data,pid,month,{all:true}).filter(s=>s.workflow||ticked(s.contract.id)||docs.some(d=>d.contract_id===s.contract.id));
- const group=(c,w,sub)=>`<tr class="ob-grp kt-head${sub?' kt-sub':''}"><td colspan="7"><span class="kt-title">${e(kitTitle(w,c))}</span> ${kitStatus(w,{canEdit:writer&&per?.status!=='closed'})}</td></tr>${kitRows({data,list:kitOf(c,w),contract:c,canEdit})}`;
+ const group=(c,w,sub)=>`<tr class="ob-grp kt-head${sub?' kt-sub':''}"><td colspan="7"><span class="kt-title">${e(kitTitle(w,c))}</span> ${kitStatus(w)}</td></tr>${kitRows({data,list:kitOf(c,w),contract:c,canEdit})}`;
  const ourHtml=ours.map(c=>group(c,ws.find(w=>w.template_code==='claim'&&w.contract_id===c.id),false)).join('');
  const filed=subs.filter(s=>s.workflow).length;
  const subsHtml=subs.length?`<tr class="ob-grp kt-section"><td colspan="7">Субподрядчики <span class="muted">· подали ${filed} из ${subs.length}</span></td></tr>${subs.map(s=>group(s.contract,s.workflow,true)).join('')}`:'';

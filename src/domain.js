@@ -47,3 +47,12 @@ export function registerSheetRows(value,month){
 // Текущие справки С-3а объекта по нашим договорам. Справки субподрядчиков (входящие договоры) в СМР генподряда не входят.
 export const ourReports=(data,pid)=>{const incoming=new Set((data.contracts||[]).filter(c=>c.direction==='incoming').map(c=>c.id));
  return (data.c3aReports||[]).filter(r=>r.project_id===pid&&r.is_current&&!incoming.has(r.contract_id));};
+// НДС акта (решения пользователя 12.10.2026): вводится полем, подсказка считается по ставке части договора
+// (иначе договора, иначе 20 %): сумма × ставка / (100 + ставка). Расхождение больше 0,01 руб. подсвечивается, сохранить не мешает.
+export const vatRateOf=(data,contractId,partId)=>{const p=partId?(data.contractParts||[]).find(x=>x.id===partId):null,c=(data.contracts||[]).find(x=>x.id===contractId);
+ const r=[p?.vat_rate,c?.vat_rate].find(x=>x!==null&&x!==undefined&&x!=='');return r===undefined?20:Number(r);};
+export const actVatCalc=(amount,rate)=>{const a=parseMoney(amount);if(a===null||!Number.isFinite(Number(rate)))return null;return Math.round(a*Number(rate)/(100+Number(rate))*100)/100;};
+export function actVatCheck(amount,vat,rate){
+ const calc=actVatCalc(amount,rate),v=parseMoney(vat);if(calc===null||v===null)return null;
+ const diff=Math.round((v-calc)*100)/100;return {calc,diff,bad:Math.abs(diff)>0.01};
+}
