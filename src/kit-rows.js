@@ -42,12 +42,12 @@ export function kitRows({data,list,contract,canEdit=false,tn=null}){
  const ok=r0&&acts.length?Math.abs(sum-smr)<0.005:null;
  const name=d=>`${e(kindNames[d.kind]||'Документ')} № ${e(d.number)}${ver(d).version>1?` <span class="dt-v">в${ver(d).version}</span>`:''}${d.correction?` <span class="pill w" title="${e(d.corrects?'Исправляет '+d.corrects:'Корректировка')}">корр.</span>`:''}`;
  const c3aRow=d=>{const r=report(d),v=ver(d),off=(Number(r?.target_offset)||0)+(Number(r?.current_offset)||0);
-  const smrCell=r?`<span class="${ok===true?'kt-ok':ok===false?'neg':''}">${money(r.smr)}${ok===true?' ✓':''}</span>${ok===false?`<small class="neg">акты ${money(sum)} · разница ${money(sum-Number(r.smr))}</small>`:''}`:money(v.amount);
+  const smrCell=r?`<span class="${ok===true?'kt-ok':ok===false?'neg':''}">${money(r.smr)}<i class="kt-chk">${ok===true?'✓':''}</i></span>${ok===false?`<small class="neg">акты ${money(sum)} · разница ${money(sum-Number(r.smr))}</small>`:''}`:`${money(v.amount)}<i class="kt-chk"></i>`;
   return `<tr class="ob-row kt-c3a" data-action="doc" data-id="${e(d.id)}" tabindex="0" role="button"><td><span class="kt-name">${name(d)}</span></td><td></td>
    <td class="num">${smrCell}</td><td class="num">${r&&Number(r.equipment)?money(r.equipment):dash}</td><td class="num">${r&&off?money(off):dash}</td><td class="num"><b>${r?money(r.to_pay):''}</b></td><td class="dt-scan">${scan(d)}</td></tr>`;};
  const actRow=d=>{const v=ver(d),t=tn?tn(d):'';
   return `<tr class="ob-row kt-act" data-action="doc" data-id="${e(d.id)}" tabindex="0" role="button"><td><span class="kt-name">${name(d)}</span>${t?' '+t:''}</td><td class="kt-part" title="${e(part(d))}">${e(part(d))}</td>
-   <td class="num"><span class="${ok===true?'kt-ok':''}">${money(v.amount)}</span></td><td></td><td></td><td></td><td class="dt-scan">${scan(d)}</td></tr>`;};
+   <td class="num"><span class="${ok===true?'kt-ok':''}">${money(v.amount)}<i class="kt-chk"></i></span></td><td></td><td></td><td></td><td class="dt-scan">${scan(d)}</td></tr>`;};
  const cid=e(contract?.id||'');
  const links=canEdit?[`<button type="button" class="link" data-action="new-doc" data-id="${cid}">+ акт</button>`,
    c3as.length?'':`<button type="button" class="link" data-action="new-c3a" data-id="${cid}">+ справка С-3а</button>`,

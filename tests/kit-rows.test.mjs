@@ -12,7 +12,7 @@ test('kit rows: C-3a on top, acts below by number, part in its own column, green
  const html=kitRows({data:data(),list,contract:{id:'c'},canEdit:true});
  assert.ok(html.indexOf('С-3а № 04/2026')<html.indexOf('С-2б № 1')&&html.indexOf('С-2б № 1')<html.indexOf('С-2б № 2'));
  assert.match(html,/class="kt-part" title="Жилая часть">Жилая часть/);assert.match(html,/class="kt-part" title="ПОДГОТОВИТЕЛЬНЫЕ РАБОТЫ">ПОДГОТОВИТЕЛЬНЫЕ РАБОТЫ</,'часть из загрузки Excel');
- assert.match(html,/class="kt-ok">150,00 ✓/);assert.match(html,/class="kt-ok">100,00/);
+ assert.match(html,/class="kt-ok">150,00<i class="kt-chk">✓<\/i>/);assert.match(html,/class="kt-ok">100,00/);
  assert.doesNotMatch(html,/new-c3a/,'справка есть — ссылки на новую справку нет');assert.match(html,/data-action="new-doc" data-id="c">\+ акт/);
 });
 test('kit rows: mismatch is red with the difference; no links for readers',()=>{
