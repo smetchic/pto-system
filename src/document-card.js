@@ -33,7 +33,7 @@ export function sourceOf(note){
  return {part:(t.match(/^Часть объекта:\s*(.+?)\.\s*(?=Из файла|$)/)||[])[1]||'',from:i>=0?t.slice(i).replace(/^Из файла /,'из файла '):'',rest:i>=0||/^Часть объекта:/.test(t)?'':t};
 }
 
-export function documentCard({data,doc:d,files=[],checks=[],canEdit=false,cum=false,editing=false}){
+export function documentCard({data,doc:d,files=[],checks=[],canEdit=false,cum=false}){
  const versions=(data.versions||[]).filter(v=>v.document_id===d.id).sort((a,b)=>b.version-a.version);
  const v=versions.find(x=>x.id===d.current_version)||versions[0]||{};
  const c=(data.contracts||[]).find(x=>x.id===d.contract_id)||{},p=(data.projects||[]).find(x=>x.id===d.project_id)||{};
@@ -47,44 +47,42 @@ export function documentCard({data,doc:d,files=[],checks=[],canEdit=false,cum=fa
  const report=c3a?(data.c3aReports||[]).find(r=>r.version_id===v.id||r.document_id===d.id&&r.is_current):null;
  const verOf=x=>(data.versions||[]).find(y=>y.id===x.current_version);
  const step=`<span class="ob-st ${done?'ok':d.step_code==='signed'?'b':d.step_label?'w':'n'}">${e(d.step_label||'Без комплекта')}</span>`;
- const partEdit=editing&&act?(parts.length?selectField('part_id','Часть объекта',[['','Не указана'],...parts.map(x=>[x.id,x.name])],m.part_id):textField('part','Часть объекта',m.part||src.part||'')):'';
+ const partEdit=act?(parts.length?selectField('part_id','Часть объекта',[['','Не указана'],...parts.map(x=>[x.id,x.name])],m.part_id):textField('part','Часть объекта',m.part||src.part||'')):'';
  const identity=`<div class="dc-ident">
   <div class="dc-party${c.party?'':' muted'}">${e(c.party||'Контрагент не указан')}</div>
   <div class="dc-object">${e(p.name||'')}</div>
-  ${partEdit||`<div class="dc-part${part||src.part?'':' muted'}">${e(part||src.part||'Часть объекта не указана')}</div>`}
+  <div class="dc-view-only dc-part${part||src.part?'':' muted'}">${e(part||src.part||'Часть объекта не указана')}</div>
+  ${act?`<div class="dc-edit-only">${partEdit}</div>`:''}
   <div class="dc-contract">${c.number?`Договор № ${e(c.number)}`:'Договор не указан'}</div>
   <h2>${e(docTitle(d))}</h2>
   <div class="dc-month">${e(monthWord(month))}</div>
  </div>`;
 
  const big=c3a?(report?report.to_pay:null):v.amount;
- const total=editing&&act
-  ?`<div class="cp-total dc-total-edit">${moneyField('amount','Сумма акта с НДС, руб.',v.amount)}${act&&has(v.smr_vat)?`<span class="dc-vat">в т. ч. НДС ${money(v.smr_vat)}</span>`:''}</div>`
-  :`<div class="cp-total"><b class="${Number(big)<0?'neg':''}">${has(big)?money(big):'—'}</b><span>руб.${c3a?' к оплате':''}${act&&has(v.smr_vat)?`<br>в т. ч. НДС ${money(v.smr_vat)}`:''}</span></div>`;
- const amountRow=`<div class="dc-amount-row">${total}${step}</div>`;
+ const totalView=`<div class="cp-total dc-view-only"><b class="${Number(big)<0?'neg':''}">${has(big)?money(big):'—'}</b><span>руб.${c3a?' к оплате':''}${act&&has(v.smr_vat)?`<br>в т. ч. НДС ${money(v.smr_vat)}`:''}</span></div>`;
+ const totalEdit=act?`<div class="cp-total dc-edit-only dc-total-edit">${moneyField('amount','Сумма акта с НДС, руб.',v.amount)}${has(v.smr_vat)?`<span class="dc-vat">в т. ч. НДС ${money(v.smr_vat)}</span>`:''}</div>`:'';
+ const amountRow=`<div class="dc-amount-row">${totalView}${totalEdit}${step}</div>`;
  const corr=d.correction?`<p class="dc-corr"><span class="pill w">Корректировка</span> ${d.corrects?'исправляет '+e(d.corrects):''}</p>`:'';
 
  let middle='';
  if(act){
-  if(editing){
-   middle=`<section class="cp-block dc-marks-edit"><div class="dc-edit-grid">
-    ${selectField('tn_status','Технадзор',[['','—'],['prep','Готовится'],['tn','У ТН'],['remarks','Замечания ТН'],['ok','ТН подписал']],m.tn_status)}
-    ${selectField('original','Где оригинал',[['','—'],['party',`В ${c.party||'у заказчика'}`],['ours','У нас'],['accounting','Передан в бухгалтерию']],m.original)}
-    <label class="dc-edit-field dc-comment"><span>Комментарий</span><textarea name="mark_note">${e(m.note||'')}</textarea></label>
-   </div></section>`;
-  }else{
-   const rows=[['Технадзор',m.tn_status?TN[m.tn_status]||m.tn_status:''],['Оригинал',ORIG[m.original]||''],['Комментарий',m.note||'']].filter(([,x])=>x);
-   middle=rows.length?`<dl class="ct-kv dc-kv">${rows.map(([k,x])=>`<dt>${k}</dt><dd>${e(x)}</dd>`).join('')}</dl>`:'';
-  }
+  const rows=[['Технадзор',m.tn_status?TN[m.tn_status]||m.tn_status:''],['Оригинал',ORIG[m.original]||''],['Комментарий',m.note||'']].filter(([,x])=>x);
+  const view=rows.length?`<dl class="ct-kv dc-kv dc-view-only">${rows.map(([k,x])=>`<dt>${k}</dt><dd>${e(x)}</dd>`).join('')}</dl>`:'';
+  const edit=`<section class="cp-block dc-marks-edit dc-edit-only"><div class="dc-edit-grid">
+   ${selectField('tn_status','Технадзор',[['','—'],['prep','Готовится'],['tn','У ТН'],['remarks','Замечания ТН'],['ok','ТН подписал']],m.tn_status)}
+   ${selectField('original','Где оригинал',[['','—'],['party',`В ${c.party||'у заказчика'}`],['ours','У нас'],['accounting','Передан в бухгалтерию']],m.original)}
+   <label class="dc-edit-field dc-comment"><span>Комментарий</span><textarea name="mark_note">${e(m.note||'')}</textarea></label>
+  </div></section>`;
+  middle=view+edit;
  } else if(c3a){
   const cell=(k,pre='')=>{const x=report?.[pre+k];return has(x)?money(x):'<span class="muted">—</span>';};
   const ytd=report&&C3A_ROWS.some(([k])=>Number(report['ytd_'+k]||0)!==Number(report['total_'+k]||0));
   const head=cum?`<th class="num">С начала работ</th>${ytd?'<th class="num">С начала года</th>':''}`:'';
   const editName={smr_vat:'smr_vat',equipment:'equipment_amount',equipment_vat:'equipment_vat',target_offset:'advance_target_offset',current_offset:'advance_current_offset'};
   const editValue={smr_vat:v.smr_vat??report?.smr_vat,equipment:v.equipment_amount??report?.equipment,equipment_vat:v.equipment_vat??report?.equipment_vat,target_offset:v.advance_target_offset??report?.target_offset,current_offset:v.advance_current_offset??report?.current_offset};
-  middle=`<div class="dc-c3a${cum?' cum':''}${editing?' editing':''}"><table><thead><tr><th>Раздел справки</th>${head}<th class="num dc-now">За ${e(monthWord(month).split(' ')[0]||'месяц')}</th></tr></thead><tbody>
-   ${C3A_ROWS.map(([k,l,lv])=>{const editable=editing&&editName[k];const now=editable?`<input class="dc-table-input" name="${editName[k]}" type="text" inputmode="decimal" data-money value="${e(moneyText(editValue[k]))}">`:cell(k);return `<tr class="${lv===2?'dc-in':lv===3?'total':''}"><td>${l}</td>${cum?`<td class="num">${cell(k,'total_')}</td>${ytd?`<td class="num">${cell(k,'ytd_')}</td>`:''}`:''}<td class="num dc-now">${now}</td></tr>`;}).join('')}</tbody></table></div>
-   ${editing?'':`<button type="button" class="link dc-cum" data-action="c3a-cum" data-id="${e(d.id)}" aria-pressed="${cum}">${cum?'Без накопления':'С накоплением'}</button>`}`;
+  middle=`<div class="dc-c3a${cum?' cum':''}"><table><thead><tr><th>Раздел справки</th>${head}<th class="num dc-now">За ${e(monthWord(month).split(' ')[0]||'месяц')}</th></tr></thead><tbody>
+   ${C3A_ROWS.map(([k,l,lv])=>{const input=editName[k]?`<input class="dc-table-input dc-edit-only" name="${editName[k]}" type="text" inputmode="decimal" data-money value="${e(moneyText(editValue[k]))}">`:'';return `<tr class="${lv===2?'dc-in':lv===3?'total':''}"><td>${l}</td>${cum?`<td class="num">${cell(k,'total_')}</td>${ytd?`<td class="num">${cell(k,'ytd_')}</td>`:''}`:''}<td class="num dc-now"><span class="dc-view-only">${cell(k)}</span>${input}</td></tr>`;}).join('')}</tbody></table></div>
+   <button type="button" class="link dc-cum dc-view-only" data-action="c3a-cum" data-id="${e(d.id)}" aria-pressed="${cum}">${cum?'Без накопления':'С накоплением'}</button>`;
  }
 
  let check='';
@@ -100,12 +98,13 @@ export function documentCard({data,doc:d,files=[],checks=[],canEdit=false,cum=fa
 
  const hist=versions.length>1?`<section class="cp-block"><div class="cp-block-head"><h3>Версии</h3></div>${versions.map(x=>`<div class="dc-ver"><b>в${x.version}</b><span class="num">${money(x.amount)}</span>${x.id===d.accepted_version?'<span class="ob-st ok">принята бухгалтерией</span>':''}<small class="muted">${e(when(x.created_at))}${sourceOf(x.note).rest?' · '+e(sourceOf(x.note).rest):''}</small></div>`).join('')}</section>`:'';
  const meta=`<p class="dc-meta">${['внесено '+when(v.created_at),who,src.from||src.rest].filter(Boolean).map(e).join(' · ')}</p>`;
- const buttons=editing
-  ?`<button type="button" data-action="doc" data-id="${e(d.id)}">Отмена</button><button class="primary" type="submit">Сохранить</button>`
-  :`${d.workflow_id?`<button type="button" class="primary" data-action="workflow" data-id="${e(d.workflow_id)}">Открыть комплект</button>`:''}${canEdit&&(act||c3a)?`<button type="button" data-action="doc-edit" data-id="${e(d.id)}">Изменить</button>`:''}`;
+ const viewButtons=`<span class="dc-view-only">${d.workflow_id?`<button type="button" class="primary" data-action="workflow" data-id="${e(d.workflow_id)}">Открыть комплект</button>`:''}${canEdit&&(act||c3a)?`<button type="button" data-action="doc-edit" data-id="${e(d.id)}">Изменить</button>`:''}</span>`;
+ const editButtons=canEdit&&(act||c3a)?`<span class="dc-edit-only"><button type="button" data-action="doc-edit-cancel" data-id="${e(d.id)}">Отмена</button><button class="primary" type="submit">Сохранить</button></span>`:'';
  const content=act?`${amountRow}${corr}${check}${scan}${middle}${hist}${meta}`:`${amountRow}${corr}${middle}${check}${scan}${hist}${meta}`;
- const shell=`<div class="cp-drawer-head"><button type="button" class="cp-drawer-close" data-action="dismiss">Закрыть ×</button>${identity}</div>
+ const versionState=c3a?{smr_vat:v.smr_vat??report?.smr_vat??'',equipment_amount:v.equipment_amount??report?.equipment??'',equipment_vat:v.equipment_vat??report?.equipment_vat??'',advance_target_offset:v.advance_target_offset??report?.target_offset??'',advance_current_offset:v.advance_current_offset??report?.current_offset??''}:{amount:v.amount??''};
+ const markState=act?{part_id:m.part_id??'',part:m.part||src.part||'',tn_status:m.tn_status??'',original:m.original??'',note:m.note??''}:{};
+ return `<form id="document-card-form" class="cp-drawer-shell ob dc" autocomplete="off" data-document-id="${e(d.id)}" data-kind="${e(d.kind)}" data-period-id="${e(d.period_id||'')}" data-period-revision="${e(per?.revision??'')}" data-version-note="${e(v.note||'')}" data-version-state="${e(JSON.stringify(versionState))}" data-mark-state="${e(JSON.stringify(markState))}">
+ <div class="cp-drawer-head"><button type="button" class="cp-drawer-close" data-action="dismiss">Закрыть ×</button>${identity}</div>
  <div class="cp-drawer-content">${content}</div>
- <div class="cp-drawer-foot"><p id="contract-error" class="error" role="alert"></p>${buttons}</div>`;
- return editing?`<form id="document-card-form" class="cp-drawer-shell ob dc" autocomplete="off" data-editing>${shell}</form>`:`<div class="cp-drawer-shell ob dc">${shell}</div>`;
+ <div class="cp-drawer-foot"><p id="contract-error" class="error" role="alert"></p>${viewButtons}${editButtons}</div></form>`;
 }
