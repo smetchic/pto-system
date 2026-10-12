@@ -4,6 +4,7 @@ import {COLUMNS,openNotes,objectColor,subsOf,canMoveCard,turnOf,daysOnStep,expec
 import {projectAmounts,c29Status,engineerName} from './portfolio.js';
 import {groupsOf,endCell,addendaCell,addendaRows} from './contracts.js';
 import {kitRows,kitTitle,kitStatus,signedOn,KIT_COLS,KIT_HEAD} from './kit-rows.js';
+import {retentionOf,retentionBaseText} from './document-card.js';
 
 export const OBJECT_TABS=[['month','Месяц'],['contracts','Договоры'],['documents','Документы'],['history','История']];
 export const objectTab=t=>OBJECT_TABS.some(([id])=>id===t)?t:'month';
@@ -142,16 +143,20 @@ export function objectPage({ui,data,profile,today,now=Date.now()}){
   // 2. Деньги: С-3а из четырёх сумм, сверка, «Из чего СМР».
   const cell=(cap,v,small,dim)=>`<div><div class="mo-cap">${cap}</div><div class="mo-big${dim?' muted':''}">${v}</div><small>${small}</small></div>`;
   const actsSum=acts.reduce((t,d)=>t+Number(ver(d)?.amount||0),0),mats=acts.reduce((t,d)=>t+(num(dmOf(d.id).materials)||0),0);
+  // Гарантийное удержание: отдельной суммой в полосе, если оно есть по договору или введено вручную.
+  const showRet=rs('retention')>0||reports.some(r=>retentionOf(data,r.contract_id));
+  const retCell=showRet?cell('− удержание',money(rs('retention')),reports.map(r=>retentionOf(data,r.contract_id)).filter(Boolean).map(x=>`${String(Number(x.percent)).replace('.',',')} % ${retentionBaseText(x)}`)[0]||'введено вручную'):'';
   const chk=reports.length?[
    [`Сумма актов = СМР в справке С-3а`,Math.abs(actsSum-rs('smr'))<0.005?'ok':'er'],
-   [`СМР + оборудование − авансы = к оплате`,Math.abs(rs('smr')+rs('equipment')-rs('target_offset')-rs('current_offset')-rs('to_pay'))<0.005?'ok':'er'],
+   [`СМР + оборудование − авансы${showRet?' − удержание':''} = к оплате`,Math.abs(rs('smr')+rs('equipment')-rs('target_offset')-rs('current_offset')-rs('retention')-rs('to_pay'))<0.005?'ok':'er'],
+   ...reports.filter(r=>r.retention_manual!==null&&r.retention_manual!==undefined&&Math.abs(Number(r.retention_manual)-Number(r.retention_calc))>=0.005).map(r=>[`Удержание введено вручную: ${money(r.retention_manual)}, по расчёту ${money(r.retention_calc)} · проверьте`,'w']),
    [`«На заказчика» введено у ${active.filter(s=>s.F!==null).length} из ${active.length} субподрядчиков`,active.every(s=>s.F!==null)?'ok':'w'],
    ...(oral.length?[[`ТН устно: ${oral.map(s=>s.contract.party||s.contract.number).join(', ')} · суммы предварительные`,'w']]:[]),
    ...(passed.length<active.length?[[`Технадзор прошли ${passed.length} из ${active.length} субподрядчиков · суммы предварительные`,'w']]:[])]:[];
   const bad=chk.filter(i=>i[1]==='er').length,warn=chk.filter(i=>i[1]==='w').length;
   const chkLine=reports.length?`<details class="mo-chk"><summary class="${bad?'neg':warn?'mo-w':'mo-ok'}">Сверка сумм: ${bad?`✗ не сходится ${bad}`:warn?'✓ сходится, есть предварительные':'✓ всё сходится'}</summary><ul>${chk.map(i=>`<li class="${i[1]==='ok'?'mo-ok':i[1]==='w'?'mo-w':'neg'}">${i[1]==='ok'?'✓':i[1]==='w'?'!':'✗'} ${e(i[0])}</li>`).join('')}</ul></details>`:'сверка сумм появится с С-3а';
   const strip=reports.length
-   ?cell(`Выполнено СМР · ${SUMST[ix]}`,money(rs('smr')),`${mats?`в т.ч. материалы заказчика ${money(mats)} · `:''}${acts.length} ${acts.length===1?'акт':acts.length>=2&&acts.length<=4?'акта':'актов'}`)+cell('+ оборудование',money(rs('equipment')),'по справке С-3а')+cell('− зачёт авансов',money(rs('target_offset')+rs('current_offset')),`целевой ${money(rs('target_offset'))} · текущий ${money(rs('current_offset'))}`)+'<div class="mo-sep"></div>'+cell('= к оплате по С-3а',money(rs('to_pay')),chkLine)
+   ?cell(`Выполнено СМР · ${SUMST[ix]}`,money(rs('smr')),`${mats?`в т.ч. материалы заказчика ${money(mats)} · `:''}${acts.length} ${acts.length===1?'акт':acts.length>=2&&acts.length<=4?'акта':'актов'}`)+cell('+ оборудование',money(rs('equipment')),'по справке С-3а')+cell('− зачёт авансов',money(rs('target_offset')+rs('current_offset')),`целевой ${money(rs('target_offset'))} · текущий ${money(rs('current_offset'))}`)+retCell+'<div class="mo-sep"></div>'+cell('= к оплате по С-3а',money(rs('to_pay')),chkLine)
    :cell(T?`СМР · ${SUMST[ix]}`:'СМР за месяц',T?money(T):'—',T?'по актам месяца':'актов ещё нет',!T)+cell('+ оборудование','—','появится с С-3а на шаге «На проверке»',true)+cell('− зачёт авансов','—','появится с С-3а',true)+'<div class="mo-sep"></div>'+cell('= к оплате по С-3а','—',chkLine,true);
   // «Из чего СМР» — как в макете v12: толстая полоса «свои работы · генуслуги · субподряд в их ценах», скобка сверху —
   // своими силами (свои работы + генуслуги), снизу — субподряд в ценах заказчика (генуслуги + субподряд). До актов — план, бледно.
@@ -162,7 +167,7 @@ export function objectPage({ui,data,profile,today,now=Date.now()}){
     bottom:`· подали ${filed.length} из ${active.length}${atTn>0?` · ${atTn} у технадзора`:''}`})}`
    :planOwn||planSub?`<div class="mo-lab"><b>Из чего СМР</b><small>план месяца</small></div>${compBar({work:planOwn,G:0,D:planSub,own:planOwn,F:null,T:planOwn+planSub,plan:true,hasF:false,top:'· план',bottom:`· план · подадут ${active.length}`})}`
    :`<div class="mo-lab"><b>Из чего СМР</b></div><div class="muted">Сумм за ${e(monthName(month))} ещё нет: появятся с актами.</div>`;
-  const moneyHtml=`<section class="ob-panel mo-money" aria-label="Деньги месяца"><div class="mo-strip">${strip}</div><div class="mo-info">${info}</div></section>`;
+  const moneyHtml=`<section class="ob-panel mo-money" aria-label="Деньги месяца"><div class="mo-strip${reports.length&&showRet?' ret':''}">${strip}</div><div class="mo-info">${info}</div></section>`;
 
   // 3–4. Документы заказчику и субподрядчики: общая сетка колонок.
   const cols='<colgroup><col><col style="width:150px"><col style="width:150px"><col style="width:130px"><col style="width:150px"><col style="width:250px"></colgroup>';
@@ -240,7 +245,7 @@ export function objectPage({ui,data,profile,today,now=Date.now()}){
   const name=d=>{const v=ver(d);return `${e(kindNames[d.kind])} № ${e(d.number)}${v?.version>1?` <span class="dt-v">в${v.version}</span>`:''}${corr(d)}`;};
   const row=(d,inner)=>{const r=d.kind==='c3a'?report(d):null,v=ver(d);
    return `<tr class="ob-row${inner?' dt-in':' dt-top'}" data-action="doc" data-id="${e(d.id)}" tabindex="0" role="button"><td>${inner?'<span class="dt-l"></span>':''}${d.kind==='c3a'?'<b>'+name(d)+'</b>':name(d)}</td>
-    <td class="num">${d.kind==='c3a'?(r?money(r.smr):money(v?.amount)):money(v?.amount)}</td><td class="num">${r?cellM(Number(r.equipment)||null)||dash:''}</td><td class="num">${r?cellM(Number(r.target_offset)+Number(r.current_offset)||null)||dash:''}</td><td class="num">${r?'<b>'+money(r.to_pay)+'</b>':''}</td><td class="dt-scan">${scan(d)}</td></tr>`;};
+    <td class="num">${d.kind==='c3a'?(r?money(r.smr):money(v?.amount)):money(v?.amount)}</td><td class="num">${r?cellM(Number(r.equipment)||null)||dash:''}</td><td class="num">${r?cellM(Number(r.target_offset)+Number(r.current_offset)||null)||dash:''}${r&&Number(r.retention)?`<small title="Гарантийное удержание">удерж. ${money(r.retention)}</small>`:''}</td><td class="num">${r?'<b>'+money(r.to_pay)+'</b>':''}</td><td class="dt-scan">${scan(d)}</td></tr>`;};
   const kits=ws.filter(w=>w.template_code!=='c29').map(w=>({w,list:docs.filter(d=>d.workflow_id===w.id)})).filter(g=>g.list.length);
   const kitRows=g=>{const c3a=g.list.filter(d=>d.kind==='c3a'),acts=g.list.filter(d=>d.kind==='c2a'||d.kind==='c2b').sort(byNo),rest=g.list.filter(d=>!['c3a','c2a','c2b'].includes(d.kind));
    const title=g.w.template_code==='sub_claim'?`Процентовка субподрядчика · ${g.w.party||''} · дог. № ${g.w.contract_number||''}`:`Процентовка СУ-22 заказчику · дог. № ${g.w.contract_number||''}`;

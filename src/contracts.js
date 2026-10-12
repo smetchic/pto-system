@@ -163,6 +163,7 @@ const addendumLine=(a,canEdit)=>{
 // Карточка договора — боковая панель общей ширины (--drawer-w). Просмотр; правка — по кнопке «Изменить».
 export function contractCard({data,contract:c,canEdit,editing=false,today,profile=null}){
  const parent=(data.contracts||[]).find(x=>x.id===c.parent_contract_id),x=sidesOf(c,data);
+ const rs=(data.retentionSummary||[]).find(r=>r.contract_id===c.id);
  if(canEdit&&editing){
   const parents=(data.contracts||[]).filter(k=>k.project_id===c.project_id&&k.id!==c.id).sort(byDate);
   const projects=(data.projects||[]).filter(p=>p.id===c.project_id||!profile||canWrite(profile,data.memberships,p.id));
@@ -186,6 +187,9 @@ export function contractCard({data,contract:c,canEdit,editing=false,today,profil
   ${section('Аванс и прочее',`<div class="cp-work-grid">${percent('advance_current_percent','Текущий аванс, %',c.advance_current_percent)}${amount('advance_target_amount','Целевой аванс, руб.',c.advance_target_amount)}
    <div class="wide">${area('note','Примечание',c.note||'','maxlength="1000"')}</div>
    <label>Проверен<select name="checked">${options([['true','Да, проверен'],['false','Нет, не проверен']],String(c.checked!==false))}</select></label></div>`)}
+  ${section('Гарантийное удержание',`<div class="cp-work-grid">${percent('retention_percent','Удержание, % (пусто — нет)',rs?.percent)}<label>База<select name="retention_base">${options([['net','СМР без НДС (по закону)'],['gross','СМР с НДС']],rs?.base||'net')}</select></label>
+   ${percent('retention_first_share','Первый возврат, %',rs?.first_share??50)}${input('retention_first_years','через, лет после ввода',String(rs?.first_years??1),'number','min="0" max="10"')}
+   ${input('retention_final_years','Остаток через, лет после ввода',String(rs?.final_years??2),'number','min="0" max="10"')}</div>`)}
   ${section('Файлы в папке ДОГОВОРА',`<div class="cp-work-grid"><div class="wide">${area('files','Пути к файлам, по одному в строке',(c.files||[]).map(f=>f.path).join('\n'),'maxlength="20000"')}</div><div class="wide">${pickButton('files',c)}</div></div>`)}
   <p class="cp-hint">Текущие цена и срок считаются по подписанным допсоглашениям (у которых указан скан), их здесь не правят. Не проверенный договор не участвует в «Подписании».</p>
   <input type="hidden" name="contract_id" value="${e(c.id)}"></div>
@@ -210,10 +214,26 @@ export function contractCard({data,contract:c,canEdit,editing=false,today,profil
   ${(c.files||[]).length?`<dt>Файлы</dt><dd>${c.files.map(f=>`<small class="ct-path">${e(f.path)}</small>`).join('')}</dd>`:''}</dl>
   ${c.checked===false?`<div class="ct-unchecked"><span class="ct-warn">Не проверен: загружен из реестра или имени файла. В «Подписании» не участвует, пока не отмечен.</span>${canEdit?`<button type="button" class="cp-small" data-action="contract-checked" data-id="${e(c.id)}">Проверен</button>`:''}</div>`:''}
   ${terms.length?`<section class="cp-block"><div class="cp-block-head"><h3>Условия договора</h3></div>${terms.map(([label,v,vat])=>`<div class="ct-line"><span>${label}</span><span class="ct-line-r ct-one">${has(vat)?`<small>НДС ${money(vat)} ${rateHtml(v,vat)}</small>`:''}${money(v)}</span></div>`).join('')}</section>`:''}
+  ${retentionBlock(data,c,rs)}
   ${partsBlock(data,c,canEdit)}
   <section class="cp-block"><div class="cp-block-head"><h3>Допсоглашения <span class="muted">${addenda.length?`${addenda.length} · подписано ${signed}${wip?` · в работе ${wip}`:''}`:''}</span></h3>${canEdit?`<button type="button" class="cp-small" data-action="new-addendum" data-id="${e(c.id)}">+ Допсоглашение</button>`:''}</div>${addenda.length?`<div class="ct-line ct-edge"><div><b>Договор</b> <span class="muted">${c.contract_date?'от '+e(day(c.contract_date)):''}</span><small>начальная цена</small></div><div class="ct-line-r">${has(c.initial_amount)?money(c.initial_amount):''}</div></div>${addenda.map(a=>addendumLine(a,canEdit)).join('')}<div class="ct-line ct-edge"><div><b>Действует сейчас</b><small>${c.amount_addendum_number?'по ДС № '+e(c.amount_addendum_number):'по договору'}${wip?' · ДС в работе не учтены':''}</small></div><div class="ct-line-r"><b>${has(c.current_amount)?money(c.current_amount):'—'}</b></div></div>`:'<div class="cp-no-data">Допсоглашений нет.</div>'}</section>
  </div>
  <div class="cp-drawer-foot"><span class="cp-foot-note">${c.created_at?'Внесён '+e(day(c.created_at)):''}</span>${canEdit&&profile?.role==='head'&&!c.has_documents?`<button class="cp-danger" type="button" data-action="delete-contract" data-id="${e(c.id)}" title="Для ошибочных записей: договор и его допсоглашения удаляются, в журнале остаётся запись">Удалить</button>`:''}${canEdit?`<button class="primary" type="button" data-action="edit-contract" data-id="${e(c.id)}">Изменить</button>`:''}</div></form>`;
+}
+
+// Гарантийное удержание по договору: процент и база, удержано по справкам и актам, сроки возврата от ввода объекта.
+export function retentionBlock(data,c,rs){
+ if(!rs||!has(rs.percent)&&!Number(rs.retained))return '';
+ const pct=v=>String(Number(v)).replace('.',',');
+ const who=c.direction==='incoming'?'удерживаем мы у субподрядчика':'удерживает заказчик';
+ const cond=has(rs.percent)?`${pct(rs.percent)} % ${rs.base==='gross'?'от СМР с НДС':'от СМР без НДС'} · ${who}`:'процента нет, введено вручную';
+ const project=(data.projects||[]).find(p=>p.id===c.project_id);
+ const line=(label,amount,due)=>`<div class="ct-line"><span>${label}</span><span class="ct-line-r ct-one"><small>${due?'до '+e(day(due)):'после ввода объекта'}</small>${money(amount)}</span></div>`;
+ return `<section class="cp-block"><div class="cp-block-head"><h3>Гарантийное удержание</h3></div>
+  <div class="ct-line"><span>${e(cond)}</span></div>
+  <div class="ct-line"><span><b>Удержано</b> <small class="muted">по справкам С-3а и актам</small></span><span class="ct-line-r ct-one"><b>${money(rs.retained)}</b></span></div>
+  ${Number(rs.retained)?line(`Возврат ${pct(rs.first_share)} % через ${rs.first_years} г.`,rs.first_amount,rs.first_due)+(Number(rs.final_amount)?line(`Остаток через ${rs.final_years} г.`,rs.final_amount,rs.final_due):''):''}
+  ${project?.commissioned_on?`<p class="cp-hint">Объект введён ${e(day(project.commissioned_on))}.</p>`:'<p class="cp-hint">Дата ввода объекта не указана: сроки возврата появятся, когда её внесут в карточке объекта.</p>'}</section>`;
 }
 
 // Новый договор: объект, сторона из справочника контрагентов, роли сторон. Цену и срок вносят потом в карточке.
@@ -288,9 +308,10 @@ export function objectCard({data,project:p,canEdit,editing=false}){
  if(canEdit&&editing)return `<form id="project-form" class="cp-drawer-shell ob" autocomplete="off" data-editing>${head(p.name,`<div class="ct-sub">${dot}Объект</div>`)}
  <div class="cp-drawer-content">${section('Объект',`<div class="cp-work-grid"><div class="wide">${input('name','Краткое название',p.name,'text','required maxlength="120"')}</div>
   <div class="wide">${area('full_name','Полное наименование',p.full_name||'','maxlength="500"')}</div><div class="wide">${input('address','Адрес',p.address||'')}</div>
-  <div class="wide"><label>Ответственный инженер ПТО<select name="engineer_id"><option value="">Не назначен</option>${options(engineers.map(u=>[u.id,u.display_name]),eng)}</select></label></div></div>`)}
+  <div class="wide"><label>Ответственный инженер ПТО<select name="engineer_id"><option value="">Не назначен</option>${options(engineers.map(u=>[u.id,u.display_name]),eng)}</select></label></div>
+  ${input('commissioned_on','Ввод в эксплуатацию',p.commissioned_on||'','date')}</div>`)}
   ${section('Цвет объекта',colorPicker(color))}
-  <p class="cp-hint">Краткое название и цвет видны в Портфеле, «Подписании» и реестрах. Ответственный инженер получает доступ к объекту; другие объекты инженера настраиваются в «Команда и права».</p>
+  <p class="cp-hint">Краткое название и цвет видны в Портфеле, «Подписании» и реестрах. Ответственный инженер получает доступ к объекту; другие объекты инженера настраиваются в «Команда и права». От даты ввода считаются сроки возврата гарантийных удержаний.</p>
   <input type="hidden" name="project_id" value="${e(p.id)}"></div>
  <div class="cp-drawer-foot"><p id="contract-error" class="error" role="alert"></p><button type="button" data-action="object-card" data-id="${e(p.id)}">Отмена</button><button class="primary" type="submit">Сохранить</button></div></form>`;
  const list=(data.contracts||[]).filter(c=>c.project_id===p.id);
@@ -299,6 +320,7 @@ export function objectCard({data,project:p,canEdit,editing=false}){
  return `<div class="cp-drawer-shell ob">${head(p.name,`<div class="ct-sub">${dot}Объект</div>`)}
  <div class="cp-drawer-content"><dl class="ct-kv"><dt>Полное наименование</dt><dd>${e(p.full_name||'—')}</dd><dt>Адрес</dt><dd>${p.address?e(p.address):'<span class="muted">не указан</span>'}</dd>
   <dt>Инженер</dt><dd>${e(engineerName(data,p.id)||'—')}</dd>
+  <dt>Ввод в эксплуатацию</dt><dd>${p.commissioned_on?e(day(p.commissioned_on)):'<span class="muted">не указан</span>'}</dd>
   <dt>Договоры</dt><dd>${list.length?counts.map(([label,n])=>`${e(label)}: ${n}`).join(' · ')+(unchecked?` <span class="ct-warn">не проверено: ${unchecked}</span>`:''):'<span class="muted">нет</span>'}</dd></dl></div>
  <div class="cp-drawer-foot"><span class="cp-foot-note">${p.created_at?'Внесён '+e(day(p.created_at)):''}</span><button type="button" data-action="project" data-id="${e(p.id)}">Открыть объект</button>${canEdit?`<button class="primary" type="button" data-action="edit-object" data-id="${e(p.id)}">Изменить</button>`:''}</div></div>`;
 }
