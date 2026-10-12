@@ -15,10 +15,16 @@ const data={projects:[{id:'p',name:'Пружаны'}],periods:[{id:'per',month:'
  c3aReports:[{version_id:'vs',document_id:'sp',is_current:true,smr:'1973259.89',smr_vat:'328876.65',equipment:'731538.30',equipment_vat:'121923.06',target_offset:'553974.13',current_offset:'600000.00',to_pay:'1550824.06',
   total_smr:'10803040.16',ytd_smr:'10803040.16',total_to_pay:'7509429.32',ytd_to_pay:'7509429.32'}]};
 
-test('document card: act — header, sum with VAT, marks as a list, which C-3a it belongs to, the file source in grey',()=>{
+test('document card: act — identity hierarchy, status opposite amount, marks, C-3a relation and source',()=>{
  const html=documentCard({data,doc:data.documents[0],canEdit:true});
- assert.match(html,/<h2>Акт С-2б № 22<\/h2>/);assert.match(html,/Пружаны · дог\. № 21, Трест · август 2026/);
- assert.match(html,/ЦЕХ \(ПРИСТРОЙКА\)/);assert.match(html,/366[\s ]768,39<\/b>/);assert.match(html,/в т\. ч\. НДС 61[\s ]128,07/);
+ assert.match(html,/<div class="dc-party">Трест<\/div>/);
+ assert.match(html,/<div class="dc-object">Пружаны<\/div>/);
+ assert.match(html,/<div class="dc-part">ЦЕХ \(ПРИСТРОЙКА\)<\/div>/);
+ assert.match(html,/<div class="dc-contract">Договор № 21<\/div>/);
+ assert.match(html,/<h2>Акт С-2б № 22<\/h2>/);
+ assert.match(html,/<div class="dc-month">август 2026<\/div>/);
+ assert.match(html,/class="dc-amount-row">[\s\S]*366[\s ]768,39<\/b>[\s\S]*<span class="ob-st ok">В бухгалтерии<\/span>/,'статус стоит напротив суммы');
+ assert.match(html,/в т\. ч\. НДС 61[\s ]128,07/);
  assert.match(html,/<dt>Технадзор<\/dt><dd>подписал<\/dd>/);assert.match(html,/<dt>Оригинал<\/dt><dd>передан в бухгалтерию<\/dd>/);
  assert.match(html,/Входит в <button[^>]*data-id="sp">Справка С-3а № 08\/2026/);
  assert.match(html,/из файла Акт С-2б\.xlsx/);assert.doesNotMatch(html,/Часть объекта:/,'часть объекта не повторяется в примечании');
@@ -29,6 +35,7 @@ test('document card: act — header, sum with VAT, marks as a list, which C-3a i
 test('document card: C-3a — «к оплате» big, sections of the form, month column, cumulative by the button; SMR checked against the acts',()=>{
  let html=documentCard({data,doc:data.documents[2]});
  assert.match(html,/1[\s ]550[\s ]824,06<\/b><span>руб\. к оплате/);
+ assert.match(html,/class="dc-amount-row">[\s\S]*<span class="ob-st ok">В бухгалтерии<\/span>/);
  for(const l of ['СМР с НДС','Оборудование с НДС','Зачёт целевого аванса','Зачёт текущего аванса','К оплате'])assert.match(html,new RegExp(l));
  assert.doesNotMatch(html,/С начала работ/);assert.match(html,/За август/);assert.match(html,/>С накоплением</);
  assert.match(html,/class="dc-check neg">СМР ≠ акты № 22, 23/,'акты 22 и 23 не сходятся со справкой');
