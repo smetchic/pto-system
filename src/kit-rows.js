@@ -37,21 +37,28 @@ export function kitRows({data,list,contract,canEdit=false,tn=null}){
  const part=d=>{const m=mark(d);return (m.part_id?(data.contractParts||[]).find(x=>x.id===m.part_id)?.name:'')||m.part||fromNote(d);};
  const scan=d=>(data.files||[]).some(f=>f.version_id===d.current_version)?'<span class="mo-ok" title="Скан загружен">✓</span>':dash;
  const c3as=list.filter(d=>d.kind==='c3a').sort(byNo),acts=list.filter(d=>d.kind==='c2a'||d.kind==='c2b').sort(byNo),rest=list.filter(d=>!['c3a','c2a','c2b','c29'].includes(d.kind)).sort(byNo);
- const sum=acts.reduce((t,d)=>t+Number(ver(d).amount||0),0);
- const r0=c3as.length?report(c3as[0]):null,smr=r0?Number(r0.smr):null;
- const ok=r0&&acts.length?Math.abs(sum-smr)<0.005:null;
+ // Справка на каждую часть договора (решение 12.10.2026): под справкой — акты её части, сверка по ним.
+ // Справка без части — на весь договор, под ней все акты.
+ const pid=d=>mark(d).part_id||'';
+ const groups=c3as.map(c=>{const list=acts.filter(a=>pid(c)?pid(a)===pid(c):c3as.length===1);
+  const sum=list.reduce((t,d)=>t+Number(ver(d).amount||0),0),r=report(c);
+  return {c,acts:list,sum,ok:r&&list.length?Math.abs(sum-Number(r.smr))<0.005:null};});
+ const loose=acts.filter(a=>!groups.some(g=>g.acts.includes(a)));
  const name=d=>`${e(kindNames[d.kind]||'Документ')} № ${e(d.number)}${ver(d).version>1?` <span class="dt-v">в${ver(d).version}</span>`:''}${d.correction?` <span class="pill w" title="${e(d.corrects?'Исправляет '+d.corrects:'Корректировка')}">корр.</span>`:''}`;
- const c3aRow=d=>{const r=report(d),v=ver(d),off=(Number(r?.target_offset)||0)+(Number(r?.current_offset)||0);
+ const c3aRow=({c:d,sum,ok})=>{const r=report(d),v=ver(d),off=(Number(r?.target_offset)||0)+(Number(r?.current_offset)||0);
   const smrCell=r?`<span class="${ok===true?'kt-ok':ok===false?'neg':''}">${money(r.smr)}<i class="kt-chk">${ok===true?'✓':''}</i></span>${ok===false?`<small class="neg">акты ${money(sum)} · разница ${money(sum-Number(r.smr))}</small>`:''}`:`${money(v.amount)}<i class="kt-chk"></i>`;
-  return `<tr class="ob-row kt-c3a" data-action="doc" data-id="${e(d.id)}" tabindex="0" role="button"><td><span class="kt-name">${name(d)}</span></td><td></td>
+  return `<tr class="ob-row kt-c3a" data-action="doc" data-id="${e(d.id)}" tabindex="0" role="button"><td><span class="kt-name">${name(d)}</span></td><td class="kt-part" title="${e(part(d))}">${e(part(d))}</td>
    <td class="num">${smrCell}</td><td class="num">${r&&Number(r.equipment)?money(r.equipment):dash}</td><td class="num">${r&&off?money(off):dash}</td><td class="num"><b>${r?money(r.to_pay):''}</b></td><td class="dt-scan">${scan(d)}</td></tr>`;};
- const actRow=d=>{const v=ver(d),t=tn?tn(d):'';
+ const actRow=(d,ok=null)=>{const v=ver(d),t=tn?tn(d):'';
   return `<tr class="ob-row kt-act" data-action="doc" data-id="${e(d.id)}" tabindex="0" role="button"><td><span class="kt-name">${name(d)}</span>${t?' '+t:''}</td><td class="kt-part" title="${e(part(d))}">${e(part(d))}</td>
    <td class="num"><span class="${ok===true?'kt-ok':''}">${money(v.amount)}<i class="kt-chk"></i></span></td><td></td><td></td><td></td><td class="dt-scan">${scan(d)}</td></tr>`;};
+ // «+ справка С-3а», пока справок меньше, чем действующих частей договора (или справки нет совсем).
+ const partsCount=(data.contractParts||[]).filter(p=>p.contract_id===contract?.id&&p.active).length;
+ const needC3a=!c3as.length||(partsCount>1&&c3as.length<partsCount);
  const cid=e(contract?.id||'');
  const links=canEdit?[`<button type="button" class="link" data-action="new-doc" data-id="${cid}">+ акт</button>`,
-   c3as.length?'':`<button type="button" class="link" data-action="new-c3a" data-id="${cid}">+ справка С-3а</button>`,
+   needC3a?`<button type="button" class="link" data-action="new-c3a" data-id="${cid}">+ справка С-3а</button>`:'',
    '<button type="button" class="link" data-action="excel-acts" data-id="">Загрузить из файла</button>'].filter(Boolean):[];
  const add=links.length||!c3as.length?`<tr class="kt-add"><td colspan="7">${c3as.length?'':'<span class="muted">Справки С-3а нет</span>'}${links.join('')}</td></tr>`:'';
- return c3as.map(c3aRow).join('')+acts.map(actRow).join('')+rest.map(actRow).join('')+add;
+ return groups.map(g=>c3aRow(g)+g.acts.map(d=>actRow(d,g.ok)).join('')).join('')+loose.map(d=>actRow(d)).join('')+rest.map(d=>actRow(d)).join('')+add;
 }

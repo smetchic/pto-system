@@ -78,9 +78,11 @@ export function documentCard({data,doc:d,files=[],checks=[],canEdit=false,cum=fa
    <button type="button" class="link dc-cum" data-action="c3a-cum" data-id="${e(d.id)}" aria-pressed="${cum}">${cum?'Без накопления':'С накоплением'}</button>`;
  }
 
+ // С-3а с частью договора сверяется с актами этой части (справка на каждую часть, решение 12.10.2026).
+ const partOf=x=>(data.docMarks||[]).find(y=>y.document_id===x.id)?.part_id||'';
  let check='';
- if(act){const s=kit.find(x=>x.kind==='c3a');check=s?`<p class="dc-check">Входит в <button type="button" class="link" data-action="doc" data-id="${e(s.id)}">${e(docTitle(s))}</button></p>`:d.workflow_id?'<p class="dc-check muted">Справки С-3а в комплекте пока нет</p>':'';}
- if(c3a){const acts=kit.filter(x=>x.kind==='c2a'||x.kind==='c2b').sort(byNumber),sum=acts.reduce((t,x)=>t+Number(verOf(x)?.amount||0),0);const ok=report&&Math.abs(sum-Number(report.smr))<0.005;
+ if(act){const s=kit.find(x=>x.kind==='c3a'&&partOf(x)&&partOf(x)===m.part_id)||kit.find(x=>x.kind==='c3a'&&!partOf(x));check=s?`<p class="dc-check">Входит в <button type="button" class="link" data-action="doc" data-id="${e(s.id)}">${e(docTitle(s))}</button></p>`:d.workflow_id?'<p class="dc-check muted">Справки С-3а в комплекте пока нет</p>':'';}
+ if(c3a){const acts=kit.filter(x=>(x.kind==='c2a'||x.kind==='c2b')&&(!m.part_id||partOf(x)===m.part_id)).sort(byNumber),sum=acts.reduce((t,x)=>t+Number(verOf(x)?.amount||0),0);const ok=report&&Math.abs(sum-Number(report.smr))<0.005;
   check=acts.length?`<p class="dc-check ${ok?'mo-ok':'neg'}">СМР ${ok?'=':'≠'} акты № ${acts.map(x=>e(x.number)).join(', ')} на ${money(sum)} ${ok?'✓':''}</p>`:'<p class="dc-check neg">В комплекте нет актов: СМР справки 0</p>';}
 
  const mine=files.filter(f=>f.version_id===v.id);

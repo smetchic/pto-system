@@ -7,7 +7,7 @@ import {subsFiled} from './portfolio.js';
 const negHint='Собственные силы отрицательны: субподряд больше выполнения по договору';
 const num=v=>v===null||v===undefined||v===''?null:Number(v);
 const cell=(v,cls='num')=>`<td class="${cls}">${v===null||v===undefined||(typeof v==='number'&&Math.abs(v)<0.005)?'':money(v)}</td>`;
-const negCell=(v,pre=false)=>`<td class="num${Number(v)<0?' neg':''}"${Number(v)<0?` title="${negHint}"`:''}>${money(v)}${pre?' <small class="rg-pre" title="Подали не все субподрядчики: собственные силы завышены">предв.</small>':''}</td>`;
+const negCell=(v,pre=false)=>`<td class="num${Number(v)<0?' neg':''}"${Number(v)<0?` title="${negHint}"`:''}>${money(v)}${pre?' <small class="rg-pre" title="Предварительно: подали не все субподрядчики или комплект ещё не в бухгалтерии">предв.</small>':''}</td>`;
 export const REGISTER_VIEWS=[['c15','Общий (С-15)'],['gen','По генуслугам'],['close','Проверка и закрытие месяца']];
 
 // Общий реестр С-15: договоры СУ-22 по объектам, части договора, «Итого по договору», итоги объектов и общий итог.
@@ -21,10 +21,11 @@ export function c15Table(data,month){
  const has=v=>v!==null&&v!==undefined;
  const hasEst=m.rows.some(r=>has(r.estimate));
  const est=r=>hasEst?`<td class="num muted">${has(r.estimate)?money(r.estimate):''}</td>`:'';
- const basis={acts:' · по актам, С-3а не принята',c3a:' · по С-3а'};
+ // До передачи комплекта в бухгалтерию сумма по текущим актам, собственные силы предварительные (решение 12.10.2026).
+ const basis={acts:' · по актам, предварительно',signed:' · подписано, не в бухгалтерии',c3a:' · по С-3а'};
  const row=r=>r.kind==='part'?`<tr class="part"><td><small>дог. № ${e(r.number)} · ${e(r.part)}${partVat(r)}</small></td>${cell(num(r.total))}${hasEst?'<td></td>':''}<td></td><td></td>${m.columns.map(()=>'<td></td>').join('')}</tr>`
   :r.kind==='project'?`<tr class="rg-obj"><td>Итого по объекту</td>${cell(num(r.total))}${est(r)}${negCell(r.own,pre(r.project_id))}${cell(num(r.subcontract))}${subs(r)}</tr>`
-  :`<tr><td><i class="ct-dot" style="background:${objectColor(data.projects||[],r.project_id)}"></i><button class="link" data-action="project" data-id="${e(r.project_id)}">${e(r.project)}</button><small>дог. № ${e(r.number)}${r.has_parts?' · Итого по договору':''}${basis[r.basis]||''}</small></td>${cell(num(r.total))}${est(r)}${negCell(r.own,pre(r.project_id))}${cell(num(r.subcontract))}${subs(r)}</tr>`;
+  :`<tr><td><i class="ct-dot" style="background:${objectColor(data.projects||[],r.project_id)}"></i><button class="link" data-action="project" data-id="${e(r.project_id)}">${e(r.project)}</button><small>дог. № ${e(r.number)}${r.has_parts?' · Итого по договору':''}${basis[r.basis]||''}</small></td>${cell(num(r.total))}${est(r)}${negCell(r.own,pre(r.project_id)||r.basis==='acts')}${cell(num(r.subcontract))}${subs(r)}</tr>`;
  // Части договора идут под своим договором: база отдаёт их после строки договора.
  return {m,html:`<div class="table-wrap rg-wrap"><table class="rg-table"><thead><tr><th>Объект / договор</th><th class="num">Генподряд всего, с НДС</th>${hasEst?'<th class="num" title="Оперативная оценка до подписания, в итог не входит">Оценка, предв.</th>':''}<th class="num">Собственные силы</th><th class="num">Субподряд всего</th>${m.columns.map(c=>`<th class="num rg-sub">${e(c.label)}</th>`).join('')}</tr></thead>
  <tbody>${m.rows.map(row).join('')}${m.rows.length?`<tr class="total"><td>Всего</td>${cell(num(m.total.total))}${est(m.total)}${negCell(m.total.own)}${cell(num(m.total.subcontract))}${m.columns.map(c=>cell(num(m.total.cells?.[c.id]))).join('')}</tr>`:''}</tbody></table></div>`};

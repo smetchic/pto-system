@@ -68,7 +68,7 @@ test('kit route: six steps, dates, remarks as flags, no way back except undo, tr
  const w=(await docRow(doc)).workflow_id;assert.equal(await stepOf(w),'acts','комплект с актом сразу на «Готовятся акты»');
  await advance(w,{date:'2026-10-03'});assert.equal(await stepOf(w),'tn');
  await assert.rejects(advance(w,{date:'2999-01-01'}),/позже сегодняшней/);
- await assert.rejects(advance(w),/акты и одна С-3а/,'С-3а нужна только для отправки заказчику');
+ await assert.rejects(advance(w),/акты и справка С-3а/,'С-3а нужна только для отправки заказчику');
  summary=await create('c3a','1','999');
  assert.equal((await docRow(summary)).workflow_id,w,'С-3а попадает в тот же комплект');
  assert.equal((await db.query('select v.amount from pto_versions v join pto_documents d on d.current_version=v.id where d.id=$1',[summary])).rows[0].amount,'100.00');
@@ -256,13 +256,14 @@ test('register matrix: exact August figures, column per sub-contract, hidden emp
  const contractRow=number=>m.rows.find(r=>r.kind==='contract'&&r.number===number);
  assert.deepEqual([contractRow('21').total,contractRow('21').own,contractRow('21').subcontract],['1973259.89','1503550.42','469709.47']);
  assert.equal(contractRow('265').own,'-224583.85');
- assert.equal(contractRow('21-Г'),undefined,'договор без принятых сумм скрыт');
+ // Не принятый ещё договор: сумма по текущим актам, предварительно (основание «acts»), как и субподряд.
+ assert.deepEqual([contractRow('21-Г').basis,contractRow('21-Г').total],['acts','500.00'],'до передачи в бухгалтерию сумма по актам');
  assert.deepEqual(m.columns.map(c=>c.label),['Мегалит · №М-1','Мегалит · №М-2','Субподрядчик П']);
  const col=label=>m.columns.find(c=>c.label===label).id;
  assert.equal(contractRow('21').cells[col('Мегалит · №М-2')],'69709.47');
  const subtotals=m.rows.filter(r=>r.kind==='project');
- assert.deepEqual(subtotals.map(r=>[r.project,r.total,r.own]),[['Пружаны','1973359.89','1503650.42']]);
- assert.deepEqual([m.total.total,m.total.own,m.total.subcontract],['2073359.89','1279066.57','794293.32']);
+ assert.deepEqual(subtotals.map(r=>[r.project,r.total,r.own]),[['Пружаны','1973859.89','1504150.42']]);
+ assert.deepEqual([m.total.total,m.total.own,m.total.subcontract],['2073859.89','1279566.57','794293.32']);
  assert.equal(m.total.cells[col('Субподрядчик П')],'324583.85');
  await as(users.director);assert.equal((await db.query('select public.pto_register_matrix($1) m',[month])).rows[0].m.total.total,m.total.total,'руководитель видит реестр организации');
  await as(users.inactive);assert.deepEqual((await db.query('select public.pto_register_matrix($1) m',[month])).rows[0].m.rows,[]);
@@ -337,7 +338,7 @@ test('C-3a: SMR comes from the kit acts, to-pay and cumulative columns are compu
  const aug8=async()=>(await db.query("select pto_register_matrix('2026-08-01') m")).rows[0].m.rows.filter(x=>x.project_id===pid);
  const line=(rows,n)=>rows.find(x=>x.kind==='contract'&&x.number===n);
  let rows=await aug8();
- assert.equal(line(rows,'21'),undefined,'до подписания заказчиком в реестре нет суммы');
+ assert.deepEqual([line(rows,'21').basis,line(rows,'21').total],['acts','1973259.89'],'до подписания заказчиком сумма по актам, предварительно');
  // Новая версия без переданных полей сохраняет прежние значения, кроме изменённого.
  await op(aug,'revise',{document_id:c3a,advance_current_offset:'153974.14',reason:'Исправление зачёта'});
  r=await report(c3a);assert.deepEqual([r.equipment,r.current_offset,r.to_pay],['731538.30','153974.14','1550824.05']);
@@ -888,4 +889,55 @@ test('document number is changed in the card: the journal keeps the old one, a c
  await advance(w);assert.equal(await stepOf(w),'accepted','в бухгалтерию без скана');
  await assert.rejects(command({op:'set_document_number',document_id:a,number:'21-10/3'}),/отмените переход/);
  await as(users.director);await assert.rejects(command({op:'set_document_number',document_id:a,number:'21-10/4'}),/Нет права/);
+});
+test('inspection 12.10: «ТН устно» does not hold sending; C-3a per contract part; register before accounting by acts; the month closes without allocations',async()=>{
+ await as(users.head);const month='2027-01-01';
+ const pid=(await command({op:'create_project',name:'Инспекция'})).project_id;
+ const per=(await command({op:'open_period',project_id:pid,month})).period_id;
+ const op=async(name,extra)=>command({op:name,period_id:per,expected_revision:await periodRev(per),...extra});
+ await command({op:'create_contract',project_id:pid,number:'И-1',party:'Заказчик И',direction:'outgoing'});
+ await command({op:'create_contract',project_id:pid,number:'ИС-1',party:'Связь',direction:'incoming'});
+ await command({op:'create_contract',project_id:pid,number:'ИС-2',party:'Кровля',direction:'incoming'});
+ const cid=async n=>(await db.query('select id from pto_contracts where project_id=$1 and number=$2',[pid,n])).rows[0].id;
+ const [our,sv,kr]=[await cid('И-1'),await cid('ИС-1'),await cid('ИС-2')];
+ const living=(await command({op:'set_contract_part',contract_id:our,name:'Жилая часть',vat_rate:'20'})).part_id;
+ const shops=(await command({op:'set_contract_part',contract_id:our,name:'Встроенные помещения',vat_rate:'0'})).part_id;
+ const a1=(await op('create_document',{contract_id:our,kind:'c2a',number:'1',amount:'700.00'})).document_id;
+ const a2=(await op('create_document',{contract_id:our,kind:'c2a',number:'2',amount:'300.00'})).document_id;
+ await command({op:'set_document_mark',document_id:a1,part_id:living});
+ await command({op:'set_document_mark',document_id:a2,part_id:shops});
+ const w=(await docRow(a1)).workflow_id;
+ const amountOf=async d=>(await db.query('select v.amount from pto_documents d join pto_versions v on v.id=d.current_version where d.id=$1',[d])).rows[0].amount;
+ // Справка С-3а сразу со своей частью: СМР — только акты этой части.
+ const c1=(await op('create_document',{contract_id:our,kind:'c3a',number:'С-3а/1',part_id:living})).document_id;
+ assert.equal(await amountOf(c1),'700.00');
+ const c2=(await op('create_document',{contract_id:our,kind:'c3a',number:'С-3а/2'})).document_id;
+ assert.equal(await amountOf(c2),'1000.00','справка без части — по всем актам договора');
+ assert.equal((await docRow(c2)).workflow_id,w,'обе справки в одном комплекте');
+ await advance(w);assert.equal(await stepOf(w),'tn');
+ await assert.rejects(advance(w),/у каждой укажите часть договора/);
+ await command({op:'set_document_mark',document_id:c2,part_id:living});
+ await assert.rejects(advance(w),/Две справки С-3а на одну часть договора: Жилая часть/);
+ // Смена части пересчитывает справку новой версией.
+ await command({op:'set_document_mark',document_id:c2,part_id:shops});
+ assert.equal(await amountOf(c2),'300.00');
+ assert.equal((await db.query('select count(*)::int n from pto_versions where document_id=$1',[c2])).rows[0].n,3);
+ assert.deepEqual((await db.query('select part_id,smr from pto_c3a_report where document_id=$1 and is_current',[c2])).rows[0],{part_id:shops,smr:'300.00'});
+ // Субподрядчики: Связь у технадзора, Кровля ещё не подала — процентовку держат оба.
+ const s1=(await op('create_document',{contract_id:sv,kind:'c2a',number:'с1',amount:'400.00'})).document_id;
+ await assert.rejects(advance(w),/субподрядчиков: Кровля, Связь/);
+ // «ТН устно» не держит, не подающий в этом месяце — тоже.
+ await command({op:'set_sub_month',period_id:per,contract_id:sv,tn_status:'oral'});
+ await command({op:'set_sub_month',period_id:per,contract_id:kr,expected:false});
+ // Реестр до передачи в бухгалтерию: наша сумма по актам, собственные силы без ложного минуса.
+ let row=(await db.query('select public.pto_register_matrix($1) m',[month])).rows[0].m.rows.find(r=>r.kind==='contract'&&r.contract_id===our);
+ assert.deepEqual([row.basis,row.total,row.subcontract,row.own],['acts','1000.00','400.00','600.00']);
+ await advance(w);assert.equal(await stepOf(w),'check','«ТН устно» не держит отправку');
+ // Месяц закрывается без сопоставления актов и без «на заказчика»: это предупреждение на экране, не отказ.
+ await pass(c1);await pass(s1);
+ await pass((await op('create_document',{contract_id:our,kind:'c29',number:'С-29'})).document_id);
+ row=(await db.query('select public.pto_register_matrix($1) m',[month])).rows[0].m.rows.find(r=>r.kind==='contract'&&r.contract_id===our);
+ assert.deepEqual([row.basis,row.total,row.own],['c3a','1000.00','600.00']);
+ await op('review');await op('close');
+ assert.equal((await db.query('select status from pto_periods where id=$1',[per])).rows[0].status,'closed');
 });

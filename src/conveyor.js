@@ -68,9 +68,13 @@ export function expectedCards(data,month){
 // По умолчанию — те, кто подаёт в этом месяце (галочка или действует по сроку и проверен); all — все договоры субподряда объекта.
 export function subsOf(data,projectId,month,{all=false}={}){
  const ws=data.workflows||[],skips=data.skips||[],today=new Date().toLocaleDateString('sv-SE',{timeZone:'Europe/Minsk'});
+ const per=(data.periods||[]).find(p=>p.project_id===projectId&&String(p.month||month).slice(0,7)===month);
+ const tnOf=c=>per&&(data.subMonth||[]).find(x=>x.period_id===per.id&&x.contract_id===c.id)?.tn_status;
  const rows=(data.contracts||[]).filter(c=>c.project_id===projectId&&subKind(c)).map(c=>{
   const w=ws.find(x=>x.template_code==='sub_claim'&&x.contract_id===c.id),skip=skips.find(s=>s.template_code==='sub_claim'&&s.contract_id===c.id);
-  return {contract:c,workflow:w,skip,passed:!!w&&w.step_ordinal>=3,expected:!!w||subExpected(data,c,month),
+  const passed=!!w&&w.step_ordinal>=3,tn=tnOf(c);
+  // cleared — не держит отправку нашей процентовки: прошёл технадзор или в карточке за месяц «ТН устно» / «ТН подписал» (решение 12.10.2026).
+  return {contract:c,workflow:w,skip,passed,oral:!passed&&tn==='oral',cleared:passed||['oral','ok'].includes(tn),expected:!!w||subExpected(data,c,month),
    expired:!!c.current_end_date&&c.current_end_date<(month+'-01'>today?month+'-01':today),unchecked:c.checked===false};
  });
  return all?rows:rows.filter(r=>r.expected);

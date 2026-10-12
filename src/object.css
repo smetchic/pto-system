@@ -37,7 +37,7 @@
 .ob-rows tr:hover td{background:transparent}
 .ob-rows td.n{text-align:right;white-space:nowrap;padding-left:10px}.ob-rows td.s{text-align:right;white-space:nowrap;padding-left:10px}
 .ob-flag{color:var(--er)}
-.ob-cond{list-style:none;margin:2px 0;padding:0;display:flex;flex-wrap:wrap;gap:2px 16px;font-size:12px;color:var(--mu)}.ob-cond li.ok{color:var(--ob-ok)}
+.ob-cond{list-style:none;margin:2px 0;padding:0;display:flex;flex-wrap:wrap;gap:2px 16px;font-size:12px;color:var(--mu)}.ob-cond li.ok{color:var(--ob-ok)}.ob-cond li.wa{color:var(--wa)}
 .ob-others{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));border-top:1px solid var(--ln)}
 .ob-other{padding:8px 16px;display:flex;flex-direction:column;align-items:flex-start;gap:2px;font-size:12px;border-right:1px solid var(--ln)}.ob-other:last-child{border-right:0}
 .ob-other b{font-size:13px}.ob-other button:not(.link){padding:2px 10px;font-size:12px;margin-top:2px}

@@ -46,7 +46,7 @@ export function blockedReason(x,{data,files=[],month}){
  const kit=(data.documents||[]).filter(d=>d.workflow_id===x.id);
  if(x.template_code==='claim'&&x.step_code==='acts'&&!kit.some(d=>['c2a','c2b'].includes(d.kind)))return 'в комплекте нет актов С-2';
  if(x.template_code==='claim'&&x.step_code==='tn'){
-  const lag=subsOf(data,x.project_id,month).filter(s=>!s.passed&&!s.skip).map(s=>s.contract.party||s.contract.number);
+  const lag=subsOf(data,x.project_id,month).filter(s=>!s.cleared&&!s.skip).map(s=>s.contract.party||s.contract.number);
   const out=[];if(lag.length)out.push('технадзор не подтвердил: '+lag.join(', '));if(!kit.some(d=>d.kind==='c3a'))out.push('нет справки С-3а');
   return out.join('; ');
  }
@@ -96,11 +96,11 @@ export function signingPanel({x,data,profile,mode='',events=[],files=[],month,no
  let tn='';
  if(tpl==='claim'&&!x.expected&&['acts','tn'].includes(x.step_code)){
   const subs=subsOf(data,x.project_id,month);
-  if(subs.length){const ok=subs.filter(s=>s.passed||s.skip).length;
+  if(subs.length){const ok=subs.filter(s=>s.cleared||s.skip).length;
    tn=`<div class="sp-blk"><h4>Технадзор <span>${ok} из ${subs.length} субподрядчиков</span></h4><ul class="sp-rows">${subs.map(s=>{
     const n=s.contract.party||s.contract.number;
-    const right=s.skip?`исключён: ${e(s.skip.reason)}`:s.passed?`подтвердил ${e(day(s.workflow.step_dates?.tn))}`:s.workflow?'у технадзора':can?`ждём процентовку <button class="link" data-action="sp-mode" data-id="exclude:${e(s.contract.id)}">Исключить из месяца</button>`:'ждём процентовку';
-    return `<li class="${s.skip?'ex':s.passed?'':'no'}"><span class="m">${s.skip?'–':s.passed?'✓':'—'}</span><span class="t">${e(n)}</span><span class="r">${right}</span></li>`;}).join('')}</ul>
+    const right=s.skip?`исключён: ${e(s.skip.reason)}`:s.passed?`подтвердил ${e(day(s.workflow.step_dates?.tn))}`:s.cleared?`<span class="sp-warn">${s.oral?'ТН устно':'ТН подписал'} · суммы предварительные</span>`:s.workflow?'у технадзора':can?`ждём процентовку <button class="link" data-action="sp-mode" data-id="exclude:${e(s.contract.id)}">Исключить из месяца</button>`:'ждём процентовку';
+    return `<li class="${s.skip?'ex':s.passed?'':s.cleared?'wa':'no'}"><span class="m">${s.skip?'–':s.passed?'✓':s.cleared?'!':'—'}</span><span class="t">${e(n)}</span><span class="r">${right}</span></li>`;}).join('')}</ul>
     ${mode.startsWith('exclude:')?form('exclude','Исключить из месяца','Субподрядчик переносится в следующий месяц; процентовка СУ-22 его больше не ждёт.',`<label for="sp-reason">Причина</label><select id="sp-reason" name="reason">${REASONS.map(r=>`<option>${r}</option>`).join('')}</select>`,'Исключить',` data-contract="${e(mode.slice(8))}"`):''}</div>`;}
  }
 
