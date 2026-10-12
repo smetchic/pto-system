@@ -69,3 +69,12 @@
 .sc .sc-doc:not(.c3a){padding-left:16px}
 .sc .sc-doc:not(.c3a) .link{color:var(--kt-act)}
 .mo-add .link{margin-left:12px}
+
+/* Карточка документа, замечания 12.10.2026: дата подписания напротив названия, сумма с «руб.» в строку, скан в рамке. */
+.dc-ident .dc-title{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.dc-ident .dc-signed{font-size:13px;font-weight:600;color:var(--ink);white-space:nowrap}
+.dc-sum{flex:1}
+.dc-sum b{font-size:28px;font-weight:650;line-height:1.15}
+.dc-sum small{font-size:13px;color:var(--mu)}
+.dc-sum .dc-vat{font-size:13px;color:var(--mu);margin-top:2px}
+.dc-scan{border:1px solid var(--ln);border-radius:8px;padding:10px 12px;margin:12px 0}

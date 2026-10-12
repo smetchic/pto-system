@@ -23,7 +23,7 @@ test('document card: act — identity hierarchy, status opposite amount, marks, 
  assert.match(html,/<div class="dc-contract">Договор № 21<\/div>/);
  assert.match(html,/<h2>Акт С-2б № 22<\/h2>/);
  assert.match(html,/<div class="dc-month">август 2026<\/div>/);
- assert.match(html,/class="dc-amount-row">[\s\S]*366[\s ]768,39<\/b>[\s\S]*<span class="ob-st ok">В бухгалтерии<\/span>/,'статус стоит напротив суммы');
+ assert.match(html,/class="dc-amount-row">[\s\S]*366[\s ]768,39<\/b>[\s\S]*<span class="ob-st ok">✓ В бухгалтерии<\/span>/,'статус стоит напротив суммы');
  assert.match(html,/в т\. ч\. НДС 61[\s ]128,07/);
  assert.match(html,/<dt>Технадзор<\/dt><dd>подписал<\/dd>/);assert.match(html,/<dt>Оригинал<\/dt><dd>передан в бухгалтерию<\/dd>/);
  assert.match(html,/Входит в <button[^>]*data-id="sp">Справка С-3а № 08\/2026/);
@@ -34,8 +34,8 @@ test('document card: act — identity hierarchy, status opposite amount, marks, 
 
 test('document card: C-3a — «к оплате» big, sections of the form, month column, cumulative by the button; SMR checked against the acts',()=>{
  let html=documentCard({data,doc:data.documents[2]});
- assert.match(html,/1[\s ]550[\s ]824,06<\/b><span>руб\. к оплате/);
- assert.match(html,/class="dc-amount-row">[\s\S]*<span class="ob-st ok">В бухгалтерии<\/span>/);
+ assert.match(html,/1[\s ]550[\s ]824,06<\/b> <small>руб\. к оплате/);
+ assert.match(html,/class="dc-amount-row">[\s\S]*<span class="ob-st ok">✓ В бухгалтерии<\/span>/);
  for(const l of ['СМР с НДС','Оборудование с НДС','Зачёт целевого аванса','Зачёт текущего аванса','К оплате'])assert.match(html,new RegExp(l));
  assert.doesNotMatch(html,/С начала работ/);assert.match(html,/За август/);assert.match(html,/>С накоплением</);
  assert.match(html,/class="dc-check neg">СМР ≠ акты № 22, 23/,'акты 22 и 23 не сходятся со справкой');

@@ -42,18 +42,24 @@ export function documentCard({data,doc:d,files=[],checks=[],canEdit=false,cum=fa
  const kit=(data.documents||[]).filter(x=>d.workflow_id&&x.workflow_id===d.workflow_id&&x.id!==d.id);
  const report=c3a?(data.c3aReports||[]).find(r=>r.version_id===v.id||r.document_id===d.id&&r.is_current):null;
  const verOf=x=>(data.versions||[]).find(y=>y.id===x.current_version);
- const step=`<span class="ob-st ${done?'ok':d.step_code==='signed'?'b':d.step_label?'w':'n'}">${e(d.step_label||'Без комплекта')}</span>`+(()=>{const on=signedOn((data.workflows||[]).find(w=>w.id===d.workflow_id));return on?`<span class="kt-signed">подписана ${new Date(on+'T12:00:00Z').toLocaleDateString('ru-RU',{timeZone:'Europe/Minsk'})}</span>`:'';})();
+ // Шаг: «Проверено» и «В бухгалтерии» — зелёные с галочкой; дата подписания — напротив названия документа (замечание 12.10.2026).
+ const passed=['signed','accepted','closed'].includes(d.step_code),on=signedOn((data.workflows||[]).find(w=>w.id===d.workflow_id));
+ const step=`<span class="ob-st ${passed?'ok':d.step_label?'w':'n'}">${passed?'✓ ':''}${e(d.step_label||'Без комплекта')}</span>`;
+ const signed=on?`<span class="dc-signed">Дата подписания ${new Date(on+'T12:00:00Z').toLocaleDateString('ru-RU',{timeZone:'Europe/Minsk'})}</span>`:'';
  const identity=`<div class="dc-ident">
   <div class="dc-party${c.party?'':' muted'}">${e(c.party||'Контрагент не указан')}</div>
   <div class="dc-object">${e(p.name||'')}</div>
   <div class="dc-part${part||src.part?'':' muted'}">${e(part||src.part||'Часть объекта не указана')}</div>
   <div class="dc-contract">${c.number?`Договор № ${e(c.number)}`:'Договор не указан'}</div>
-  <h2>${e(docTitle(d))}</h2>
+  <div class="dc-title"><h2>${e(docTitle(d))}</h2>${signed}</div>
   <div class="dc-month">${e(monthWord(month))}</div>
  </div>`;
 
  const big=c3a?(report?report.to_pay:null):v.amount;
- const total=`<div class="cp-total"><b class="${Number(big)<0?'neg':''}">${has(big)?money(big):'—'}</b><span>руб.${c3a?' к оплате':''}${act&&has(v.smr_vat)?`<br>в т. ч. НДС ${money(v.smr_vat)}`:''}</span></div>`;
+ // Сумма крупно, «руб.» мелко рядом; ниже — НДС. Ставка пишется, только если она не 20 % (льгота, часть без НДС).
+ const vatRate=act&&has(v.smr_vat)&&Number(v.amount)&&Number(v.amount)!==Number(v.smr_vat)?Math.round(Number(v.smr_vat)/(Number(v.amount)-Number(v.smr_vat))*100):null;
+ const vatLine=act&&has(v.smr_vat)?`<div class="dc-vat">в т. ч. НДС ${money(v.smr_vat)}${vatRate!==null&&vatRate!==20?` · ставка ${vatRate} %`:''}</div>`:'';
+ const total=`<div class="dc-sum"><div><b class="${Number(big)<0?'neg':''}">${has(big)?money(big):'—'}</b> <small>руб.${c3a?' к оплате':''}</small></div>${vatLine}</div>`;
  const amountRow=`<div class="dc-amount-row">${total}${step}</div>`;
  const corr=d.correction?`<p class="dc-corr"><span class="pill w">Корректировка</span> ${d.corrects?'исправляет '+e(d.corrects):''}</p>`:'';
 
@@ -79,7 +85,7 @@ export function documentCard({data,doc:d,files=[],checks=[],canEdit=false,cum=fa
  const fileLine=(f,i)=>{const k=checks.find(x=>x.file_id===f.id),pdf=/\.pdf$/i.test(f.name||f.path||'');const label=mine.length>1?`${pdf?'Открыть PDF':'Открыть скан'} ${i+1}`:(pdf?'Открыть PDF':'Открыть скан');
   return `<div class="dc-file">${mine.length>1?`<span class="dc-file-no">${i+1}</span>`:''}<button type="button" class="link" data-action="download" data-id="${e(f.path)}">${label}</button>${k?`<span class="ob-st ${k.result==='ok'?'ok':'e'}">${k.result==='ok'?'сверен ✓':'расхождение'}</span>`:''}${canEdit&&(act||c3a)?`<button type="button" class="cp-small" data-action="check-file" data-id="${e(f.id)}">${k?'Сверить заново':'Сверить'}</button>`:''}</div>`;};
  const upload=canEdit?`<label class="cp-small dc-up">${mine.length?'Ещё файл':'Загрузить скан'}<input id="upload" type="file" accept=".pdf,image/*" hidden></label>`:'';
- const scan=`<section class="cp-block"><div class="cp-block-head"><h3>Скан</h3>${upload}</div>${mine.map(fileLine).join('')||'<p class="cp-no-data">Скан не загружен</p>'}</section>`;
+ const scan=`<section class="cp-block dc-scan"><div class="cp-block-head"><h3>Скан</h3>${upload}</div>${mine.map(fileLine).join('')||'<p class="cp-no-data">Скан не загружен</p>'}</section>`;
 
  const hist=versions.length>1?`<section class="cp-block"><div class="cp-block-head"><h3>Версии</h3></div>${versions.map(x=>`<div class="dc-ver"><b>в${x.version}</b><span class="num">${money(x.amount)}</span>${x.id===d.accepted_version?'<span class="ob-st ok">принята бухгалтерией</span>':''}<small class="muted">${e(when(x.created_at))}${sourceOf(x.note).rest?' · '+e(sourceOf(x.note).rest):''}</small></div>`).join('')}</section>`:'';
  const meta=`<p class="dc-meta">${['внесено '+when(v.created_at),who,src.from||src.rest].filter(Boolean).map(e).join(' · ')}</p>`;
