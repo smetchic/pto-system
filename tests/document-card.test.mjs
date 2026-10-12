@@ -29,7 +29,8 @@ test('document card: act — identity, amount/status, relation and scan before s
  assert.match(html,/Входит в <button[^>]*data-id="sp">Справка С-3а № 08\/2026/);
  assert.ok(html.indexOf('Входит в')<html.indexOf('<h3>Скан</h3>'),'связь со справкой сразу после суммы');
  assert.ok(html.indexOf('<h3>Скан</h3>')<html.indexOf('<dt>Технадзор</dt>'),'служебные поля идут после скана');
- assert.match(html,/из файла Акт С-2б\.xlsx/);assert.doesNotMatch(html,/Часть объекта:/,'часть объекта не повторяется в примечании');
+ const meta=html.match(/<p class="dc-meta">[\s\S]*?<\/p>/)?.[0]||'';
+ assert.match(meta,/из файла Акт С-2б\.xlsx/);assert.doesNotMatch(meta,/Часть объекта:/,'часть объекта не повторяется в видимой подписи источника');
  assert.match(html,/Загрузить скан/,'скан загружается и в бухгалтерии');
  assert.match(html,/data-action="doc-edit"[^>]*>Изменить/);assert.doesNotMatch(html,/data-action="revise"|Новая версия/);
  assert.match(html,/class="dc-edit-only">[\s\S]*Часть объекта/,'часть редактируется в этой же карточке');
