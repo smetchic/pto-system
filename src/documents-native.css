@@ -27,7 +27,7 @@
 .dc-ident .dc-object{font-size:14px;color:var(--ink)}
 .dc-ident .dc-part{font-size:13px;color:var(--mu)}
 .dc-ident .dc-contract{font-size:13px;color:var(--mu)}
-.dc-ident .dc-docno{font-size:23px;line-height:1.2;font-weight:650;color:var(--ink);margin-top:5px}
+.dc-ident h2{font-size:23px;line-height:1.2;font-weight:650;color:var(--ink);margin:5px 0 0}
 .dc-ident .dc-month{font-size:13px;color:var(--mu)}
 .dc-ident .muted{color:var(--mu)}
 .dc-amount-row{display:flex;align-items:center;justify-content:space-between;gap:18px;margin:4px 0 12px;padding:12px 0;border-bottom:1px solid var(--ln)}
@@ -37,4 +37,4 @@
 .dc-file{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:4px 0;font-size:13px}
 .dc-file .link{padding:0}
 .dc-file-no{font-size:12px;color:var(--mu);min-width:18px}
-@media(max-width:760px){.dt-table{table-layout:auto}.dt-table .dt-c3a td:first-child{font-size:14px}.dc-ident{padding-right:0}.dc-ident .dc-docno{font-size:20px}.dc-amount-row{align-items:flex-start;flex-direction:column}.dc-amount-row .cp-total b{font-size:25px}}
+@media(max-width:760px){.dt-table{table-layout:auto}.dt-table .dt-c3a td:first-child{font-size:14px}.dc-ident{padding-right:0}.dc-ident h2{font-size:20px}.dc-amount-row{align-items:flex-start;flex-direction:column}.dc-amount-row .cp-total b{font-size:25px}}
