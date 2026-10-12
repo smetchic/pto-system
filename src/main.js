@@ -175,7 +175,7 @@ function docEditForm(id){
    const keys=['smr_vat','equipment_amount','equipment_vat','advance_target_offset','advance_current_offset'];
    if(keys.some(k=>!same(x[k],v[k]))||clean(x.note)!==clean(v.note)){
     const p=data.periods.find(z=>z.id===d.period_id);
-    await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'revise',period_id:d.period_id,expected_revision:p.revision,document_id:id,...Object.fromEntries(keys.map(k=>[k,dec(x[k])])),note:x.note||v.note||'',reason:'Изменено в карточке'}}));changed=true;
+    await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'revise',period_id:d.period_id,expected_revision:p.revision,document_id:id,...Object.fromEntries(keys.map(k=>[k,dec(x[k])])),note:x.note??v.note??'',reason:'Изменено в карточке'}}));changed=true;
    }
   }
   if(act){
