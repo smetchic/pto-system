@@ -1,0 +1,40 @@
+/* Нативный дизайн вкладки «Документы»: без DOM-постобработки и наблюдателей. */
+.dt-toolbar{margin-bottom:8px}
+.dt-toolbar .actions{margin-left:auto}
+.dt-table{table-layout:fixed}
+.dt-table .ob-grp td{padding-top:8px;padding-bottom:8px}
+.dt-table .ob-grp td{display:table-cell}
+.dt-table .dt-ours-head td,.dt-table .dt-subs-head td{font-size:12px;font-weight:650;color:var(--ink);letter-spacing:.03em}
+.dt-table .dt-ours-head td>span:first-child{margin-right:8px}
+.dt-table .dt-c3a td{padding-top:10px;padding-bottom:10px}
+.dt-table .dt-c3a td:first-child{font-size:15px;font-weight:600}
+.dt-table .dt-act td:first-child{padding-left:30px;position:relative}
+.dt-table .dt-act:not(.dt-create) td:first-child::before{content:"";position:absolute;left:14px;top:0;bottom:0;border-left:2px solid var(--ln)}
+.dt-table .dt-act .num{color:var(--mu)}
+.dt-table .dt-part,.dt-table .dt-contract{color:var(--mu);font-size:12px}
+.dt-table .dt-party{color:var(--ink);font-size:13px;font-weight:500}
+.dt-table .dt-v{color:var(--wa);font-weight:600;font-size:12px}
+.dt-table .dt-scan{text-align:center}
+.dt-table .dt-create td{padding-top:8px;padding-bottom:8px;color:var(--mu)}
+.dt-table .dt-create td>span{display:inline-block;margin-right:12px}
+.dt-table .dt-create button{padding:3px 10px;font-size:12px}
+.dt-table .dt-create.dt-c3a td{font-size:14px;font-weight:500}
+.dt-table .dt-subs-head td{border-top:10px solid var(--bg)}
+
+/* Карточка документа: идентификация сверху, статус напротив проверяемой суммы. */
+.dc-ident{display:flex;flex-direction:column;gap:3px;padding-right:96px}
+.dc-ident .dc-party{font-size:16px;font-weight:600;color:var(--ink)}
+.dc-ident .dc-object{font-size:14px;color:var(--ink)}
+.dc-ident .dc-part{font-size:13px;color:var(--mu)}
+.dc-ident .dc-contract{font-size:13px;color:var(--mu)}
+.dc-ident .dc-docno{font-size:23px;line-height:1.2;font-weight:650;color:var(--ink);margin-top:5px}
+.dc-ident .dc-month{font-size:13px;color:var(--mu)}
+.dc-ident .muted{color:var(--mu)}
+.dc-amount-row{display:flex;align-items:center;justify-content:space-between;gap:18px;margin:4px 0 12px;padding:12px 0;border-bottom:1px solid var(--ln)}
+.dc-amount-row .cp-total{margin:0;flex:1}
+.dc-amount-row .cp-total b{font-size:28px}
+.dc-amount-row .ob-st{flex:none;font-size:13px;padding:3px 10px}
+.dc-file{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:4px 0;font-size:13px}
+.dc-file .link{padding:0}
+.dc-file-no{font-size:12px;color:var(--mu);min-width:18px}
+@media(max-width:760px){.dt-table{table-layout:auto}.dt-table .dt-c3a td:first-child{font-size:14px}.dc-ident{padding-right:0}.dc-ident .dc-docno{font-size:20px}.dc-amount-row{align-items:flex-start;flex-direction:column}.dc-amount-row .cp-total b{font-size:25px}}

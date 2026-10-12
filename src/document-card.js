@@ -1,7 +1,5 @@
-// Карточка документа месяца — одна схема для актов С-2а/С-2б и справки С-3а (замечания пользователя 11.10.2026,
-// /mnt/project-files/notes/remarks-2026-10-11-documents.md): шапка, главная сумма, середина по виду документа,
-// сверка строкой, скан строкой, мелко — откуда внесён; история версий — только если версий больше одной.
-// Чистые функции: данные собирает main.js.
+// Карточка документа месяца — одна схема для актов С-2а/С-2б и справки С-3а.
+// Идентификация: контрагент → объект → часть объекта → договор → документ → месяц.
 import {escapeHtml as e,money,kindNames} from './domain.js';
 
 const KIND_TITLE={c2a:'Акт С-2а',c2b:'Акт С-2б',c3a:'Справка С-3а',c29:'С-29'};
@@ -14,12 +12,9 @@ const byNumber=(a,b)=>String(a.number).localeCompare(String(b.number),'ru',{nume
 const TN={prep:'готовится',tn:'у технадзора',remarks:'замечания технадзора',ok:'подписал'};
 const ORIG={party:'у заказчика',ours:'у нас',accounting:'передан в бухгалтерию'};
 
-// Строки справки С-3а по разделам формы; поле базы → подпись. Накопление: total_* с начала работ, ytd_* с начала года.
 export const C3A_ROWS=[['smr','СМР с НДС',1],['smr_vat','в т. ч. НДС',2],['equipment','Оборудование с НДС',1],['equipment_vat','в т. ч. НДС',2],
  ['target_offset','Зачёт целевого аванса',1],['current_offset','Зачёт текущего аванса',1],['to_pay','К оплате',3]];
 
-// Имя скана (решение пользователя 11.10.2026): имя принтера заменяется понятным, «/» в номере — дефис.
-// «Пружаны Акт С-2б №22 за 08.2026.pdf», у субподрядчика в конце его название, новая версия — « в2», второй файл — « (2)».
 export function scanName({project,contract,doc,version=1,month,index=1,ext='pdf'}){
  const clean=s=>String(s||'').replace(/[\\/:*?"<>|]+/g,'-').replace(/\s+/g,' ').trim();
  const m=String(month||'').slice(0,7),mm=m?`${m.slice(5,7)}.${m.slice(0,4)}`:'';
@@ -29,7 +24,6 @@ export function scanName({project,contract,doc,version=1,month,index=1,ext='pdf'
  return `${name}.${clean(ext).toLowerCase()||'pdf'}`;
 }
 
-// Пометка «из файла …» из примечания версии (часть объекта уже показана строкой выше).
 export function sourceOf(note){
  const t=String(note||'');const i=t.search(/Из файла /);
  return {part:(t.match(/^Часть объекта:\s*(.+?)\.\s*(?=Из файла|$)/)||[])[1]||'',from:i>=0?t.slice(i).replace(/^Из файла /,'из файла '):'',rest:i>=0||/^Часть объекта:/.test(t)?'':t};
@@ -48,21 +42,26 @@ export function documentCard({data,doc:d,files=[],checks=[],canEdit=false,cum=fa
  const report=c3a?(data.c3aReports||[]).find(r=>r.version_id===v.id||r.document_id===d.id&&r.is_current):null;
  const verOf=x=>(data.versions||[]).find(y=>y.id===x.current_version);
  const step=`<span class="ob-st ${done?'ok':d.step_code==='signed'?'b':d.step_label?'w':'n'}">${e(d.step_label||'Без комплекта')}</span>`;
- const sub=`<div class="ct-sub">${e(p.name||'')} · дог. № ${e(c.number||'')}${c.party?', '+e(c.party):''}${month?' · '+e(monthWord(month)):''} ${step}</div>${part||src.part?`<div class="cp-full-name">${e(part||src.part)}</div>`:''}`;
+ const identity=`<div class="dc-ident">
+  <div class="dc-party${c.party?'':' muted'}">${e(c.party||'Контрагент не указан')}</div>
+  <div class="dc-object">${e(p.name||'')}</div>
+  <div class="dc-part${part||src.part?'':' muted'}">${e(part||src.part||'Часть объекта не указана')}</div>
+  <div class="dc-contract">${c.number?`Договор № ${e(c.number)}`:'Договор не указан'}</div>
+  <div class="dc-docno">${e(docTitle(d))}</div>
+  <div class="dc-month">${e(monthWord(month))}</div>
+ </div>`;
 
- // Главная сумма: у акта — с НДС, у справки — к оплате.
  const big=c3a?(report?report.to_pay:null):v.amount;
  const total=`<div class="cp-total"><b class="${Number(big)<0?'neg':''}">${has(big)?money(big):'—'}</b><span>руб.${c3a?' к оплате':''}${act&&has(v.smr_vat)?`<br>в т. ч. НДС ${money(v.smr_vat)}`:''}</span></div>`;
+ const amountRow=`<div class="dc-amount-row">${total}${step}</div>`;
  const corr=d.correction?`<p class="dc-corr"><span class="pill w">Корректировка</span> ${d.corrects?'исправляет '+e(d.corrects):''}</p>`:'';
 
- // Середина: акт — отметки списком; справка — таблица разделов, накопление по кнопке.
  let middle='';
  if(act){
   const rows=[['Технадзор',m.tn_status?TN[m.tn_status]+(m.note?` · ${m.note}`:''):''],['Материалы заказчика',has(m.materials)?'в т. ч. '+money(m.materials):''],['Оригинал',ORIG[m.original]||'']].filter(([,x])=>x);
   middle=`<dl class="ct-kv dc-kv">${rows.map(([k,x])=>`<dt>${k}</dt><dd>${e(x)}</dd>`).join('')||'<dt>Отметки</dt><dd class="muted">не внесены</dd>'}</dl>`;
  } else if(c3a){
   const cell=(k,pre='')=>{const x=report?.[pre+k];return has(x)?money(x):'<span class="muted">—</span>';};
-  // «С начала года» отличается от «с начала работ», только если работы начаты в прошлом году.
   const ytd=report&&C3A_ROWS.some(([k])=>Number(report['ytd_'+k]||0)!==Number(report['total_'+k]||0));
   const head=cum?`<th class="num">С начала работ</th>${ytd?'<th class="num">С начала года</th>':''}`:'';
   middle=`<div class="dc-c3a${cum?' cum':''}"><table><thead><tr><th>Раздел справки</th>${head}<th class="num dc-now">За ${e(monthWord(month).split(' ')[0]||'месяц')}</th></tr></thead><tbody>
@@ -70,26 +69,21 @@ export function documentCard({data,doc:d,files=[],checks=[],canEdit=false,cum=fa
    <button type="button" class="link dc-cum" data-action="c3a-cum" data-id="${e(d.id)}" aria-pressed="${cum}">${cum?'Без накопления':'С накоплением'}</button>`;
  }
 
- // Сверка строкой: акт входит в справку своего комплекта; СМР справки = сумма актов комплекта.
  let check='';
  if(act){const s=kit.find(x=>x.kind==='c3a');check=s?`<p class="dc-check">Входит в <button type="button" class="link" data-action="doc" data-id="${e(s.id)}">${e(docTitle(s))}</button></p>`:d.workflow_id?'<p class="dc-check muted">Справки С-3а в комплекте пока нет</p>':'';}
- if(c3a){const acts=kit.filter(x=>x.kind==='c2a'||x.kind==='c2b').sort(byNumber),sum=acts.reduce((t,x)=>t+Number(verOf(x)?.amount||0),0);
-  const ok=report&&Math.abs(sum-Number(report.smr))<0.005;
+ if(c3a){const acts=kit.filter(x=>x.kind==='c2a'||x.kind==='c2b').sort(byNumber),sum=acts.reduce((t,x)=>t+Number(verOf(x)?.amount||0),0);const ok=report&&Math.abs(sum-Number(report.smr))<0.005;
   check=acts.length?`<p class="dc-check ${ok?'mo-ok':'neg'}">СМР ${ok?'=':'≠'} акты № ${acts.map(x=>e(x.number)).join(', ')} на ${money(sum)} ${ok?'✓':''}</p>`:'<p class="dc-check neg">В комплекте нет актов: СМР справки 0</p>';}
 
- // Скан: файлы текущей версии; загрузка — и после передачи в бухгалтерию (оригинал там, скан для контроля ПТО).
  const mine=files.filter(f=>f.version_id===v.id);
- const fileLine=f=>{const k=checks.find(x=>x.file_id===f.id);
-  return `<div class="dc-file"><button type="button" class="link" data-action="download" data-id="${e(f.path)}">${e(f.name)}</button>${k?`<span class="ob-st ${k.result==='ok'?'ok':'e'}">${k.result==='ok'?'сверен ✓':'расхождение'}</span>`:''}${canEdit&&(act||c3a)?`<button type="button" class="cp-small" data-action="check-file" data-id="${e(f.id)}">${k?'Сверить заново':'Сверить'}</button>`:''}</div>`;};
+ const fileLine=(f,i)=>{const k=checks.find(x=>x.file_id===f.id),pdf=/\.pdf$/i.test(f.name||f.path||'');const label=mine.length>1?`${pdf?'Открыть PDF':'Открыть скан'} ${i+1}`:(pdf?'Открыть PDF':'Открыть скан');
+  return `<div class="dc-file">${mine.length>1?`<span class="dc-file-no">${i+1}</span>`:''}<button type="button" class="link" data-action="download" data-id="${e(f.path)}">${label}</button>${k?`<span class="ob-st ${k.result==='ok'?'ok':'e'}">${k.result==='ok'?'сверен ✓':'расхождение'}</span>`:''}${canEdit&&(act||c3a)?`<button type="button" class="cp-small" data-action="check-file" data-id="${e(f.id)}">${k?'Сверить заново':'Сверить'}</button>`:''}</div>`;};
  const upload=canEdit?`<label class="cp-small dc-up">${mine.length?'Ещё файл':'Загрузить скан'}<input id="upload" type="file" accept=".pdf,image/*" hidden></label>`:'';
  const scan=`<section class="cp-block"><div class="cp-block-head"><h3>Скан</h3>${upload}</div>${mine.map(fileLine).join('')||'<p class="cp-no-data">Скан не загружен</p>'}</section>`;
 
- // История версий — только если версий больше одной.
  const hist=versions.length>1?`<section class="cp-block"><div class="cp-block-head"><h3>Версии</h3></div>${versions.map(x=>`<div class="dc-ver"><b>в${x.version}</b><span class="num">${money(x.amount)}</span>${x.id===d.accepted_version?'<span class="ob-st ok">принята бухгалтерией</span>':''}<small class="muted">${e(when(x.created_at))}${sourceOf(x.note).rest?' · '+e(sourceOf(x.note).rest):''}</small></div>`).join('')}</section>`:'';
  const meta=`<p class="dc-meta">${['внесено '+when(v.created_at),who,src.from||src.rest].filter(Boolean).map(e).join(' · ')}</p>`;
-
  const buttons=`${d.workflow_id?`<button type="button" class="primary" data-action="workflow" data-id="${e(d.workflow_id)}">Открыть комплект</button>`:''}${canEdit&&act?`<button type="button" data-action="doc-mark" data-id="${e(d.id)}">Изменить</button>`:''}${canEdit?`<button type="button" data-action="revise" data-id="${e(d.id)}" title="${done?'Комплект в бухгалтерии: новая версия вернёт его на первый шаг, принятая сумма сохранится до повторного принятия':''}">Новая версия</button>`:''}`;
- return `<div class="cp-drawer-shell ob dc"><div class="cp-drawer-head"><button type="button" class="cp-drawer-close" data-action="dismiss">Закрыть ×</button><h2>${e(docTitle(d))}</h2>${sub}</div>
- <div class="cp-drawer-content">${total}${corr}${middle}${check}${scan}${hist}${meta}</div>
+ return `<div class="cp-drawer-shell ob dc"><div class="cp-drawer-head"><button type="button" class="cp-drawer-close" data-action="dismiss">Закрыть ×</button>${identity}</div>
+ <div class="cp-drawer-content">${amountRow}${corr}${middle}${check}${scan}${hist}${meta}</div>
  <div class="cp-drawer-foot">${buttons}</div></div>`;
 }
