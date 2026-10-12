@@ -4,7 +4,8 @@ const url=import.meta.env.VITE_SUPABASE_URL,key=import.meta.env.VITE_SUPABASE_PU
 const client=url&&key?createClient(url,key):null;
 const formOf=el=>el?.closest?.('#document-card-form');
 const clean=v=>String(v??'').trim();
-const num=v=>{const s=clean(v).replace(/[\s\u00a0]/g,'').replace(',','.');if(!s)return null;const n=Number(s);return Number.isFinite(n)?n:null;};
+const decimal=v=>{const s=clean(v).replace(/[\s\u00a0]/g,'').replace(',','.');return s||null;};
+const num=v=>{const s=decimal(v);if(s===null)return null;const n=Number(s);return Number.isFinite(n)?n:null;};
 const sameNum=(a,b)=>{const x=num(a),y=num(b);return x===null&&y===null||x!==null&&y!==null&&Math.abs(x-y)<0.005;};
 const parse=(text,fallback={})=>{try{return JSON.parse(text||'')||fallback;}catch{return fallback;}};
 const rpc=async payload=>{if(!client)throw Error('Подключение к базе не настроено');const {data,error}=await client.rpc('pto_command',{request_id:crypto.randomUUID(),payload});if(error)throw error;return data;};
@@ -30,7 +31,7 @@ async function saveCard(form){
 
  if(act){
   versionChanged=!sameNum(d.amount,oldVersion.amount);
-  if(versionChanged)await rpc({op:'revise',period_id:periodId,expected_revision:revision,document_id:id,amount:clean(d.amount),note:versionNote,reason:'Изменено в карточке'});
+  if(versionChanged)await rpc({op:'revise',period_id:periodId,expected_revision:revision,document_id:id,amount:decimal(d.amount),note:versionNote,reason:'Изменено в карточке'});
 
   const hasPartId=form.elements.part_id;
   const mark={
@@ -49,7 +50,7 @@ async function saveCard(form){
   const fields=['smr_vat','equipment_amount','equipment_vat','advance_target_offset','advance_current_offset'];
   versionChanged=fields.some(k=>!sameNum(d[k],oldVersion[k]));
   if(versionChanged)await rpc({op:'revise',period_id:periodId,expected_revision:revision,document_id:id,
-   ...Object.fromEntries(fields.map(k=>[k,clean(d[k])||null])),note:versionNote,reason:'Изменено в карточке'});
+   ...Object.fromEntries(fields.map(k=>[k,decimal(d[k])])),note:versionNote,reason:'Изменено в карточке'});
  }
 
  if(!versionChanged&&!markChanged){editOff(form);return toast('Изменений нет');}
