@@ -82,7 +82,7 @@ export function documentCard({data,doc:d,files=[],checks=[],canEdit=false,cum=fa
 
  const hist=versions.length>1?`<section class="cp-block"><div class="cp-block-head"><h3>Версии</h3></div>${versions.map(x=>`<div class="dc-ver"><b>в${x.version}</b><span class="num">${money(x.amount)}</span>${x.id===d.accepted_version?'<span class="ob-st ok">принята бухгалтерией</span>':''}<small class="muted">${e(when(x.created_at))}${sourceOf(x.note).rest?' · '+e(sourceOf(x.note).rest):''}</small></div>`).join('')}</section>`:'';
  const meta=`<p class="dc-meta">${['внесено '+when(v.created_at),who,src.from||src.rest].filter(Boolean).map(e).join(' · ')}</p>`;
- const buttons=`${d.workflow_id?`<button type="button" class="primary" data-action="workflow" data-id="${e(d.workflow_id)}">Открыть комплект</button>`:''}${canEdit?`<button type="button" data-action="doc-edit" data-id="${e(d.id)}" title="${done?'Изменение создаст новую версию и вернёт комплект на первый шаг; принятая версия останется в истории':''}">Изменить</button>`:''}`;
+ const buttons=`${d.workflow_id?`<button type="button" class="primary" data-action="workflow" data-id="${e(d.workflow_id)}">Открыть комплект</button>`:''}${canEdit&&(act||c3a)?`<button type="button" data-action="doc-edit" data-id="${e(d.id)}" title="${done?'Изменение создаст новую версию и вернёт комплект на первый шаг; принятая версия останется в истории':''}">Изменить</button>`:''}`;
  const body=act?`${amountRow}${corr}${check}${scan}${middle}${hist}${meta}`:`${amountRow}${corr}${middle}${check}${scan}${hist}${meta}`;
  return `<div class="cp-drawer-shell ob dc"><div class="cp-drawer-head"><button type="button" class="cp-drawer-close" data-action="dismiss">Закрыть ×</button>${identity}</div>
  <div class="cp-drawer-content">${body}</div>
