@@ -58,7 +58,7 @@ export function documentCard({data,doc:d,files=[],checks=[],canEdit=false,cum=fa
 
  let middle='';
  if(act){
-  const rows=[['Технадзор',m.tn_status?TN[m.tn_status]+(m.note?` · ${m.note}`:''):''],['Материалы заказчика',has(m.materials)?'в т. ч. '+money(m.materials):''],['Оригинал',ORIG[m.original]||'']].filter(([,x])=>x);
+  const rows=[['Технадзор',m.tn_status?TN[m.tn_status]+(m.note?` · ${m.note}`:''):''],['Оригинал',ORIG[m.original]||'']].filter(([,x])=>x);
   middle=`<dl class="ct-kv dc-kv">${rows.map(([k,x])=>`<dt>${k}</dt><dd>${e(x)}</dd>`).join('')||'<dt>Отметки</dt><dd class="muted">не внесены</dd>'}</dl>`;
  } else if(c3a){
   const cell=(k,pre='')=>{const x=report?.[pre+k];return has(x)?money(x):'<span class="muted">—</span>';};
@@ -82,8 +82,9 @@ export function documentCard({data,doc:d,files=[],checks=[],canEdit=false,cum=fa
 
  const hist=versions.length>1?`<section class="cp-block"><div class="cp-block-head"><h3>Версии</h3></div>${versions.map(x=>`<div class="dc-ver"><b>в${x.version}</b><span class="num">${money(x.amount)}</span>${x.id===d.accepted_version?'<span class="ob-st ok">принята бухгалтерией</span>':''}<small class="muted">${e(when(x.created_at))}${sourceOf(x.note).rest?' · '+e(sourceOf(x.note).rest):''}</small></div>`).join('')}</section>`:'';
  const meta=`<p class="dc-meta">${['внесено '+when(v.created_at),who,src.from||src.rest].filter(Boolean).map(e).join(' · ')}</p>`;
- const buttons=`${d.workflow_id?`<button type="button" class="primary" data-action="workflow" data-id="${e(d.workflow_id)}">Открыть комплект</button>`:''}${canEdit&&act?`<button type="button" data-action="doc-mark" data-id="${e(d.id)}">Изменить</button>`:''}${canEdit?`<button type="button" data-action="revise" data-id="${e(d.id)}" title="${done?'Комплект в бухгалтерии: новая версия вернёт его на первый шаг, принятая сумма сохранится до повторного принятия':''}">Новая версия</button>`:''}`;
+ const buttons=`${d.workflow_id?`<button type="button" class="primary" data-action="workflow" data-id="${e(d.workflow_id)}">Открыть комплект</button>`:''}${canEdit&&(act||c3a)?`<button type="button" data-action="doc-edit" data-id="${e(d.id)}" title="${done?'Изменение создаст новую версию и вернёт комплект на первый шаг; принятая версия останется в истории':''}">Изменить</button>`:''}`;
+ const body=act?`${amountRow}${corr}${check}${scan}${middle}${hist}${meta}`:`${amountRow}${corr}${middle}${check}${scan}${hist}${meta}`;
  return `<div class="cp-drawer-shell ob dc"><div class="cp-drawer-head"><button type="button" class="cp-drawer-close" data-action="dismiss">Закрыть ×</button>${identity}</div>
- <div class="cp-drawer-content">${amountRow}${corr}${middle}${check}${scan}${hist}${meta}</div>
+ <div class="cp-drawer-content">${body}</div>
  <div class="cp-drawer-foot">${buttons}</div></div>`;
 }

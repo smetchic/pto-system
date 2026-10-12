@@ -6,6 +6,7 @@ import {contractCard,newContractCard,newContractPayload,addendumCard,addendumSta
 import {parseContractsFile,previewContracts,previewHtml} from './contracts-import.js';
 import {partyCard,contactCard,contactPayload,partyPayload,parseMnsXml,mnsPreview,mnsPreviewHtml} from './parties.js';
 import './style.css';
+import './documents-native.css';
 import './parties.css';
 import './contracts.css';
 import './conveyor.css';
@@ -109,7 +110,7 @@ function modal(title,html){delete dialog.dataset.dirty;dialog.className='cp-draw
 function form(title,fields,submit){delete dialog.dataset.dirty;dialog.className='cp-drawer';
  dialog.innerHTML=`<form id="modal-form" class="cp-drawer-shell ob" autocomplete="off" data-editing>${drawerHead(title)}<div class="cp-drawer-content md-body">${fields}</div><div class="cp-drawer-foot"><p id="form-error" class="error" role="alert"></p><button type="button" data-action="dismiss">Отмена</button><button class="primary" type="submit">Сохранить</button></div></form>`;
  if(!dialog.open)dialog.showModal();
- $('#modal-form').onsubmit=async ev=>{ev.preventDefault();const button=ev.submitter;button.disabled=true;try{await submit(Object.fromEntries(new FormData(ev.target)));dialog.close();}catch(err){$('#form-error').textContent=errorMessage(err);}finally{button.disabled=false;}};}
+ $('#modal-form').onsubmit=async ev=>{ev.preventDefault();const button=ev.submitter;button.disabled=true;try{await submit(Object.fromEntries(new FormData(ev.target)));if(dialog.dataset.keepOpen)delete dialog.dataset.keepOpen;else dialog.close();}catch(err){$('#form-error').textContent=errorMessage(err);}finally{button.disabled=false;}};}
 async function mutate(payload){const result=await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload}));await load();toast('Сохранено');return result;}
 function periodPayload(op,extra={}){const p=currentPeriod();if(!p)throw Error('Откройте месяц');return {op,period_id:p.id,expected_revision:p.revision,...extra};}
 // Отметки месяца (docs/month.md): пустое поле очищает значение; каждая запись — строка журнала.
@@ -147,6 +148,44 @@ function docMarkForm(id){
   ${select('original','Где оригинал',ordered([['','—'],['party',`В ${c?.party||'у заказчика'}`],['ours','У нас'],['accounting','Передан в бухгалтерию']],m.original))}
   ${note('note','Комментарий (для замечания ТН обязателен)').replace(' required','')}`,
   x=>mutate({op:'set_document_mark',document_id:id,...blankNull(x),note:x.note||''}));
+}
+
+// Единое редактирование карточки: версия и отметки сохраняются штатными командами журнала.
+function docEditForm(id){
+ const d=data.documents.find(x=>x.id===id);if(!d)throw Error('Документ не найден');
+ const v=ver(d),m=(data.docMarks||[]).find(x=>x.document_id===id)||{},c=data.contracts.find(x=>x.id===d.contract_id);
+ const act=['c2a','c2b'].includes(d.kind),c3a=d.kind==='c3a';
+ const parts=partsOf(data,d.contract_id).filter(p=>p.active||p.id===m.part_id);
+ const partField=parts.length?select('part_id','Часть договора',ordered([['','Не указана'],...parts.map(p=>[p.id,`${p.name} · ${vatLabel(p)}`])],m.part_id)):field('part','Часть объекта','text',m.part||'',false);
+ const markFields=act?partField+select('tn_status','Технадзор',ordered([['','—'],['prep','Готовится'],['tn','У ТН'],['remarks','Замечания ТН'],['ok','ТН подписал']],m.tn_status))+select('original','Где оригинал',ordered([['','—'],['party',`В ${c?.party||'у заказчика'}`],['ours','У нас'],['accounting','Передан в бухгалтерию']],m.original))+note('mark_note','Комментарий (для замечания ТН обязателен)',m.note||'').replace(' required',''):'';
+ const versionFields=act?field('amount','Сумма акта с НДС, руб.','number',v.amount):c3a?c3aHint+c3aFields(v):'';
+ const fields=(act?versionFields+markFields:c3a?versionFields+note('note','Содержание / основание',v.note||'').replace(' required',''):'');
+ form(`Изменить: ${kindNames[d.kind]} № ${d.number}`,fields,async x=>{
+  const clean=s=>String(s??'').trim();
+  const dec=s=>{const n=String(s??'').replace(/[\s\u00a0]/g,'').replace(',','.');return n===''?null:n;};
+  const num=s=>{const n=dec(s);return n===null?null:Number(n);};
+  const same=(a,b)=>num(a)===null&&num(b)===null||num(a)!==null&&num(b)!==null&&Math.abs(num(a)-num(b))<0.005;
+  if(act&&clean(x.tn_status)==='remarks'&&!clean(x.mark_note))throw Error('Для замечания технадзора укажите комментарий');
+  let changed=false;
+  if(act&&!same(x.amount,v.amount)){
+   const p=data.periods.find(z=>z.id===d.period_id);
+   await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'revise',period_id:d.period_id,expected_revision:p.revision,document_id:id,amount:dec(x.amount),note:v.note||'',reason:'Изменено в карточке'}}));changed=true;
+  }
+  if(c3a){
+   const keys=['smr_vat','equipment_amount','equipment_vat','advance_target_offset','advance_current_offset'];
+   if(keys.some(k=>!same(x[k],v[k]))||clean(x.note)!==clean(v.note)){
+    const p=data.periods.find(z=>z.id===d.period_id);
+    await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'revise',period_id:d.period_id,expected_revision:p.revision,document_id:id,...Object.fromEntries(keys.map(k=>[k,dec(x[k])])),note:x.note??v.note??'',reason:'Изменено в карточке'}}));changed=true;
+   }
+  }
+  if(act){
+   const mark={part_id:parts.length?(clean(x.part_id)||null):null,part:parts.length?null:(clean(x.part)||null),tn_status:clean(x.tn_status)||null,original:clean(x.original)||null,note:clean(x.mark_note)||''};
+   const differs=(parts.length?clean(mark.part_id)!==clean(m.part_id):clean(mark.part)!==clean(m.part))||clean(mark.tn_status)!==clean(m.tn_status)||clean(mark.original)!==clean(m.original)||clean(mark.note)!==clean(m.note);
+   if(differs){await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'set_document_mark',document_id:id,...mark}}));changed=true;}
+  }
+  if(!changed){toast('Изменений нет');return;}
+  await load();await docModal(id);dialog.dataset.keepOpen='1';toast('Изменения сохранены в журнале');
+ });
 }
 // Сверка скана (MVP, вручную): хэш SHA-256 считается в браузере из файла в хранилище.
 async function checkFile(id){
