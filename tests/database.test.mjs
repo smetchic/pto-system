@@ -109,6 +109,13 @@ test('kit route: six steps, dates, remarks as flags, no way back except undo, tr
  await assert.rejects(command({op:'workflow_note',workflow_id:w,source:'ПТО',note:'Поздно'}),/передан в бухгалтерию/);
  const kinds=(await db.query('select kind from pto_workflow_events where workflow_id=$1 order by id',[w])).rows.map(r=>r.kind);
  assert.deepEqual([kinds[0],kinds.filter(k=>k==='note').length,kinds.filter(k=>k==='undo').length],['created',2,1]);
+ // Недостающий документ добавляется в переданный комплект (пользователь 12.10.2026); вторая С-3а и правка лежащих — только после отмены.
+ await assert.rejects(create('c3a','С-2'),/отмените переход/);
+ const late=await create('c2a','Д-1','0.01');
+ assert.equal((await docRow(late)).workflow_id,w);assert.equal(await stepOf(w),'accepted');
+ assert.equal((await db.query('select is_accepted from pto_document_list where id=$1',[late])).rows[0].is_accepted,true);
+ await assert.rejects(run('revise',{document_id:late,amount:'0.02',note:'',reason:'Исправление'}),/отмените переход/);
+ await unlock(doc);await as(users.head);await command({op:'delete_document',document_id:late,reason:'Проверка'});await advance(w,{person:'Ковалёва Т.'});
 });
 test('a transferred kit changes only after undo; a new version after sending is a remark and requires a fresh C-3a',async()=>{
  await as(users.second);await assert.rejects(command({op:'workflow_undo',workflow_id:(await docRow(doc)).workflow_id,note:'Чужой переход'}),/Нет доступа/);
