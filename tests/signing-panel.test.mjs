@@ -20,7 +20,7 @@ const render=(f,x,extra={})=>signingPanel({x,data:f.data,profile:f.profile,month
 
 test('our claim at the supervisor: step line with dates, blocked move names missing subcontractors and C-3a, exclude link',()=>{
  const f=fixture();let html=render(f,f.ours);
- assert.match(html,/Закрыть ×/);assert.match(html,/Процентовка СУ-22 заказчику, дог\. № 21; инженер Надя/);assert.match(html,/1[\s ]973[\s ]259,89/);
+ assert.match(html,/Закрыть ×/);assert.match(html,/Наша процентовка, дог\. № 21; инженер Надя/);assert.match(html,/1[\s ]973[\s ]259,89/);
  assert.match(html,/sp-st done"><i><\/i>Готовятся акты<em>05\.10<\/em>/,'пройденный шаг с датой');
  assert.match(html,/sp-st cur"><i><\/i>У технадзора<em>2 дн\.<\/em>/,'текущий шаг с днями');
  assert.match(html,/Отправить заказчику нельзя: технадзор не подтвердил: Стройком; нет справки С-3а/);

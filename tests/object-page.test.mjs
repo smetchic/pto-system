@@ -30,7 +30,7 @@ function fixture(role='engineer'){
 
 test('month tab: one screen for all steps — step strip, C-3a with the sum check, what the work consists of, documents and subcontractors',()=>{
  const html=objectPage(fixture());
- assert.match(html,/Процентовка за октябрь/);assert.match(html,/class="mo-now">У технадзора/);
+ assert.match(html,/Наша процентовка за октябрь/);assert.match(html,/class="mo-now">У технадзора/);
  assert.match(html,/Ваш ход: отправить заказчику\./);
  assert.match(html,/Отправить заказчику нельзя: не прошли технадзор: Стройэлектро; нет справки С-3а\./);
  assert.match(html,/прошли ТН 1 из 2/);
@@ -80,14 +80,13 @@ test('other tabs: contracts grouped by side, native documents hierarchy, history
  ctx.ui.contractDs=Object.fromEntries(ctx.data.contracts.map(c=>[c.id,true]));assert.match(objectPage(ctx),/<tr class="ct-ds">/);delete ctx.ui.contractDs;assert.match(html,/30\.12\.2026/);
  ctx.data.docMarks=[{document_id:'d1',part:'ЦЕХ (ПРИСТРОЙКА)'}];
  ctx.ui.projectTab='documents';html=objectPage(ctx);
- assert.match(html,/Процентовка СУ-22 заказчику · дог\. № 21/);assert.match(html,/class="ob-st w">У технадзора/);
- assert.match(html,/Справка С-3а[\s\S]*\+ Создать справку/,'пустая справка создаётся внутри комплекта');
- assert.match(html,/class="ob-row dt-act" data-action="doc" data-id="d1"/,'акт ниже справки');assert.match(html,/ЦЕХ \(ПРИСТРОЙКА\)/,'часть объекта видна рядом с актом');
- assert.match(html,/class="ob-grp dt-subs-head"><td colspan="6">Субподрядчики/,'один общий заголовок субподрядчиков');
- assert.ok(html.indexOf('Процентовка СУ-22 заказчику')<html.indexOf('Субподрядчики'),'наши документы всегда выше субподрядчиков');
- assert.doesNotMatch(html,/С-29/,'С-29 не показывается во вкладке Документы');
- const toolbar=html.match(/<div class="ob-bar dt-toolbar">[\s\S]*?<\/div><\/div>/)?.[0]||'';
- assert.match(toolbar,/Импорт Excel/);assert.doesNotMatch(toolbar,/new-doc|new-c3a|new-c29/,'сверху нет кнопок создания документов');
+ assert.match(html,/Наша процентовка · дог\. № 21 · Трест/,'тот же заголовок, что во вкладке «Месяц»');assert.match(html,/class="ob-st w">У технадзора/);
+ assert.match(html,/Справки С-3а нет<\/span><button type="button" class="link" data-action="new-doc" data-id="c21">\+ акт<\/button><button type="button" class="link" data-action="new-c3a" data-id="c21">\+ справка С-3а/,'добавить — узкая строка ссылок');
+ assert.match(html,/class="ob-row kt-act" data-action="doc" data-id="d1"/);assert.match(html,/class="kt-part" title="ЦЕХ \(ПРИСТРОЙКА\)"/,'часть объекта — отдельная колонка');
+ assert.match(html,/class="ob-grp kt-section"><td colspan="7">Субподрядчики <span class="muted">· подали 1 из 1/,'только подающие субподрядчики');
+ assert.doesNotMatch(html,/Стройэлектро/,'неотмеченный субподрядчик без документов не показывается');
+ assert.ok(html.indexOf('Наша процентовка')<html.indexOf('Субподрядчики'),'наши документы всегда выше субподрядчиков');
+ assert.doesNotMatch(html,/С-29|справка С-3а выше актов/);
  ctx.ui.projectTab='history';ctx.data.events=[{id:1,project_id:'p1',action:'revise',actor:'u1',created_at:'2026-10-08T10:00:00Z',detail:{reason:'исправлен объём'}},{id:2,project_id:'p1',action:'update_contract',actor:'u1',created_at:'2026-10-08T11:00:00Z',detail:{}}];
  ctx.ui.historyKind='document';html=objectPage(ctx);
  assert.match(html,/исправлен объём/);assert.doesNotMatch(html,/Изменены условия договора/);
@@ -101,7 +100,7 @@ test('month tab: marks from the database — sub plan grey, «ТН устно»,
  ctx.data.docMarks=[{document_id:'d1',materials:'5000.00',original:'party'}];
  Object.assign(ctx.data.workflows[1],{step_code:'tn',step_ordinal:3,step_label:'У технадзора'});
  const html=objectPage(ctx);
- assert.match(html,/data-action="sub-month" data-id="s7"/);
+ assert.match(html,/data-action="sub-card" data-id="s7"/);
  assert.match(html,/ТН устно · У технадзора/);
  assert.match(html,/ТН устно: Мегалит · суммы предварительные/);
  assert.match(html,/<span class="mo-w">350[\s ]000,00/);

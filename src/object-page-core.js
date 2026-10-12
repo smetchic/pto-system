@@ -3,6 +3,7 @@ import {escapeHtml as e,money,kindNames,actionNames,canWrite} from './domain.js'
 import {COLUMNS,openNotes,objectColor,subsOf,canMoveCard,turnOf,daysOnStep,expectedCards,activeIn,oursContract} from './conveyor.js';
 import {projectAmounts,c29Status,engineerName} from './portfolio.js';
 import {groupsOf,endCell,addendaCell,addendaRows} from './contracts.js';
+import {kitRows,kitTitle,kitStatus,signedOn,KIT_COLS,KIT_HEAD} from './kit-rows.js';
 
 export const OBJECT_TABS=[['month','Месяц'],['contracts','Договоры'],['documents','Документы'],['history','История']];
 export const objectTab=t=>OBJECT_TABS.some(([id])=>id===t)?t:'month';
@@ -12,7 +13,7 @@ const st=(text,cls='n',title='')=>`<span class="ob-st ${cls}"${title?` title="${
 // Акт-корректировка (сумма может быть ноль или меньше): пометка и что он исправляет.
 const corr=d=>d.correction?` <span class="pill w" title="${e(d.corrects?'Исправляет '+d.corrects:'Корректировка')}">корр.${d.corrects?' '+e(d.corrects):''}</span>`:'';
 const btn=(text,action,id='',primary=false)=>`<button ${primary?'class="primary"':''} data-action="${action}" data-id="${e(id)}">${e(text)}</button>`;
-const KIND_LONG={claim:'Процентовка СУ-22 заказчику',sub_claim:'Процентовка субподрядчика',c29:'С-29'};
+const KIND_LONG={claim:'Наша процентовка',sub_claim:'Процентовка субподрядчика',c29:'С-29'};
 const monthName=month=>new Date(month+'-01T12:00:00Z').toLocaleDateString('ru-RU',{month:'long',timeZone:'Europe/Minsk'});
 
 // Доля прошедшего срока договора, %: от начала работ (или даты договора) до текущего срока; null, если дат нет.
@@ -118,7 +119,7 @@ export function objectPage({ui,data,profile,today,now=Date.now()}){
    if(!docs.some(d=>d.workflow_id===x.id&&d.kind==='c3a'))why.push('нет справки С-3а');
    return why.length?`<span class="ob-why">Отправить заказчику нельзя: ${e(why.join('; '))}.</span>`:'';};
   const stepCard=({c,x,skip})=>{
-   if(!x)return skip?`<section class="ob-panel mo-step"><div><div class="mo-cap">Процентовка за ${e(monthName(month))}</div><b>Снята</b></div><div class="mo-turn"><span class="muted">дог. № ${e(c.number)} · ${e(c.party||'')} · ${e(skip.reason||'без причины')}</span></div></section>`:'';
+   if(!x)return skip?`<section class="ob-panel mo-step"><div><div class="mo-cap">Наша процентовка за ${e(monthName(month))}</div><b>Снята</b></div><div class="mo-turn"><span class="muted">дог. № ${e(c.number)} · ${e(c.party||'')} · ${e(skip.reason||'без причины')}</span></div></section>`:'';
    const n=openNotes(x),flag=n.length?`<span class="ob-flag" title="${e(n[n.length-1].note)}">⚑ ${e(n[n.length-1].note)}</span>`:'';
    const t=x.expected?null:tnOf(x);
    const ourActs=t?[[t.n('prep'),'готовится'],[t.n('tn'),'у ТН'],[t.n('remarks'),'замечания']].filter(([k])=>k).map(([k,l])=>`${l} ${k}`).concat(`подписано ${t.n('ok')} из ${t.rows.length}`).join(' · ')+(t.hold.length?` · шаг держат: ${t.hold.join(', ')}`:''):`актов ${kit.filter(d=>d.workflow_id===x.id&&d.kind!=='c3a'&&d.kind!=='c29').length}`;
@@ -128,9 +129,9 @@ export function objectPage({ui,data,profile,today,now=Date.now()}){
     :canEdit?`<button class="btn" data-action="sent-customer" data-id="">Отправлено заказчику</button>`:'<span class="muted">заказчику ещё не отправлено</span>';
    const counts=x.expected?'':`<span class="muted">${ourActs} · субподряд: прошли ТН ${passed.length} из ${active.length}</span>${allOk}${sent}`;
    return `<section class="ob-panel mo-step ob-click" ${open(x)} tabindex="0" role="button" aria-label="Процентовка по договору № ${e(c.number)}">
-    <div><div class="mo-cap">Процентовка за ${e(monthName(month))}${ours.length>1?` · дог. № ${e(c.number)}`:''}</div><b class="mo-now">${e(COLUMNS[ixOf(x)][1])}</b></div>
+    <div><div class="mo-cap">Наша процентовка за ${e(monthName(month))}${ours.length>1?` · дог. № ${e(c.number)}`:''}</div><b class="mo-now">${e(COLUMNS[ixOf(x)][1])}</b>${signedOn(x)?`<div class="kt-signed">подписана ${e(day(signedOn(x)))}</div>`:''}</div>
     <div class="mo-right">${stepsBar(x)}<div class="mo-turn">${turn(x)}${counts}${blocked(x)}${flag}</div></div></section>`;};
-  const stepHtml=ours.length?claims.map(stepCard).join(''):`<section class="ob-panel mo-step"><div><div class="mo-cap">Процентовка за ${e(monthName(month))}</div><b>Договора с заказчиком нет</b></div><div class="mo-turn"><span class="muted">Добавьте его во вкладке «Договоры».</span></div></section>`;
+  const stepHtml=ours.length?claims.map(stepCard).join(''):`<section class="ob-panel mo-step"><div><div class="mo-cap">Наша процентовка за ${e(monthName(month))}</div><b>Договора с заказчиком нет</b></div><div class="mo-turn"><span class="muted">Добавьте его во вкладке «Договоры».</span></div></section>`;
 
   // 2. Деньги: С-3а из четырёх сумм, сверка, «Из чего СМР».
   const cell=(cap,v,small,dim)=>`<div><div class="mo-cap">${cap}</div><div class="mo-big${dim?' muted':''}">${v}</div><small>${small}</small></div>`;
@@ -161,36 +162,38 @@ export function objectPage({ui,data,profile,today,now=Date.now()}){
   const cols='<colgroup><col><col style="width:150px"><col style="width:150px"><col style="width:130px"><col style="width:150px"><col style="width:250px"></colgroup>';
   const needC3a=live.some(k=>!k.x.expected&&['acts','tn','check'].includes(k.x.step_code))&&!kit.some(d=>d.kind==='c3a');
   const TN={prep:['готовится','n'],tn:['у ТН','w'],remarks:['замечания ТН','e'],ok:['ТН подписал','ok']},ORIG={party:'оригинал у заказчика',ours:'оригинал у нас',accounting:'оригинал в бухгалтерии'};
-  const docState=d=>{const m=dmOf(d.id),early=['wait','acts','tn'].includes(d.step_code);
-   const base=early&&m.tn_status?st(TN[m.tn_status][0],TN[m.tn_status][1],m.note||''):d.step_label?st(d.step_label,d.step_code==='accepted'?'ok':'w'):st('Без комплекта','n');
-   return base+(m.original?` <span class="muted">· ${ORIG[m.original]}</span>`:'');};
-  const docRow=d=>{const v=ver(d),c3a=d.kind==='c3a',m=dmOf(d.id);
-   return `<tr class="ob-row${c3a?' mo-tot':''}" data-action="doc" data-id="${e(d.id)}" tabindex="0" role="button"><td><span class="link">${e(kindNames[d.kind])} № ${e(d.number)}</span>${corr(d)}${v?.version>1?` <span class="muted">в.${v.version}</span>`:''}${m.part?` · ${e(m.part)}`:''}${num(m.materials)?` <span class="muted">· в т.ч. материалы заказчика ${money(m.materials)}</span>`:''}</td>
-    <td class="num">${c3a?(reports.length?money(rs('smr')):money(v?.amount)):money(v?.amount)}</td><td></td><td></td><td class="num">${c3a&&reports.length?money(rs('equipment')):'<span class="muted">—</span>'}</td><td>${docState(d)}</td></tr>`;};
   // Оценка выполнения = план месяца (шаг 1): одна сумма до актов, в реестре отдельно.
   const est=(data.matrix?.rows||[]).filter(r=>r.kind==='contract'&&r.project_id===pid&&r.estimate!==null&&r.estimate!==undefined);
   const estSum=est.reduce((t,r)=>t+Number(r.estimate),0);
   const estRow=est.length||(canEdit&&ix<=1&&!acts.length)?`<tr class="ob-row${est.length?'':' mo-off'}" ${canEdit?'data-action="estimate" data-id="" tabindex="0" role="button"':''}><td>Оценка выполнения <span class="muted">план до актов, в реестре отдельно</span></td>
     <td class="num">${est.length?money(estSum):'<span class="muted">—</span>'}</td><td></td><td></td><td></td><td>${est.length?st('оценка','n'):canEdit?'<span class="link">ввести</span>':''}</td></tr>`:'';
-  const docsHtml=`<section class="ob-panel" aria-label="Документы заказчику"><div class="ob-ph"><h2>Документы заказчику</h2><span class="muted">${acts.length?`${acts.length} ${acts.length===1?'акт':acts.length>=2&&acts.length<=4?'акта':'актов'} · сумма ${money(actsSum)}`:''}</span>${canEdit?`<span class="mo-marks">В месяце будет: <button class="mo-cb" role="checkbox" aria-checked="${!!mm.equipment_expected}" data-action="month-mark" data-id="equipment">оборудование</button><button class="mo-cb" role="checkbox" aria-checked="${!!mm.materials_expected}" data-action="month-mark" data-id="materials">материалы заказчика</button></span>`:''}${canEdit?`<span class="mo-add">${btn('Новый акт','new-doc')}${btn('Справка С-3а','new-c3a')}${btn('Из Excel','excel-acts')}<input type="file" id="excel-acts" accept=".xlsx" multiple hidden></span>`:''}</div>
-   <div class="table-wrap"><table class="ob-table mo-grid">${cols}<thead><tr><th>Документ</th><th class="num">СМР</th><th></th><th></th><th class="num">Оборудование</th><th>Статус</th></tr></thead><tbody>
-   ${estRow}${acts.map(docRow).join('')}${kit.filter(d=>d.kind==='c3a').map(docRow).join('')}
-   ${mm.equipment_expected&&!(reports.length&&rs('equipment'))?`<tr class="mo-off"><td>Ведомости оборудования</td><td></td><td></td><td></td><td></td><td>ожидается</td></tr>`:''}
-   ${mm.materials_expected&&!mats?`<tr class="mo-off"><td>Ведомость материалов заказчика</td><td></td><td></td><td></td><td></td><td>ожидается · для экономиста</td></tr>`:''}
-   ${needC3a?`<tr class="mo-off"><td>Справка С-3а</td><td></td><td></td><td></td><td></td><td>нужна для отправки заказчику</td></tr>`:''}
-   ${!acts.length&&!needC3a?`<tr class="mo-off"><td colspan="6">${per?'Акты месяца появятся на шаге «Готовятся акты».':'Отчётный месяц ещё не открыт.'}</td></tr>`:''}</tbody></table></div></section>`;
+  // Блок документов — как во вкладке «Документы» (kit-rows.js): тот же заголовок, справка сверху, акты под ней.
+  const tnPill=d=>{const m=dmOf(d.id);return m.tn_status&&['wait','acts','tn'].includes(d.step_code)?st(TN[m.tn_status][0],TN[m.tn_status][1],m.note||''):'';};
+  const extra=[est.length||(canEdit&&ix<=1&&!acts.length)?`<tr class="ob-row${est.length?'':' mo-off'}" ${canEdit?'data-action="estimate" data-id="" tabindex="0" role="button"':''}><td>Оценка выполнения <span class="muted">план до актов, в реестре отдельно</span></td><td></td>
+    <td class="num">${est.length?money(estSum):'<span class="muted">—</span>'}</td><td colspan="4">${est.length?st('оценка','n'):canEdit?'<span class="link">ввести</span>':''}</td></tr>`:'',
+   mm.equipment_expected&&!(reports.length&&rs('equipment'))?'<tr class="mo-off"><td colspan="7">Ведомости оборудования · ожидается</td></tr>':'',
+   mm.materials_expected&&!mats?'<tr class="mo-off"><td colspan="7">Ведомость материалов заказчика · ожидается · для экономиста</td></tr>':'',
+   needC3a?'<tr class="mo-off"><td colspan="7">Справка С-3а нужна для отправки заказчику</td></tr>':'',
+   !acts.length&&!needC3a&&!kit.length?`<tr class="mo-off"><td colspan="7">${per?'Акты месяца появятся на шаге «Готовятся акты».':'Отчётный месяц ещё не открыт.'}</td></tr>`:''].join('');
+  const marks=canEdit?`<span class="mo-marks">В месяце будет: <button class="mo-cb" role="checkbox" aria-checked="${!!mm.equipment_expected}" data-action="month-mark" data-id="equipment">оборудование</button><button class="mo-cb" role="checkbox" aria-checked="${!!mm.materials_expected}" data-action="month-mark" data-id="materials">материалы заказчика</button></span>`:'';
+  const docsHtml=(live.length?live:[{c:ours[0]||null,x:null}]).map(({c,x},i)=>{const w=x&&!x.expected?x:null,list=w?kit.filter(d=>d.workflow_id===w.id):[];
+   return `<section class="ob-panel" aria-label="${e(kitTitle(w,c))}"><div class="ob-ph"><h2>${e(kitTitle(w,c))}</h2>${kitStatus(w,{canEdit:writer&&per?.status!=='closed'})}${i===0?marks:''}</div>
+   ${i===0&&canEdit?'<input type="file" id="excel-acts" accept=".xlsx" multiple hidden>':''}<div class="table-wrap"><table class="ob-table dt-table kt-table">${KIT_COLS}${KIT_HEAD}<tbody>${i===0?extra:''}${kitRows({data,list,contract:c,canEdit,tn:tnPill})}</tbody></table></div></section>`;}).join('');
   const subState=s=>{const w=s.workflow,n=openNotes(w);
    if(s.skip)return st('Исключён','n',s.skip.reason||'');if(s.off)return '<span class="muted">не подаёт</span>';if(!w)return st('Ждём процентовку','n');
    if(s.oral&&s.workflow)return st('ТН устно · '+w.step_label,'w');
    if(s.passed)return st(w.step_code==='accepted'?'В бухгалтерии':'ТН ✓ · '+w.step_label,'ok');return st(w.step_label+days(w),n.length?'e':'w',n.length?n[n.length-1].note:'');};
-  const subOpen=s=>canEdit&&per?`data-action="sub-month" data-id="${e(s.contract.id)}"`:s.workflow?`data-action="workflow" data-id="${e(s.workflow.id)}"`:(exp.find(z=>z.template_code==='sub_claim'&&z.contract_id===s.contract.id)?`data-action="expected" data-id="${e('sub_claim:'+s.contract.id)}"`:`data-action="contract" data-id="${e(s.contract.id)}"`);
+  // Субподрядчик открывается карточкой на просмотр (как наша); поля — по «Изменить» в карточке (замечание 12.10.2026).
+  const subOpen=s=>`data-action="sub-card" data-id="${e(s.contract.id)}"`;
   const dash='<span class="muted">—</span>',eqSum=active.reduce((t,s)=>t+(s.eq||0),0);
   const canTick=writer&&per?.status!=='closed';
   const tick=s=>`<button class="mo-cb" role="checkbox" aria-checked="${!s.off}" aria-label="Подаёт в этом месяце" title="${s.workflow?'Процентовка уже подана':'Подаёт в этом месяце'}" data-action="sub-expect" data-id="${e(s.contract.id)}"${!canTick||s.workflow?' disabled':''}></button>`;
   const notes=s=>[s.expired?'срок истёк':'',s.unchecked?'не проверен':''].filter(Boolean).join(' · ');
-  const subsHtml=`<section class="ob-panel" aria-label="Субподрядчики"><div class="ob-ph"><h2>Субподрядчики</h2><span class="muted">подают ${active.length} из ${subs.length} · подали ${filed.length} · прошли ТН ${passed.length}${!per&&canTick?' · первая галочка откроет месяц':''}</span>${canEdit&&subs.length?`<span class="mo-add">${btn('Сопоставить «на заказчика»','allocate')}</span>`:''}</div>
+  // С шага «Проверено» список — только подающие в месяце; полный список с отметками — по ссылке «Изменить состав».
+  const late=ix>=4,full=!late||ui.subsAll,listed=full?subRows:subRows.filter(s=>!s.skip&&!s.off);
+  const subsHtml=`<section class="ob-panel" aria-label="Субподрядчики"><div class="ob-ph"><h2>Субподрядчики</h2><span class="muted">подали ${filed.length} из ${active.length} · прошли ТН ${passed.length}${full?` · в договорах ${subs.length}`:''}${!per&&canTick?' · первая галочка откроет месяц':''}</span><span class="mo-add">${late&&canTick&&subs.length?`<button type="button" class="link" data-action="subs-all" data-id="">${full?'Только подающие':'Изменить состав'}</button>`:''}${canEdit&&subs.length?`<button type="button" class="link" data-action="allocate" data-id="">Сопоставить «на заказчика»</button>`:''}</span></div>
    ${subs.length?`<div class="table-wrap"><table class="ob-table mo-grid">${cols}<thead><tr><th>Подаёт · субподрядчик</th><th class="num">СМР, их цены</th><th class="num">На заказчика</th><th class="num">Генуслуги</th><th class="num">Оборудование</th><th>Статус</th></tr></thead><tbody>
-   ${subRows.slice().sort((a,b)=>(a.skip||a.off)-(b.skip||b.off)).map(s=>`<tr class="ob-row${s.skip||s.off?' mo-off':''}" ${subOpen(s)} tabindex="0" role="button"><td><span class="mo-sub">${tick(s)}<span>${e(s.contract.party||'')} <span class="muted">№ ${e(s.contract.number)}${notes(s)?' · '+notes(s):''}</span></span></span></td>
+   ${listed.slice().sort((a,b)=>(a.skip||a.off)-(b.skip||b.off)).map(s=>`<tr class="ob-row${s.skip||s.off?' mo-off':''}" ${subOpen(s)} tabindex="0" role="button"><td><span class="mo-sub">${tick(s)}<span>${e(s.contract.party||'')} <span class="muted">№ ${e(s.contract.number)}${notes(s)?' · '+notes(s):''}</span></span></span></td>
     <td class="num">${s.D!==null?money(s.D):s.plan!==null&&!s.off?`<span class="muted" title="план, уточнится по их акту">${money(s.plan)}</span>`:dash}</td><td class="num">${s.F===null||s.off?dash:`<span class="${s.oral?'mo-w':''}">${money(s.F)}</span>`}</td><td class="num">${s.G===null?dash:`<span class="${s.G<0?'neg':''}">${money(s.G)}</span>`}</td><td class="num">${s.eq===null?dash:money(s.eq)}</td><td>${subState(s)}</td></tr>`).join('')}
    <tr class="mo-tot"><td>Итого</td><td class="num">${money(D)}</td><td class="num">${F?money(F):dash}</td><td class="num">${filed.some(s=>s.G!==null)?money(G):dash}</td><td class="num">${eqSum?money(eqSum):dash}</td><td></td></tr></tbody></table></div>`
    :'<div class="empty">Договоров субподряда у объекта нет.</div>'}</section>`;
