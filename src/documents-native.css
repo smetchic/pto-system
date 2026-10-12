@@ -52,6 +52,7 @@
 .kt-table .kt-act .kt-name{color:var(--kt-act)}
 .kt-table .kt-part{color:var(--mu);font-size:13px;white-space:nowrap}
 .kt-ok{color:var(--kt-ok);font-weight:600}
+.kt-chk{display:inline-block;width:1.2em;text-align:right;font-style:normal}
 .kt-table td small{display:block;font-size:12px}
 .kt-table .kt-add td{padding-top:3px;padding-bottom:3px;padding-left:30px;font-size:12px;border-bottom:1px solid var(--ln)}
 .kt-table .kt-add .muted{margin-right:14px}
