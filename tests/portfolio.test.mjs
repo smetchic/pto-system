@@ -9,7 +9,10 @@ test('object amounts come from the register matrix: object subtotal, or the sing
  const m={rows:[{kind:'contract',project_id:'a',total:'10.00',own:'7.00',subcontract:'3.00'},
   {kind:'contract',project_id:'b',total:'1.00',own:'1.00',subcontract:'0.00'},{kind:'contract',project_id:'b',total:'2.00',own:'2.00',subcontract:'0.00'},
   {kind:'project',project_id:'b',total:'3.00',own:'3.00',subcontract:'0.00'}]};
- assert.deepEqual(projectAmounts(m,'a'),{total:'10.00',own:'7.00',subcontract:'3.00'});
+ assert.deepEqual(projectAmounts(m,'a'),{total:'10.00',own:'7.00',subcontract:'3.00',basis:undefined});
+ // Части договора идут строками рядом с договором: итог объекта — по строке договора, не 0,00.
+ const parts={rows:[{kind:'part',project_id:'c',total:'6.00'},{kind:'part',project_id:'c',total:'4.00'},{kind:'contract',project_id:'c',total:'10.00',own:'8.00',subcontract:'2.00',basis:'acts'}]};
+ assert.deepEqual(projectAmounts(parts,'c'),{total:'10.00',own:'8.00',subcontract:'2.00',basis:'acts'});
  assert.equal(projectAmounts(m,'b').total,'3.00');
  assert.equal(projectAmounts(m,'none').total,'0.00');
  assert.equal(projectAmounts([],'a').total,'0.00','пустой ответ базы');
@@ -18,6 +21,7 @@ test('object amounts come from the register matrix: object subtotal, or the sing
 test('change to the previous month and the С-29 deadline',()=>{
  assert.equal(deltaPercent('1973259.89','1761839.19'),12);
  assert.equal(deltaPercent('90','100'),-10);
+ assert.equal(deltaPercent('0.00','100'),null,'за месяц ещё ничего нет — не «▼100 %»');
  assert.equal(deltaPercent('10','0'),null);
  assert.equal(c29Deadline('2026-10'),'2026-11-15');
  assert.equal(c29Deadline('2026-12'),'2027-01-15');
@@ -62,4 +66,15 @@ test('objects list: only the head adds objects',()=>{
  const data={projects:[{id:'p',name:'Пружаны'}],profiles:[],memberships:[]};
  assert.match(objectListPage({data,profile:{role:'head'}}),/data-action="new-project"/);
  assert.doesNotMatch(objectListPage({data,profile:{role:'engineer'}}),/data-action="new-project"/);
+});
+
+test('portfolio tile: subcontractors counter «подали N из M» and preliminary amounts before accounting',()=>{
+ const data={projects:[{id:'p',name:'ЛИДА'}],profiles:[],memberships:[],periods:[{id:'per',project_id:'p',status:'open'}],
+  contracts:[{id:'s1',project_id:'p',number:'1/С',direction:'incoming',our_role:'customer',counterparty_role:'subcontractor'},{id:'s2',project_id:'p',number:'2/С',direction:'incoming',our_role:'customer',counterparty_role:'subcontractor'}],
+  workflows:[wf({template_code:'sub_claim',contract_id:'s1'})],
+  matrix:{rows:[{kind:'part',project_id:'p',total:'600.00'},{kind:'contract',project_id:'p',total:'1000.00',own:'700.00',subcontract:'300.00',basis:'acts'}],total:{total:'1000.00',own:'700.00',subcontract:'300.00'}},
+  prevMatrix:{rows:[],total:{}}};
+ const html=portfolioPage({ui:{month:'2026-10'},data,profile:{role:'head'},today:'2026-10-12',now,view:'tiles'});
+ assert.match(html,/class="amt">1[\s ]000,00/);
+ assert.match(html,/субподряд · подали 1 из 2 · предв\./);
 });

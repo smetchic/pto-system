@@ -941,3 +941,9 @@ test('inspection 12.10: «ТН устно» does not hold sending; C-3a per cont
  await op('review');await op('close');
  assert.equal((await db.query('select status from pto_periods where id=$1',[per])).rows[0].status,'closed');
 });
+test('step dates are compared with today in Minsk, not UTC',async()=>{
+ await db.exec('reset role');
+ const rows=(await db.query("select p.proname,p.proconfig from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='pto_private' and p.proname in ('workflow_command','workflow_jump_command','workflow_redate_command','counterparty_import_command') order by 1")).rows;
+ assert.equal(rows.length,4);
+ for(const r of rows)assert.ok((r.proconfig||[]).includes('TimeZone=Europe/Minsk')||(r.proconfig||[]).includes('timezone=Europe/Minsk'),r.proname+': '+JSON.stringify(r.proconfig));
+});

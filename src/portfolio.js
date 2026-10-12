@@ -4,13 +4,14 @@ import {objectColor,subsOf} from './conveyor.js';
 
 const DAY=86400000;
 // Строка реестра по объекту: итог объекта, а если договор один — строка договора.
+// Строки частей договора (kind 'part') в итог не входят: раньше из-за них у объекта с частями плитка показывала 0,00.
 export function projectAmounts(matrix,projectId){
- const rows=(matrix?.rows||[]).filter(r=>r.project_id===projectId);
+ const rows=(matrix?.rows||[]).filter(r=>r.project_id===projectId&&r.kind!=='part');
  const row=rows.find(r=>r.kind==='project')||(rows.length===1?rows[0]:null);
- return row?{total:row.total,own:row.own,subcontract:row.subcontract}:{total:'0.00',own:'0.00',subcontract:'0.00'};
+ return row?{total:row.total,own:row.own,subcontract:row.subcontract,basis:row.basis}:{total:'0.00',own:'0.00',subcontract:'0.00'};
 }
-// Изменение к прошлому месяцу, %; null, если сравнивать не с чем.
-export function deltaPercent(current,previous){const c=Number(current),p=Number(previous);return p>0?Math.round((c-p)/p*100):null;}
+// Изменение к прошлому месяцу, %; null, если сравнивать не с чем или за месяц ещё ничего нет (не «▼100 %»).
+export function deltaPercent(current,previous){const c=Number(current),p=Number(previous);return p>0&&c>0?Math.round((c-p)/p*100):null;}
 // 15-е число месяца, следующего за отчётным (срок С-29).
 export function c29Deadline(month){const [y,m]=month.split('-').map(Number),d=new Date(Date.UTC(y,m,15));return d.toISOString().slice(0,10);}
 const daysBetween=(from,to)=>Math.round((new Date(to+'T12:00:00Z')-new Date(from+'T12:00:00Z'))/DAY);
@@ -72,7 +73,7 @@ export function splitBar({own,sub,filed,active}){
 export function portfolioPage({ui,data,profile,today,now=Date.now(),view}){
  const projects=data.projects||[],workflows=data.workflows||[];
  const rows=projects.map(p=>{const a=projectAmounts(data.matrix,p.id),prev=projectAmounts(data.prevMatrix,p.id);
-  return {p,a,d:deltaPercent(a.total,prev.total),eng:engineerName(data,p.id),claim:claimStatus(workflows,p.id,now),c29:c29Status(workflows,p.id,ui.month,today,now),period:(data.periods||[]).find(x=>x.project_id===p.id)};});
+  return {p,a,subs:subsFiled(data,[p.id],ui.month),d:deltaPercent(a.total,prev.total),eng:engineerName(data,p.id),claim:claimStatus(workflows,p.id,now),c29:c29Status(workflows,p.id,ui.month,today,now),period:(data.periods||[]).find(x=>x.project_id===p.id)};});
  const t=data.matrix?.total||{total:'0.00',own:'0.00',subcontract:'0.00'},n=projects.length;
  const count=f=>rows.filter(f).length;
  const ownCell=v=>Number(v)<0?`<span class="own neg" title="${negHint}">${money(v)}</span>`:`<span class="own">${money(v)}</span>`;
@@ -90,7 +91,7 @@ ${sum?`<div class="pf-graph">${bar}${splitBar({own:t.own,sub:t.subcontract,...su
   return `<button class="tile pf-tile" data-action="project" data-id="${e(p.id)}">
 <span class="pf-head"><b title="${e(p.full_name||p.name)}"><i class="ct-dot" style="background:${objectColor(projects,p.id)}"></i>${e(p.name)}</b><span class="eng">${e(r.eng)}</span></span>
 <span class="pf-sum"><span class="amt">${money(a.total)}</span>${delta(r.d)}</span>
-<span class="pf-split">${ownCell(a.own)}<span class="muted">своими</span><span class="muted">·</span><span>${money(a.subcontract)}</span><span class="muted">субподряд</span></span>
+<span class="pf-split">${ownCell(a.own)}<span class="muted">своими</span><span class="muted">·</span><span>${money(a.subcontract)}</span><span class="muted">субподряд${r.subs.active?` · подали ${r.subs.filed} из ${r.subs.active}`:''}${r.subs.filed<r.subs.active||a.basis==='acts'?' · предв.':''}</span></span>
 <span class="pf-rows">
 <span class="pf-row"><span class="muted">Процентовка заказчику</span>${pill(r.claim)}</span>
 <span class="pf-row"><span class="muted">С-29 <small>до ${e(fmtShort(c29.deadline))}</small></span><span class="pf-c29">${pill(c29)}${c29.soon!==undefined?`<span class="st w">срок через ${c29.soon} дн.</span>`:''}</span></span>
