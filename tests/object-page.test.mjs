@@ -73,33 +73,24 @@ test('close conditions and contract term',()=>{
  assert.equal(objectTab('summary'),'month');assert.equal(objectTab('history'),'history');
 });
 
-test('other tabs: contracts grouped by side, documents only from the month selection, history filtered by kind',()=>{
+test('other tabs: contracts grouped by side, native documents hierarchy, history filtered by kind',()=>{
  const ctx=fixture();ctx.ui.projectTab='contracts';let html=objectPage(ctx);
  assert.match(html,/Наш договор с МПС/);assert.match(html,/Наши исполнители/);
  assert.match(html,/<th>Контрагент<\/th><th>Предмет договора<\/th>/);assert.match(html,/1 в работе/);
  ctx.ui.contractDs=Object.fromEntries(ctx.data.contracts.map(c=>[c.id,true]));assert.match(objectPage(ctx),/<tr class="ct-ds">/);delete ctx.ui.contractDs;assert.match(html,/30\.12\.2026/);
- ctx.data.versions[0].note='Часть объекта: ЦЕХ (ПРИСТРОЙКА). Из файла Акт.xlsx, лист «1»';
- ctx.data.subMonth=[{period_id:'per',contract_id:'s7',expected:true}];
+ ctx.data.docMarks=[{document_id:'d1',part:'ЦЕХ (ПРИСТРОЙКА)'}];
  ctx.ui.projectTab='documents';html=objectPage(ctx);
- assert.doesNotMatch(html,/Процентовка СУ-22 заказчику/,'самодельный заголовок процентовки убран');
- assert.match(html,/Справка С-3а[\s\S]*\+ Создать справку/,'пустая справка создаётся внутри реального комплекта месяца');
- assert.match(html,/class="ob-row dt-act" data-action="doc" data-id="d1"/,'акт ниже справки');assert.match(html,/ЦЕХ \(ПРИСТРОЙКА\)/,'часть объекта берётся и из данных импортированного акта');
+ assert.match(html,/Процентовка СУ-22 заказчику · дог\. № 21/);assert.match(html,/class="ob-st w">У технадзора/);
+ assert.match(html,/Справка С-3а[\s\S]*\+ Создать справку/,'пустая справка создаётся внутри комплекта');
+ assert.match(html,/class="ob-row dt-act" data-action="doc" data-id="d1"/,'акт ниже справки');assert.match(html,/ЦЕХ \(ПРИСТРОЙКА\)/,'часть объекта видна рядом с актом');
  assert.match(html,/class="ob-grp dt-subs-head"><td colspan="6">Субподрядчики/,'один общий заголовок субподрядчиков');
- assert.match(html,/Мегалит/,'отмеченный в месяце субподрядчик показан');assert.doesNotMatch(html,/Стройэлектро/,'неотмеченный субподрядчик во вкладку документов не попадает');
- assert.ok(html.indexOf('Справка С-3а')<html.indexOf('Субподрядчики'),'наши документы всегда выше субподрядчиков');
+ assert.ok(html.indexOf('Процентовка СУ-22 заказчику')<html.indexOf('Субподрядчики'),'наши документы всегда выше субподрядчиков');
  assert.doesNotMatch(html,/С-29/,'С-29 не показывается во вкладке Документы');
  const toolbar=html.match(/<div class="ob-bar dt-toolbar">[\s\S]*?<\/div><\/div>/)?.[0]||'';
  assert.match(toolbar,/Импорт Excel/);assert.doesNotMatch(toolbar,/new-doc|new-c3a|new-c29/,'сверху нет кнопок создания документов');
  ctx.ui.projectTab='history';ctx.data.events=[{id:1,project_id:'p1',action:'revise',actor:'u1',created_at:'2026-10-08T10:00:00Z',detail:{reason:'исправлен объём'}},{id:2,project_id:'p1',action:'update_contract',actor:'u1',created_at:'2026-10-08T11:00:00Z',detail:{}}];
  ctx.ui.historyKind='document';html=objectPage(ctx);
  assert.match(html,/исправлен объём/);assert.doesNotMatch(html,/Изменены условия договора/);
-});
-
-test('documents tab: active contracts alone do not create empty own or subcontractor groups',()=>{
- const ctx=fixture();ctx.ui.projectTab='documents';ctx.data.workflows=[];ctx.data.documents=[];ctx.data.subMonth=[];
- const html=objectPage(ctx);
- assert.doesNotMatch(html,/Процентовка СУ-22 заказчику|Мегалит|Стройэлектро|дог\. №/);
- assert.doesNotMatch(html,/Субподрядчики/);
 });
 
 test('month tab: marks from the database — sub plan grey, «ТН устно», «на заказчика» entered, month and act marks',()=>{

@@ -37,26 +37,4 @@
 .dc-file{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:4px 0;font-size:13px}
 .dc-file .link{padding:0}
 .dc-file-no{font-size:12px;color:var(--mu);min-width:18px}
-
-/* Просмотр и правка живут в одной карточке. */
-.dc-edit-only{display:none!important}
-.dc.is-editing .dc-view-only{display:none!important}
-.dc.is-editing .dc-edit-only{display:revert!important}
-.dc.is-editing .dc-ident{padding-right:96px}
-.dc-edit-field{display:flex;flex-direction:column;gap:5px;margin:0;color:var(--mu);font-size:12px;font-weight:500}
-.dc-edit-field input,.dc-edit-field select,.dc-edit-field textarea{width:100%;box-sizing:border-box;margin:0;color:var(--ink);font-size:14px}
-.dc-ident .dc-edit-field{max-width:430px;margin:2px 0}
-.dc-total-edit{display:flex!important;align-items:flex-end;gap:12px;flex-wrap:wrap}
-.dc-total-edit .dc-money-field{min-width:240px;max-width:320px}
-.dc-total-edit .dc-money-field input{font-size:22px;font-weight:650;text-align:right}
-.dc-vat{font-size:12px;color:var(--mu);padding-bottom:7px}
-.dc-marks-edit{margin-top:4px}
-.dc-edit-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.dc-edit-grid .dc-comment{grid-column:1/-1}
-.dc-edit-grid textarea{min-height:72px;resize:vertical}
-.dc-table-input{width:130px;max-width:100%;box-sizing:border-box;text-align:right;font:inherit}
-.dc .cp-drawer-foot>.dc-view-only,.dc .cp-drawer-foot>.dc-edit-only{gap:8px;align-items:center}
-.dc .cp-drawer-foot>.dc-view-only{display:flex}
-.dc.is-editing .cp-drawer-foot>.dc-edit-only{display:flex!important}
-
-@media(max-width:760px){.dt-table{table-layout:auto}.dt-table .dt-c3a td:first-child{font-size:14px}.dc-ident{padding-right:0}.dc.is-editing .dc-ident{padding-right:0}.dc-ident h2{font-size:20px}.dc-amount-row{align-items:flex-start;flex-direction:column}.dc-amount-row .cp-total b{font-size:25px}.dc-edit-grid{grid-template-columns:1fr}.dc-edit-grid .dc-comment{grid-column:auto}}
+@media(max-width:760px){.dt-table{table-layout:auto}.dt-table .dt-c3a td:first-child{font-size:14px}.dc-ident{padding-right:0}.dc-ident h2{font-size:20px}.dc-amount-row{align-items:flex-start;flex-direction:column}.dc-amount-row .cp-total b{font-size:25px}}
