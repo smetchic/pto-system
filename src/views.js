@@ -19,9 +19,10 @@ const docs=()=>data.documents.filter(d=>d.project_id===ui.project);
 const ver=d=>data.versions.find(v=>v.id===d.current_version);
 const projectName=id=>data.projects?.find(p=>p.id===id)?.name||'';
 function documentsPage(){
- const allDocs=data.documents||[];
+ const period=currentPeriod();
+ const allDocs=(data.documents||[]).filter(d=>d.project_id===ui.project&&(!period||d.period_id===period.id));
  const our=allDocs.filter(d=>data.contracts.find(c=>c.id===d.contract_id)?.direction==='outgoing');
- const marked=new Set((data.subMonth||[]).filter(x=>x.expected===true||x.expected==='true').map(x=>x.contract_id));
+ const marked=new Set((data.subMonth||[]).filter(x=>x.period_id===period?.id&&(x.expected===true||x.expected==='true')).map(x=>x.contract_id));
  const subs=allDocs.filter(d=>data.contracts.find(c=>c.id===d.contract_id)?.direction==='incoming'&&marked.has(d.contract_id));
  const actions=ui.project&&canEdit()?btn('Новый акт','new-doc','','primary')+btn('Справка С-3а','new-c3a')+btn('С-29','new-c29'):'';
  const row=d=>{
