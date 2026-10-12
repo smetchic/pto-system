@@ -47,7 +47,7 @@ export function documentCard({data,doc:d,files=[],checks=[],canEdit=false,cum=fa
   <div class="dc-object">${e(p.name||'')}</div>
   <div class="dc-part${part||src.part?'':' muted'}">${e(part||src.part||'Часть объекта не указана')}</div>
   <div class="dc-contract">${c.number?`Договор № ${e(c.number)}`:'Договор не указан'}</div>
-  <div class="dc-docno">${e(docTitle(d))}</div>
+  <h2>${e(docTitle(d))}</h2>
   <div class="dc-month">${e(monthWord(month))}</div>
  </div>`;
 
