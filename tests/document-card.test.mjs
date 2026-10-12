@@ -28,7 +28,7 @@ test('document card: act — identity hierarchy, status opposite amount, marks, 
  assert.match(html,/<dt>Технадзор<\/dt><dd>подписал<\/dd>/);assert.match(html,/<dt>Оригинал<\/dt><dd>передан в бухгалтерию<\/dd>/);
  assert.match(html,/Входит в <button[^>]*data-id="sp">Справка С-3а № 08\/2026/);
  assert.match(html,/из файла Акт С-2б\.xlsx/);assert.doesNotMatch(html,/Часть объекта:/,'часть объекта не повторяется в примечании');
- assert.match(html,/Загрузить скан/,'скан загружается и в бухгалтерии');assert.match(html,/data-action="doc-mark"[^>]*>Изменить/);
+ assert.match(html,/Загрузить скан/,'скан загружается и в бухгалтерии');assert.match(html,/data-action="doc-edit"[^>]*>Изменить/,'редактирование объединено в одну кнопку');assert.doesNotMatch(html,/Материалы заказчика/,'материалы заказчика не показываются в карточке акта');assert.doesNotMatch(html,/Новая версия/,'отдельной кнопки новой версии нет');
  assert.doesNotMatch(html,/Версии<\/h3>/,'одна версия — без истории');
 });
 
