@@ -5,7 +5,6 @@ export * from './object-page-core.js';
 import {escapeHtml as e,money,kindNames,canWrite} from './domain.js';
 import {objectColor,activeIn,oursContract} from './conveyor.js';
 import {engineerName} from './portfolio.js';
-import './documents-native.css';
 
 const MONTHS=['январь','февраль','март','апрель','май','июнь','июль','август','сентябрь','октябрь','ноябрь','декабрь'];
 const monthName=month=>MONTHS[Number(String(month).slice(5,7))-1]||'';
