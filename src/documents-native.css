@@ -38,3 +38,34 @@
 .dc-file .link{padding:0}
 .dc-file-no{font-size:12px;color:var(--mu);min-width:18px}
 @media(max-width:760px){.dt-table{table-layout:auto}.dt-table .dt-c3a td:first-child{font-size:14px}.dc-ident{padding-right:0}.dc-ident h2{font-size:20px}.dc-amount-row{align-items:flex-start;flex-direction:column}.dc-amount-row .cp-total b{font-size:25px}}
+
+/* Комплект документов — одинаково во «Месяце» и «Документах» (kit-rows.js, замечания 12.10.2026). */
+:root{--kt-c3a:#1d3a9e;--kt-act:#2f54eb;--kt-ok:#067647}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--kt-c3a:#c3ceff;--kt-act:#8ea4ff;--kt-ok:#47cd89}}
+:root[data-theme=dark]{--kt-c3a:#c3ceff;--kt-act:#8ea4ff;--kt-ok:#47cd89}
+.kt-table{table-layout:fixed}
+.kt-table td,.kt-table th{overflow:hidden;text-overflow:ellipsis}
+.kt-table .kt-c3a td{padding-top:9px;padding-bottom:9px}
+.kt-table .kt-c3a .kt-name{color:var(--kt-c3a);font-weight:650;font-size:14px}
+.kt-table .kt-act td:first-child{padding-left:30px;position:relative}
+.kt-table .kt-act td:first-child::before{content:"";position:absolute;left:14px;top:0;bottom:0;border-left:2px solid var(--ln)}
+.kt-table .kt-act .kt-name{color:var(--kt-act)}
+.kt-table .kt-part{color:var(--mu);font-size:13px;white-space:nowrap}
+.kt-ok{color:var(--kt-ok);font-weight:600}
+.kt-table td small{display:block;font-size:12px}
+.kt-table .kt-add td{padding-top:3px;padding-bottom:3px;padding-left:30px;font-size:12px;border-bottom:1px solid var(--ln)}
+.kt-table .kt-add .muted{margin-right:14px}
+.kt-table .kt-add .link{font-size:12px;margin-right:14px;padding:0}
+.kt-table .kt-head td{font-size:14px;font-weight:600;color:var(--ink);padding-top:8px;padding-bottom:8px;text-transform:none;letter-spacing:0}
+.kt-table .kt-head .kt-title{margin-right:8px}
+.kt-table .kt-section td{font-size:12px;font-weight:650;letter-spacing:.03em;text-transform:uppercase;color:var(--mu);border-top:10px solid var(--bg)}
+.kt-table .kt-section .muted{text-transform:none;letter-spacing:0;font-weight:400}
+.kt-signed{color:var(--ink);font-size:13px;font-weight:600;margin-left:6px}
+.mo-step .kt-signed{margin:2px 0 0;font-weight:500}
+.kt-link{font-size:12px;margin-left:6px}
+.ob-ph .kt-signed+.kt-link{margin-right:8px}
+.sc .sc-doc{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid var(--ln)}
+.sc .sc-doc.c3a .link{font-weight:650;color:var(--kt-c3a)}
+.sc .sc-doc:not(.c3a){padding-left:16px}
+.sc .sc-doc:not(.c3a) .link{color:var(--kt-act)}
+.mo-add .link{margin-left:12px}

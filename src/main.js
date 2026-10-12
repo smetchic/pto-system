@@ -13,6 +13,7 @@ import './conveyor.css';
 import './object.css';
 import {signingPanel} from './signing-panel.js';
 import {documentCard,scanName} from './document-card.js';
+import {subMonthCard} from './sub-card.js';
 import {parseSheets,sheetsOf,matchContract,importCard,importPlan,createPayload,importResult} from './excel-import.js';
 import {expectedCards,subExpected} from './conveyor.js';
 import {genCumulative,genSheetRows,REGISTER_VIEWS} from './registers.js';
@@ -124,6 +125,17 @@ async function actsAllOk(workflowId){
  for(const d of list)await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'set_document_mark',document_id:d.id,tn_status:'ok'}}));
  await load();toast('Сохранено');
 }
+function subCardModal(id){
+ const c=contractOf(id),p=currentPeriod();
+ contractDrawer(subMonthCard({data,contract:c,period:p,canEdit:!!p&&p.status==='open'&&editor(c.project_id)}));
+}
+// Исправление даты шага (дата подписания и т. п.): новая запись журнала, прежняя дата остаётся в истории.
+function redateForm(id){
+ const [wid,step]=String(id).split(':'),w=(data.workflows||[]).find(x=>x.id===wid);if(!w)throw Error('Комплект не найден');
+ const cur=w.step_dates?.[step]||'';
+ form(step==='check'?'Дата подписания процентовки':'Дата шага',`${field('date',step==='check'?'Дата подписания':'Дата','date',cur)}${note('note','Пояснение','').replace(' required','')}<p class="muted">Прежняя дата останется в истории комплекта.</p>`,
+  x=>mutate({op:'workflow_redate',workflow_id:wid,step,date:x.date,note:x.note||''}));
+}
 function subMonthForm(id){
  const c=contractOf(id),p=currentPeriod();if(!p)return toast('Откройте месяц');
  const s=(data.subMonth||[]).find(x=>x.contract_id===id&&x.period_id===p.id)||{},w=(data.workflows||[]).find(x=>x.template_code==='sub_claim'&&x.contract_id===id);
@@ -136,7 +148,7 @@ function subMonthForm(id){
   ${field('target_offset','Зачёт целевого аванса, руб.','number',s.target_offset??'',false)}
   ${field('current_offset','Зачёт текущего аванса, руб.','number',s.current_offset??'',false)}
   <p class="muted">Каждое сохранение — запись в журнале. Изменение сумм возвращает месяц на проверку.</p>`,
-  x=>mutate({op:'set_sub_month',period_id:p.id,contract_id:id,...blankNull(x),expected:x.expected==='true'}));
+  async x=>{await mutate({op:'set_sub_month',period_id:p.id,contract_id:id,...blankNull(x),expected:x.expected==='true'});subCardModal(id);dialog.dataset.keepOpen='1';});
 }
 function docMarkForm(id){
  const d=data.documents.find(x=>x.id===id);if(!d)throw Error('Документ не найден');
@@ -336,7 +348,9 @@ async function applyExcelImport(form){
  const plan=importPlan(files,form,existing);
  if(!plan.length)throw Error('Отметьте хотя бы один документ');
  if(plan.some(f=>!f.contract))throw Error('Выберите договор у каждого отмеченного документа');
- const step=canJump?String(form.get('to_step')||''):'',rpc=payload=>query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload}));
+ const step=canJump?String(form.get('to_step')||''):'',signedOn=String(form.get('signed_on')||'');
+ if(['signed','accepted'].includes(step)&&!signedOn)throw Error('Укажите дату подписания процентовки');
+ const rpc=payload=>query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload}));
  const rev=async pid=>(await query(client.from('pto_periods').select('revision').eq('id',pid).single())).revision;
  const periodIds={},created=[],failed=[];
  for(const f of plan){
@@ -353,7 +367,7 @@ async function applyExcelImport(form){
   for(const w of [...new Set(rows.map(d=>d.workflow_id).filter(Boolean))]){
    const d=rows.find(x=>x.workflow_id===w),target=(data.steps||[]).find(s=>s.template_code===d.template_code&&s.code===step);
    if(!target||Number(d.step_ordinal)>=Number(target.ordinal))continue;
-   try{await rpc({op:'workflow_jump',workflow_id:w,to_step:step,note:'загружено из Excel'});moved++;}
+   try{await rpc({op:'workflow_jump',workflow_id:w,to_step:step,date:signedOn||undefined,note:'загружено из Excel'});moved++;}
    catch(err){failed.push(`Комплект дог. № ${data.contracts.find(c=>c.id===d.contract_id)?.number||''}: шаг не поставлен — ${errorMessage(err)}`);}
   }
  }
@@ -468,7 +482,7 @@ async function action(name,id){
  if(name==='new-contract')return newContract();
  if(name==='open-period')return mutate({op:'open_period',project_id:ui.project,month:ui.month+'-01'});
  if(['new-doc','new-c3a','new-c29'].includes(name)){
- const outgoingOnly=name!=='new-doc',contracts=data.contracts.filter(c=>c.project_id===ui.project&&(!outgoingOnly||c.direction==='outgoing'));if(!contracts.length)return toast(outgoingOnly?'Сначала добавьте договор с заказчиком.':'Сначала добавьте договор.');
+ const outgoingOnly=name==='new-c29'||(name==='new-c3a'&&!id),contracts=data.contracts.filter(c=>c.project_id===ui.project&&(!outgoingOnly||c.direction==='outgoing')).sort((a,b)=>(b.id===id)-(a.id===id));if(!contracts.length)return toast(outgoingOnly?'Сначала добавьте договор с заказчиком.':'Сначала добавьте договор.');
  const head=select('contract_id','Договор',contracts.map(c=>[c.id,c.number+' · '+c.party]));
  if(name==='new-c3a')return form('Справка С-3а',head+field('number','Номер')+c3aHint+c3aFields()+field('due_date','Срок','date','',false)+note('note','Содержание / основание').replace(' required',''),x=>mutate(periodPayload('create_document',{...x,kind:'c3a'})));
  if(name==='new-c29')return form('Отчёт С-29',head+field('number','Номер')+field('due_date','Срок','date','',false)+note('note','Содержание / основание').replace(' required',''),x=>mutate(periodPayload('create_document',{...x,kind:'c29'})));
@@ -513,6 +527,10 @@ async function action(name,id){
  return form('Новая версия документа',body+note('note','Содержание / основание',v.note).replace(' required','')+note('reason','Причина изменения'),x=>mutate(periodPayload('revise',{document_id:id,...x})));}
  if(name==='sub-month')return subMonthForm(id);
  if(name==='doc-mark')return docMarkForm(id);
+ if(name==='doc-edit')return docEditForm(id);
+ if(name==='sub-card')return subCardModal(id);
+ if(name==='subs-all'){ui.subsAll=!ui.subsAll;return render();}
+ if(name==='redate')return redateForm(id);
  if(name==='month-mark'){const p=currentPeriod();if(!p)return toast('Откройте месяц');const m=(data.monthMarks||[]).find(x=>x.period_id===p.id)||{};const key=id==='materials'?'materials_expected':'equipment_expected';return mutate({op:'set_month_marks',period_id:p.id,[key]:!m[key]});}
  if(name==='acts-all-ok')return actsAllOk(id);
  if(name==='check-file')return checkFile(id);

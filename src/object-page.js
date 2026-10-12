@@ -3,7 +3,8 @@
 import {objectPage as coreObjectPage} from './object-page-core.js';
 export * from './object-page-core.js';
 import {escapeHtml as e,money,kindNames,canWrite} from './domain.js';
-import {objectColor,activeIn,oursContract} from './conveyor.js';
+import {objectColor,activeIn,oursContract,subsOf} from './conveyor.js';
+import {kitRows,kitTitle,kitStatus,KIT_COLS,KIT_HEAD} from './kit-rows.js';
 import {engineerName} from './portfolio.js';
 
 const MONTHS=['январь','февраль','март','апрель','май','июнь','июль','август','сентябрь','октябрь','ноябрь','декабрь'];
@@ -32,32 +33,21 @@ function documentsPage({ui,data,profile}){
   <div class="ob-right"><span class="ob-month">${e(monthName(month))} ${e(String(month).slice(0,4))}</span>${periodState}</div></div>
   <div class="tabs" role="tablist" aria-label="Разделы объекта">${[['month','Месяц'],['contracts','Договоры'],['documents','Документы'],['history','История']].map(([id,label])=>`<button role="tab" aria-selected="${id==='documents'}" class="${id==='documents'?'on':''}" data-action="project-tab" data-id="${id}">${label}${id==='contracts'?`<span class="ob-cnt">${contracts.length}</span>`:id==='documents'?`<span class="ob-cnt">${docs.length}</span>`:''}</button>`).join('')}</div>`;
 
- const cellMoney=v=>v===null||v===undefined||v===''?'<span class="muted">—</span>':money(v);
- const docName=d=>`${e(kindNames[d.kind]||'Документ')} № ${e(d.number)}${ver(d).version>1?` <span class="dt-v">в${ver(d).version}</span>`:''}`;
- const row=d=>{const r=d.kind==='c3a'?report(d):null,part=partOf(d),c3a=d.kind==='c3a';
-  return `<tr class="ob-row ${c3a?'dt-c3a':'dt-act'}" data-action="doc" data-id="${e(d.id)}" tabindex="0" role="button"><td>${c3a?`<b>${docName(d)}</b>`:docName(d)}${!c3a&&part?` <span class="dt-part">· ${e(part)}</span>`:''}</td><td class="num">${c3a?cellMoney(r?.smr??ver(d).amount):cellMoney(ver(d).amount)}</td><td class="num">${c3a?cellMoney(Number(r?.equipment)||null):''}</td><td class="num">${c3a?cellMoney((Number(r?.target_offset)||0)+(Number(r?.current_offset)||0)||null):''}</td><td class="num">${c3a&&r?`<b>${money(r.to_pay)}</b>`:''}</td><td class="dt-scan">${scan(d)}</td></tr>`;};
- const createRow=(kind,contract,party='')=>`<tr class="${kind==='c3a'?'dt-c3a':'dt-act'} dt-create"><td colspan="6"><span>${kind==='c3a'?'Справка С-3а':'Акты С-2'}${party?` · ${e(party)}`:''}${contract?.number?` <span class="muted">· дог. № ${e(contract.number)}</span>`:''}</span>${canEdit?btn(kind==='c3a'?'+ Создать справку':'+ Создать акт',kind==='c3a'?'new-c3a':'new-doc',contract?.id||''):''}</td></tr>`;
- const groupRows=(contract,w,{sub=false}={})=>{const list=docs.filter(d=>(w&&d.workflow_id===w.id)||(!w&&d.contract_id===contract?.id));const c3a=list.filter(d=>d.kind==='c3a').sort(byNo),acts=list.filter(d=>d.kind==='c2a'||d.kind==='c2b').sort(byNo),rest=list.filter(d=>!['c3a','c2a','c2b','c29'].includes(d.kind)).sort(byNo);const party=sub?(w?.party||contract?.party||''):'';
-  return `${c3a.length?c3a.map(d=>{const base=row(d);return sub?base.replace('</b>',`</b> <span class="dt-party">· ${e(party)}</span>${contract?.number?` <span class="dt-contract">· дог. № ${e(contract.number)}</span>`:''}`):base;}).join(''):createRow('c3a',contract,party)}${acts.map(row).join('')}${rest.map(row).join('')}${canEdit?createRow('act',contract,''):''}`;};
-
- const outgoing=contracts.filter(c=>c.direction==='outgoing'&&(activeIn(c,month)||ws.some(w=>w.contract_id===c.id&&w.template_code==='claim')));
- const incoming=contracts.filter(c=>c.direction==='incoming'&&(activeIn(c,month)||ws.some(w=>w.contract_id===c.id&&w.template_code==='sub_claim')));
- const claimed=new Set();
- const ourGroups=[];
- for(const c of outgoing){const w=ws.find(x=>x.template_code==='claim'&&x.contract_id===c.id);if(w)claimed.add(w.id);ourGroups.push({c,w});}
- for(const w of ws.filter(x=>x.template_code==='claim'&&!claimed.has(x.id))){ourGroups.push({c:contracts.find(c=>c.id===w.contract_id)||null,w});claimed.add(w.id);}
- const subGroups=[];
- for(const c of incoming){const w=ws.find(x=>x.template_code==='sub_claim'&&x.contract_id===c.id);if(w)claimed.add(w.id);subGroups.push({c,w});}
- for(const w of ws.filter(x=>x.template_code==='sub_claim'&&!claimed.has(x.id))){subGroups.push({c:contracts.find(c=>c.id===w.contract_id)||null,w});claimed.add(w.id);}
- const loose=docs.filter(d=>d.kind!=='c29'&&!claimed.has(d.workflow_id));
-
- const ourHtml=ourGroups.length?ourGroups.map(({c,w})=>`<tr class="ob-grp dt-ours-head"><td colspan="6"><span>Процентовка СУ-22 заказчику${c?.number?` · дог. № ${e(c.number)}`:''}</span>${statusOf(w)}</td></tr>${groupRows(c,w)}`).join(''):`<tr class="ob-grp dt-ours-head"><td colspan="6">Процентовка СУ-22 заказчику</td></tr>${createRow('c3a',outgoing[0]||null)}${createRow('act',outgoing[0]||null)}`;
- const subsHtml=subGroups.length?`<tr class="ob-grp dt-subs-head"><td colspan="6">Субподрядчики</td></tr>${subGroups.map(({c,w})=>groupRows(c,w,{sub:true})).join('')}`:'';
- const looseHtml=loose.length?`<tr class="ob-grp"><td colspan="6">Без комплекта</td></tr>${loose.sort(byNo).map(row).join('')}`:'';
- const importAction=canEdit?`${btn('Импорт Excel','excel-acts')}<input type="file" id="excel-acts" accept=".xlsx" multiple hidden>`:'';
-
- const body=`<div class="ob-bar dt-toolbar"><span class="muted">${e(monthName(month))} ${e(String(month).slice(0,4))} · справка С-3а выше актов</span><div class="actions">${importAction}</div></div>
-  <div class="table-wrap"><table class="ob-table dt-table"><colgroup><col><col style="width:150px"><col style="width:140px"><col style="width:140px"><col style="width:150px"><col style="width:70px"></colgroup><thead><tr><th>Документ</th><th class="num">СМР с НДС</th><th class="num">Оборудование</th><th class="num">Зачёт авансов</th><th class="num">К оплате</th><th>Скан</th></tr></thead><tbody>${ourHtml}${subsHtml}${looseHtml}</tbody></table></div>`;
+ // Комплекты (замечания 12.10.2026): справочные договоры МПС не показываются; субподрядчики — только отмеченные «подаёт»
+ // в этом месяце или уже с документами; блоки и заголовки — как во вкладке «Месяц» (kit-rows.js).
+ const kitOf=(c,w)=>docs.filter(d=>d.kind!=='c29'&&(w?d.workflow_id===w.id:d.contract_id===c?.id&&!d.workflow_id));
+ const ours=contracts.filter(c=>oursContract(c)&&(activeIn(c,month)||ws.some(w=>w.contract_id===c.id&&w.template_code==='claim')));
+ const ticked=id=>(data.subMonth||[]).some(x=>x.period_id===per?.id&&x.contract_id===id&&x.expected===true);
+ const subs=subsOf(data,pid,month,{all:true}).filter(s=>s.workflow||ticked(s.contract.id)||docs.some(d=>d.contract_id===s.contract.id));
+ const group=(c,w,sub)=>`<tr class="ob-grp kt-head${sub?' kt-sub':''}"><td colspan="7"><span class="kt-title">${e(kitTitle(w,c))}</span> ${kitStatus(w,{canEdit:writer&&per?.status!=='closed'})}</td></tr>${kitRows({data,list:kitOf(c,w),contract:c,canEdit})}`;
+ const ourHtml=ours.map(c=>group(c,ws.find(w=>w.template_code==='claim'&&w.contract_id===c.id),false)).join('');
+ const filed=subs.filter(s=>s.workflow).length;
+ const subsHtml=subs.length?`<tr class="ob-grp kt-section"><td colspan="7">Субподрядчики <span class="muted">· подали ${filed} из ${subs.length}</span></td></tr>${subs.map(s=>group(s.contract,s.workflow,true)).join('')}`:'';
+ const shown=new Set([...ours.map(c=>c.id),...subs.map(s=>s.contract.id)]);
+ const loose=docs.filter(d=>d.kind!=='c29'&&!shown.has(d.contract_id));
+ const looseHtml=loose.length?`<tr class="ob-grp kt-section"><td colspan="7">Без комплекта</td></tr>${kitRows({data,list:loose,contract:null})}`:'';
+ const body=`${canEdit?'<input type="file" id="excel-acts" accept=".xlsx" multiple hidden>':''}
+  <div class="table-wrap"><table class="ob-table dt-table kt-table">${KIT_COLS}${KIT_HEAD}<tbody>${ourHtml}${subsHtml}${looseHtml}</tbody></table></div>`;
  return `<div class="ob">${head}${body}</div>`;
 }
 

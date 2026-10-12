@@ -4,7 +4,7 @@ import {escapeHtml as e,money,kindNames} from './domain.js';
 import {engineerName} from './portfolio.js';
 import {COLUMNS,KIND,moveOf,sayMove,openNotes,objectColor,subsOf,canMoveCard,daysOnStep} from './conveyor.js';
 
-const KIND_LONG={claim:'Процентовка СУ-22 заказчику',sub_claim:'Процентовка субподрядчика',c29:'С-29, расход материалов'};
+const KIND_LONG={claim:'Наша процентовка',sub_claim:'Процентовка субподрядчика',c29:'С-29, расход материалов'};
 const REASONS=['работ не было','нет ДС на новые сметы','подаст в следующем месяце'];
 const SOURCES={claim:['заказчик','технадзор','ПТО','бухгалтерия'],sub_claim:['ПТО','технадзор','бухгалтерия'],c29:['ПТО','прораб','бухгалтерия']};
 // Что значит шаг и что вводится при переходе (docs/conveyor.md, «Что вводится при переходе»).
@@ -88,8 +88,8 @@ export function signingPanel({x,data,profile,mode='',events=[],files=[],month,no
  let past='';
  const later=steps.filter(s=>['check','signed','accepted'].includes(s.code)&&s.ordinal>curOrd);
  if(!x.expected&&can&&profile?.role==='head'&&month&&month<today.slice(0,7)&&later.length){
-  past=mode==='jump'?form('jump','Внести сразу','Прошлый месяц: комплект ставится сразу на выбранный шаг. Технадзор, письмо и сканы не требуются; нужны акты с суммами. Пропущенные шаги попадут в историю с этой датой.',
-   `<label for="sp-to">На шаг</label><select id="sp-to" name="to_step">${later.map(s=>`<option value="${e(s.code)}"${s.code==='accepted'?' selected':''}>${e(s.label)}</option>`).join('')}</select>${input(['date','Дата'],x,today)}<label for="sp-note">Пояснение</label><input id="sp-note" name="note" type="text" placeholder="необязательно">`,'Внести')
+  past=mode==='jump'?form('jump','Внести сразу','Прошлый месяц: комплект ставится сразу на выбранный шаг. Технадзор, письмо и сканы не требуются; нужны акты с суммами. Пропущенные шаги попадут в историю с датой подписания процентовки, а не с датой ввода.',
+   `<label for="sp-to">На шаг</label><select id="sp-to" name="to_step">${later.map(s=>`<option value="${e(s.code)}"${s.code==='accepted'?' selected':''}>${e(s.label)}</option>`).join('')}</select>${input(['date','Дата подписания'],x,today).replace(`value="${today}"`,'value=""')}<label for="sp-note">Пояснение</label><input id="sp-note" name="note" type="text" placeholder="необязательно">`,'Внести')
    :`<div class="sp-blk sp-past"><h4>Прошлый месяц <span>можно внести сразу на поздний шаг</span><button class="link" data-action="sp-mode" data-id="jump">Внести сразу</button></h4></div>`;
  }
 

@@ -833,3 +833,27 @@ test('document card: a scan is attached to a kit already in accounting; acts kee
  assert.equal(await stepOf(w),'accepted','комплект остаётся в бухгалтерии');
  await assert.rejects(command({op:'revise',period_id:per,expected_revision:await periodRev(per),document_id:a,amount:'1',reason:'ошибка'}),/бухгалтер|отмените переход/);
 });
+
+test('C-3a cumulative counts a past month from «Проверено»; the signing date is corrected by an appended event',async()=>{
+ await as(users.head);
+ const pid=(await command({op:'create_project',name:'Накопление с проверено'})).project_id;
+ await command({op:'create_contract',project_id:pid,number:'Н-1',party:'Заказчик Н',direction:'outgoing'});
+ const our=(await db.query("select id from pto_contracts where project_id=$1 and number='Н-1'",[pid])).rows[0].id;
+ const month=async (m,n,amount)=>{const per=(await command({op:'open_period',project_id:pid,month:m})).period_id;
+  const op=async extra=>command({op:'create_document',period_id:per,expected_revision:await periodRev(per),...extra});
+  const a=(await op({contract_id:our,kind:'c2b',number:n,amount})).document_id;
+  const s=(await op({contract_id:our,kind:'c3a',number:'С-3а '+n})).document_id;
+  return {per,a,s,w:(await docRow(a)).workflow_id};};
+ const mar=await month('2026-03-01','1','100.00'),apr=await month('2026-04-01','2','50.00');
+ const total=async d=>(await db.query('select total_smr from pto_c3a_report where document_id=$1 and is_current',[d])).rows[0].total_smr;
+ assert.equal(await total(apr.s),'50.00','март на проверке — в накопление не входит');
+ await command({op:'workflow_jump',workflow_id:mar.w,to_step:'signed',date:'2026-04-10',expected_revision:await periodRev(mar.per)});
+ assert.equal(await total(apr.s),'150.00','март «Проверено» — входит в накопление апреля');
+ const dates=async w=>(await db.query('select step_dates from pto_workflow_list where id=$1',[w])).rows[0].step_dates;
+ assert.equal((await dates(mar.w)).check,'2026-04-10');
+ await command({op:'workflow_redate',workflow_id:mar.w,step:'check',date:'2026-04-08'});
+ assert.equal((await dates(mar.w)).check,'2026-04-08','дата подписания исправлена');
+ assert.match((await db.query("select note from pto_workflow_events where workflow_id=$1 and kind='redate'",[mar.w])).rows[0].note,/была 10\.04\.2026/);
+ await assert.rejects(command({op:'workflow_redate',workflow_id:mar.w,step:'accepted',date:'2026-04-08'}),/ещё не пройден/);
+ await assert.rejects(command({op:'workflow_redate',workflow_id:mar.w,step:'check',date:'2999-01-01'}),/позже сегодняшней/);
+});

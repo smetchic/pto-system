@@ -1,6 +1,7 @@
 // Карточка документа месяца — одна схема для актов С-2а/С-2б и справки С-3а.
 // Идентификация: контрагент → объект → часть объекта → договор → документ → месяц.
 import {escapeHtml as e,money,kindNames} from './domain.js';
+import {signedOn} from './kit-rows.js';
 
 const KIND_TITLE={c2a:'Акт С-2а',c2b:'Акт С-2б',c3a:'Справка С-3а',c29:'С-29'};
 export const docTitle=d=>`${KIND_TITLE[d.kind]||kindNames[d.kind]||'Документ'} № ${d.number}`;
@@ -41,7 +42,7 @@ export function documentCard({data,doc:d,files=[],checks=[],canEdit=false,cum=fa
  const kit=(data.documents||[]).filter(x=>d.workflow_id&&x.workflow_id===d.workflow_id&&x.id!==d.id);
  const report=c3a?(data.c3aReports||[]).find(r=>r.version_id===v.id||r.document_id===d.id&&r.is_current):null;
  const verOf=x=>(data.versions||[]).find(y=>y.id===x.current_version);
- const step=`<span class="ob-st ${done?'ok':d.step_code==='signed'?'b':d.step_label?'w':'n'}">${e(d.step_label||'Без комплекта')}</span>`;
+ const step=`<span class="ob-st ${done?'ok':d.step_code==='signed'?'b':d.step_label?'w':'n'}">${e(d.step_label||'Без комплекта')}</span>`+(()=>{const on=signedOn((data.workflows||[]).find(w=>w.id===d.workflow_id));return on?`<span class="kt-signed">подписана ${new Date(on+'T12:00:00Z').toLocaleDateString('ru-RU',{timeZone:'Europe/Minsk'})}</span>`:'';})();
  const identity=`<div class="dc-ident">
   <div class="dc-party${c.party?'':' muted'}">${e(c.party||'Контрагент не указан')}</div>
   <div class="dc-object">${e(p.name||'')}</div>
