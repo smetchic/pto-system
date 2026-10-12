@@ -3,7 +3,8 @@
 // суммы актов зелёные и галочка у справки, если акты сходятся со справкой; «добавить» — узкая строка ссылок.
 import {escapeHtml as e,money,kindNames} from './domain.js';
 
-export const KIT_COLS='<colgroup><col><col style="width:16%"><col style="width:140px"><col style="width:120px"><col style="width:120px"><col style="width:140px"><col style="width:56px"></colgroup>';
+// Колонка документа узкая, часть объекта забирает остальное место и стоит сразу за номером (пользователь 12.10.2026).
+export const KIT_COLS='<colgroup><col style="width:250px"><col><col style="width:140px"><col style="width:120px"><col style="width:120px"><col style="width:140px"><col style="width:56px"></colgroup>';
 export const KIT_HEAD='<thead><tr><th>Документ</th><th>Часть объекта</th><th class="num">СМР с НДС</th><th class="num">Оборудование</th><th class="num">Зачёт авансов</th><th class="num">К оплате</th><th>Скан</th></tr></thead>';
 const byNo=(a,b)=>String(a.number||'').localeCompare(String(b.number||''),'ru',{numeric:true});
 const dash='<span class="muted">—</span>';
