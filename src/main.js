@@ -109,7 +109,7 @@ function modal(title,html){delete dialog.dataset.dirty;dialog.className='cp-draw
 function form(title,fields,submit){delete dialog.dataset.dirty;dialog.className='cp-drawer';
  dialog.innerHTML=`<form id="modal-form" class="cp-drawer-shell ob" autocomplete="off" data-editing>${drawerHead(title)}<div class="cp-drawer-content md-body">${fields}</div><div class="cp-drawer-foot"><p id="form-error" class="error" role="alert"></p><button type="button" data-action="dismiss">Отмена</button><button class="primary" type="submit">Сохранить</button></div></form>`;
  if(!dialog.open)dialog.showModal();
- $('#modal-form').onsubmit=async ev=>{ev.preventDefault();const button=ev.submitter;button.disabled=true;try{await submit(Object.fromEntries(new FormData(ev.target)));dialog.close();}catch(err){$('#form-error').textContent=errorMessage(err);}finally{button.disabled=false;}};}
+ $('#modal-form').onsubmit=async ev=>{ev.preventDefault();const button=ev.submitter;button.disabled=true;try{await submit(Object.fromEntries(new FormData(ev.target)));if(dialog.dataset.keepOpen)delete dialog.dataset.keepOpen;else dialog.close();}catch(err){$('#form-error').textContent=errorMessage(err);}finally{button.disabled=false;}};}
 async function mutate(payload){const result=await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload}));await load();toast('Сохранено');return result;}
 function periodPayload(op,extra={}){const p=currentPeriod();if(!p)throw Error('Откройте месяц');return {op,period_id:p.id,expected_revision:p.revision,...extra};}
 // Отметки месяца (docs/month.md): пустое поле очищает значение; каждая запись — строка журнала.
@@ -183,7 +183,7 @@ function docEditForm(id){
    if(differs){await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'set_document_mark',document_id:id,...mark}}));changed=true;}
   }
   if(!changed){toast('Изменений нет');return;}
-  dialog.close();await load();await docModal(id);toast('Изменения сохранены в журнале');
+  await load();await docModal(id);dialog.dataset.keepOpen='1';toast('Изменения сохранены в журнале');
  });
 }
 // Сверка скана (MVP, вручную): хэш SHA-256 считается в браузере из файла в хранилище.
