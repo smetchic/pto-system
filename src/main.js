@@ -171,12 +171,13 @@ function docEditForm(id){
   }
   if(c3a){
    const keys=['smr_vat','equipment_amount','equipment_vat','advance_target_offset','advance_current_offset'];
-   if(keys.some(k=>!same(x[k],v[k]))){
+   if(keys.some(k=>!same(x[k],v[k]))||clean(x.note)!==clean(v.note)){
     const p=data.periods.find(z=>z.id===d.period_id);
     await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'revise',period_id:d.period_id,expected_revision:p.revision,document_id:id,...Object.fromEntries(keys.map(k=>[k,dec(x[k])])),note:x.note||v.note||'',reason:'Изменено в карточке'}}));changed=true;
    }
   }
   if(act){
+   if(clean(x.tn_status)==='remarks'&&!clean(x.mark_note))throw Error('Для замечания технадзора укажите комментарий');
    const mark={part_id:parts.length?(clean(x.part_id)||null):null,part:parts.length?null:(clean(x.part)||null),tn_status:clean(x.tn_status)||null,original:clean(x.original)||null,note:clean(x.mark_note)||''};
    const differs=(parts.length?clean(mark.part_id)!==clean(m.part_id):clean(mark.part)!==clean(m.part))||clean(mark.tn_status)!==clean(m.tn_status)||clean(mark.original)!==clean(m.original)||clean(mark.note)!==clean(m.note);
    if(differs){await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'set_document_mark',document_id:id,...mark}}));changed=true;}
