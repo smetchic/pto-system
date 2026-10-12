@@ -161,7 +161,7 @@ function docEditForm(id){
  const fields=(act?versionFields+markFields:c3a?versionFields+note('note','Содержание / основание',v.note||'').replace(' required',''):'');
  form(`Изменить: ${kindNames[d.kind]} № ${d.number}`,fields,async x=>{
   const clean=s=>String(s??'').trim();
-  const dec=s=>{const n=String(s??'').replace(/[\\s\\u00a0]/g,'').replace(',','.');return n===''?null:n;};
+  const dec=s=>{const n=String(s??'').replace(/[\s\u00a0]/g,'').replace(',','.');return n===''?null:n;};
   const num=s=>{const n=dec(s);return n===null?null:Number(n);};
   const same=(a,b)=>num(a)===null&&num(b)===null||num(a)!==null&&num(b)!==null&&Math.abs(num(a)-num(b))<0.005;
   let changed=false;
