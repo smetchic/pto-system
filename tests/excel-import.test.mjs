@@ -56,6 +56,19 @@ test('excel: contract by number from the file, then by UNP; the import card and 
  assert.equal(createPayload({...files[1],number:'4.4'}).correction,undefined);
 });
 
+test('excel: an act like one already entered (same contract, month and sum, other number) offers to change the number instead of a duplicate',()=>{
+ const data={contracts:[{id:'sub',project_id:'p',direction:'incoming',number:'21-03/2026',party:'БЕЛТОПМЕД'}],parties:[]};
+ const docs=parseSheets([{name:'p',grid:sheet({no:'4.5',total:100,vat:16.67})}]);
+ const files=docs.map(doc=>({name:'книга.xlsx',doc,contract:'sub'}));
+ const existing=[{id:'d44',contract_id:'sub',month:'2026-09-01',kind:'c2b',number:'4.4',amount:'100.00'}];
+ const html=importCard({data,projectId:'p',files,existing});
+ assert.match(html,/Похоже на акт № 4\.4 с другим номером/);assert.match(html,/value="renumber:d44" checked/);
+ const form=new FormData();form.append('pick','0');form.append('number-0','4.5');form.append('contract-0','sub');form.append('mode-0','renumber:d44');
+ assert.equal(importPlan(files,form,existing)[0].renumber,'d44');
+ form.set('mode-0','new');assert.equal(importPlan(files,form,existing)[0].renumber,null,'добавить как новый');
+ assert.doesNotMatch(importCard({data,projectId:'p',files,existing:[{...existing[0],amount:'99.00'}]}),/Похоже/,'другая сумма — не похож');
+});
+
 // Справка С-3а: исполнитель (последний УНП) — СУ-22 → наш договор с заказчиком; иначе — договор субподрядчика по его УНП.
 const c3a=(unps)=>{const g=[];g[0]=[null,'Форма С-3а'];unps.forEach((u,i)=>{g[2+i*2]=['Сторона',null,null,'УНП',u];});
  g[11]=['Договор подряда (субподряда) № 21-03/2026 от "07" Мая 2026 г.'];g[15]=['за Август 2026 года'];

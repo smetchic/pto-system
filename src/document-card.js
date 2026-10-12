@@ -1,6 +1,6 @@
 // Карточка документа месяца — одна схема для актов С-2а/С-2б и справки С-3а.
 // Идентификация: контрагент → объект → часть объекта → договор → документ → месяц.
-import {escapeHtml as e,money,kindNames} from './domain.js';
+import {escapeHtml as e,money,kindNames,actVatCheck,vatRateOf} from './domain.js';
 import {signedOn} from './kit-rows.js';
 
 const KIND_TITLE={c2a:'Акт С-2а',c2b:'Акт С-2б',c3a:'Справка С-3а',c29:'С-29'};
@@ -57,8 +57,10 @@ export function documentCard({data,doc:d,files=[],checks=[],canEdit=false,cum=fa
 
  const big=c3a?(report?report.to_pay:null):v.amount;
  // Сумма крупно, «руб.» мелко рядом; ниже — НДС. Ставка пишется, только если она не 20 % (льгота, часть без НДС).
+ // НДС, введённый не по расчёту (больше 0,01 руб. от суммы × ставка части/договора), — красным рядом (12.10.2026).
+ const vatChk=act&&has(v.smr_vat)?actVatCheck(v.amount,v.smr_vat,vatRateOf(data,d.contract_id,m.part_id)):null,vatBad=vatChk?.bad?vatChk:null;
  const vatRate=act&&has(v.smr_vat)&&Number(v.amount)&&Number(v.amount)!==Number(v.smr_vat)?Math.round(Number(v.smr_vat)/(Number(v.amount)-Number(v.smr_vat))*100):null;
- const vatLine=act&&has(v.smr_vat)?`<div class="dc-vat">в т. ч. НДС ${money(v.smr_vat)}${vatRate!==null&&vatRate!==20?` · ставка ${vatRate} %`:''}</div>`:'';
+ const vatLine=act&&has(v.smr_vat)?`<div class="dc-vat">в т. ч. НДС ${money(v.smr_vat)}${vatRate!==null&&vatRate!==20?` · ставка ${vatRate} %`:''}${vatBad?` <span class="neg">· по расчёту ${money(vatBad.calc)}, разница ${money(vatBad.diff)}</span>`:''}</div>`:'';
  const total=`<div class="dc-sum"><div><b class="${Number(big)<0?'neg':''}">${has(big)?money(big):'—'}</b> <small>руб.${c3a?' к оплате':''}</small></div>${vatLine}</div>`;
  const amountRow=`<div class="dc-amount-row">${total}${step}</div>`;
  const corr=d.correction?`<p class="dc-corr"><span class="pill w">Корректировка</span> ${d.corrects?'исправляет '+e(d.corrects):''}</p>`:'';

@@ -99,10 +99,10 @@ test('kit route: six steps, dates, remarks as flags, no way back except undo, tr
  assert.equal((await db.query('select step_dates from pto_workflow_list where id=$1',[w])).rows[0].step_dates.check,undefined,'дата отменённого перехода не показывается');
  await assert.rejects(command({op:'workflow_undo',workflow_id:w,note:'Ещё раз'}),/Отменять нечего/);
  await advance(w,{date:'2026-10-07'});
- await assert.rejects(advance(w),/скан к каждому/);
- await attachFile(doc);await attachFile(summary);
+ // Скан не держит передачу в бухгалтерию (пользователь 12.10.2026): оригинал передан, скан прикладывается и позже.
  await assert.rejects(advance(w,{person:''}),/кому передан/);
  await advance(w,{person:'Ковалёва Т.'});assert.equal(await stepOf(w),'accepted');
+ await attachFile(doc);await attachFile(summary);
  assert.equal(Number((await db.query('select total from pto_register')).rows[0].total),100,'передача в бухгалтерию фиксирует сумму');
  assert.deepEqual((await db.query('select is_accepted from pto_document_list where workflow_id=$1',[w])).rows.map(r=>r.is_accepted),[true,true]);
  await assert.rejects(advance(w),/завершён/);
@@ -856,4 +856,29 @@ test('C-3a cumulative counts a past month from «Проверено»; the signi
  assert.match((await db.query("select note from pto_workflow_events where workflow_id=$1 and kind='redate'",[mar.w])).rows[0].note,/была 10\.04\.2026/);
  await assert.rejects(command({op:'workflow_redate',workflow_id:mar.w,step:'accepted',date:'2026-04-08'}),/ещё не пройден/);
  await assert.rejects(command({op:'workflow_redate',workflow_id:mar.w,step:'check',date:'2999-01-01'}),/позже сегодняшней/);
+});
+
+test('document number is changed in the card: the journal keeps the old one, a checked kit gets a remark, accounting is locked',async()=>{
+ await as(users.head);
+ const pid=(await command({op:'create_project',name:'Смена номера'})).project_id;
+ await command({op:'create_contract',project_id:pid,number:'Н-2',party:'Заказчик Н2',direction:'outgoing'});
+ const our=(await db.query("select id from pto_contracts where project_id=$1 and number='Н-2'",[pid])).rows[0].id;
+ const per=(await command({op:'open_period',project_id:pid,month:'2026-05-01'})).period_id;
+ const a=(await command({op:'create_document',period_id:per,expected_revision:await periodRev(per),contract_id:our,kind:'c2b',number:'21-10/1',amount:'120.00'})).document_id;
+ await command({op:'create_document',period_id:per,expected_revision:await periodRev(per),contract_id:our,kind:'c3a',number:'С-3а 05'});
+ const w=(await docRow(a)).workflow_id;
+ await command({op:'workflow_jump',workflow_id:w,to_step:'signed',date:'2026-06-10',expected_revision:await periodRev(per)});
+ const before=await periodRev(per);
+ await assert.rejects(command({op:'set_document_number',document_id:a,number:'  '}),/Укажите номер/);
+ await assert.rejects(command({op:'set_document_number',document_id:a,number:'21-10/1'}),/не изменился/);
+ const r=await command({op:'set_document_number',document_id:a,number:'21-10/2'});
+ assert.deepEqual([r.number,r.was],['21-10/2','21-10/1']);
+ assert.equal((await docRow(a)).number,'21-10/2');
+ assert.ok(await periodRev(per)>before,'месяц уходит на повторную проверку');
+ assert.match((await openNotes(w)).map(n=>n.note).join(' '),/номер изменён: 21-10\/1 → 21-10\/2/);
+ assert.equal((await db.query("select detail->>'was' was from pto_events where action='set_document_number' and document_id=$1",[a])).rows[0].was,'21-10/1');
+ for(const n of await openNotes(w))await command({op:'workflow_note_off',workflow_id:w,event_id:n.id});
+ await advance(w);assert.equal(await stepOf(w),'accepted','в бухгалтерию без скана');
+ await assert.rejects(command({op:'set_document_number',document_id:a,number:'21-10/3'}),/отмените переход/);
+ await as(users.director);await assert.rejects(command({op:'set_document_number',document_id:a,number:'21-10/4'}),/Нет права/);
 });

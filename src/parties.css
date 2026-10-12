@@ -54,3 +54,4 @@
 .cp-letters button{min-width:30px;height:30px;padding:0 8px;font-size:13px;border-radius:6px}
 .cp-letters button.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
 .cp-letters button:disabled{opacity:.35;cursor:default}
+.settings-close{display:block}

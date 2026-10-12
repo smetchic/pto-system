@@ -147,3 +147,7 @@
 .cb-bar .w{background:var(--own);color:var(--onac)}.cb-bar .g{background:var(--gen);color:#fff;justify-content:center}.cb-bar .s{background:var(--sub);color:var(--ink);justify-content:flex-end}
 .cb.plan .cb-bar i{opacity:.55}
 .cb-rowb{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
+/* Загрузка из Excel: акт похож на внесённый с другим номером — выбор «заменить номер» или «добавить как новый» (12.10.2026). */
+.xi-like{display:flex;flex-direction:column;gap:2px;font-size:12px}.xi-like label{display:flex;gap:6px;align-items:center;font-weight:400;color:var(--ink)}
+/* НДС акта: расхождение с расчётом по ставке под полем. */
+.vat-chk{display:block;font-size:12px;font-weight:400;margin-top:2px}.vat-chk:empty{display:none}

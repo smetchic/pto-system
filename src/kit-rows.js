@@ -20,10 +20,11 @@ export function kitTitle(w,c){
  const party=w?.party||c?.party||'',no=w?.contract_number||c?.number||'';
  return sub?`${party}${no?` · дог. № ${no}`:''}`:`Наша процентовка${no?` · дог. № ${no}`:''}${party?` · ${party}`:''}`;
 }
-export function kitStatus(w,{canEdit=false}={}){
+// Дата подписания исправляется в «Изменить» карточки любого документа комплекта (12.10.2026).
+export function kitStatus(w){
  if(!w)return '';
  const on=signedOn(w);
- return `<span class="ob-st ${w.step_code==='accepted'?'ok':w.step_code==='signed'?'b':'w'}">${e(w.step_label||'В работе')}</span>${on?` <span class="kt-signed">подписана ${e(day(on))}</span>${canEdit?` <button type="button" class="link kt-link" data-action="redate" data-id="${e(w.id)}:check">Исправить дату</button>`:''}`:''}`;
+ return `<span class="ob-st ${w.step_code==='accepted'?'ok':w.step_code==='signed'?'b':'w'}">${e(w.step_label||'В работе')}</span>${on?` <span class="kt-signed">подписана ${e(day(on))}</span>`:''}`;
 }
 
 // Строки комплекта. list — документы комплекта; contract — договор (для ссылок «добавить»).

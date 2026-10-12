@@ -59,10 +59,10 @@ test('expected card: start with a date or skip with a reason; subcontractor firs
  assert.match(render(f,{...sw,received_on:'2026-10-06'}),/Ваш ход: отметить «Проверено»/);
 });
 
-test('transfer to accounting needs scans; undo is offered to the one who moved and to the head; director only reads',()=>{
+test('transfer to accounting does not wait for scans, they stay visible; undo is offered to the one who moved and to the head; director only reads',()=>{
  const f=fixture();const w={...f.ours,step_code:'signed',step_ordinal:5};
- assert.equal(blockedReason(w,{data:f.data,files:[],month:f.month}),'не приложены сканы: 1');
- assert.match(render(f,w),/Приложить скан/);
+ assert.equal(blockedReason(w,{data:f.data,files:[],month:f.month}),'');
+ assert.match(render(f,w),/Приложить скан/);assert.match(render(f,w),/сканы 0 из 1/);
  assert.equal(blockedReason(w,{data:f.data,files:[{version_id:'v1'}],month:f.month}),'');
  const events=[{id:9,kind:'advance',from_step:'check',to_step:'signed',actor:'u',event_date:'2026-10-07',created_at:'2026-10-07T10:00:00Z'}];
  let html=render(f,w,{events});

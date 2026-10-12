@@ -25,7 +25,7 @@ test('kit title and signing date are the same everywhere',()=>{
  assert.equal(kitTitle({template_code:'sub_claim',contract_number:'21-01/2026',party:'ГеоМонолит'}),'ГеоМонолит · дог. № 21-01/2026');
  const w={id:'w',step_code:'signed',step_label:'Проверено',step_dates:{check:'2026-10-10'}};
  assert.equal(signedOn(w),'2026-10-10');assert.equal(signedOn({...w,step_code:'check'}),null);
- assert.match(kitStatus(w,{canEdit:true}),/подписана 10\.10\.2026.*data-action="redate" data-id="w:check">Исправить дату/);
+ assert.match(kitStatus(w),/подписана 10\.10\.2026/);assert.doesNotMatch(kitStatus(w),/Исправить дату/);
 });
 test('subcontractor card: view first, documents of the month, fields only by «Изменить»',()=>{
  const d={...data(),documents:list.map(x=>({...x,workflow_id:'w'})),workflows:[{id:'w',template_code:'sub_claim',contract_id:'k',step_code:'tn',step_label:'У технадзора',acts_amount:'150.00'}],
