@@ -1,6 +1,6 @@
 // Раздел «Реестры» (решение 11.10.2026): «Общий (С-15)» · «По генуслугам» · «Проверка и закрытие месяца».
 // Суммы месяца считает база (pto_register_matrix, справки С-3а, отметки субподрядчиков); здесь только раскладка и итоги строк.
-import {escapeHtml as e,money,matrixOf} from './domain.js';
+import {escapeHtml as e,money,matrixOf,ourReports} from './domain.js';
 import {objectColor,subsOf} from './conveyor.js';
 import {subsFiled} from './portfolio.js';
 
@@ -32,7 +32,7 @@ export function c15Table(data,month){
 
 export function genRows(data,pid,month,cum=null){
  const per=(data.periods||[]).find(p=>p.project_id===pid);
- const reports=(data.c3aReports||[]).filter(r=>r.project_id===pid&&r.is_current);
+ const reports=ourReports(data,pid);
  const rs=(f,prefix='')=>reports.reduce((t,r)=>t+Number(r[(prefix?prefix+'_':'')+f]||0),0);
  const mrows=(data.matrix?.rows||[]).filter(r=>r.kind==='contract'&&r.project_id===pid);
  const cellsOf=key=>{const o={};for(const r of mrows)for(const [k,v] of Object.entries(r[key]||{}))o[k]=(o[k]||0)+Number(v);return o;};

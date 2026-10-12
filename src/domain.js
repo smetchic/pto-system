@@ -44,3 +44,6 @@ export function registerSheetRows(value,month){
   ...(m.rows.length?[{values:['Всего',...line(m.total)],bold:true},{values:[]},{values:['Утверждаю: директор ____________________']},{values:['Начальник ПТО ____________________']}]:[])
  ];
 }
+// Текущие справки С-3а объекта по нашим договорам. Справки субподрядчиков (входящие договоры) в СМР генподряда не входят.
+export const ourReports=(data,pid)=>{const incoming=new Set((data.contracts||[]).filter(c=>c.direction==='incoming').map(c=>c.id));
+ return (data.c3aReports||[]).filter(r=>r.project_id===pid&&r.is_current&&!incoming.has(r.contract_id));};

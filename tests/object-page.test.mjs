@@ -54,6 +54,14 @@ test('month tab: «на заказчика» from the register gives general ser
  assert.match(html,/<b class="num neg">-526[\s ]740,11<\/b>/);assert.match(html,/отрицательные, проверьте/);
 });
 
+test('month tab: a subcontractor C-3a does not go into our SMR; own forces = our C-3a − subcontract',()=>{
+ const ctx=fixture();ctx.data.c3aReports.push({project_id:'p1',contract_id:'s7',is_current:true,to_pay:'8073.53',smr:'8073.53',equipment:'0',target_offset:'0',current_offset:'0'});
+ ctx.data.c3aReports[0].contract_id='c21';
+ const html=objectPage(ctx);
+ assert.match(html,/Выполнено СМР · [^<]*<\/div><div class="mo-big">1[\s ]973[\s ]259,89/);
+ assert.match(html,/<b>Своими силами<\/b> <b class="num">1[\s ]660[\s ]859,89<\/b>/);
+});
+
 test('director sees the same page without a single action',()=>{
  const html=objectPage(fixture('director'));
  assert.doesNotMatch(html,/Ваш ход|data-action="(estimate|allocate|review|close|open-period)"/);
