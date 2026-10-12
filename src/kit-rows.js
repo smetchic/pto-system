@@ -30,7 +30,9 @@ export function kitRows({data,list,contract,canEdit=false,tn=null}){
  const ver=d=>(data.versions||[]).find(v=>v.id===d.current_version)||{};
  const report=d=>(data.c3aReports||[]).find(r=>r.version_id===d.current_version)||(data.c3aReports||[]).find(r=>r.document_id===d.id&&r.is_current);
  const mark=d=>(data.docMarks||[]).find(x=>x.document_id===d.id)||{};
- const part=d=>{const m=mark(d);return m.part_id?(data.contractParts||[]).find(x=>x.id===m.part_id)?.name||m.part||'':m.part||'';};
+ // Часть объекта: отметка акта, иначе — из примечания версии, куда её пишет загрузка из Excel («Часть объекта: …. Из файла …»).
+ const fromNote=d=>(String(ver(d).note||'').match(/^Часть объекта:\s*(.+?)\.\s*(?=Из файла|$)/)||[])[1]||'';
+ const part=d=>{const m=mark(d);return (m.part_id?(data.contractParts||[]).find(x=>x.id===m.part_id)?.name:'')||m.part||fromNote(d);};
  const scan=d=>(data.files||[]).some(f=>f.version_id===d.current_version)?'<span class="mo-ok" title="Скан загружен">✓</span>':dash;
  const c3as=list.filter(d=>d.kind==='c3a').sort(byNo),acts=list.filter(d=>d.kind==='c2a'||d.kind==='c2b').sort(byNo),rest=list.filter(d=>!['c3a','c2a','c2b','c29'].includes(d.kind)).sort(byNo);
  const sum=acts.reduce((t,d)=>t+Number(ver(d).amount||0),0);

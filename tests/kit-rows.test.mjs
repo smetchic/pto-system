@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {kitRows,kitTitle,kitStatus,signedOn} from '../src/kit-rows.js';
 import {subMonthCard} from '../src/sub-card.js';
 
-const data=()=>({versions:[{id:'v1',amount:'100.00',version:1},{id:'v2',amount:'50.00',version:1},{id:'v3',amount:null,version:1}],
+const data=()=>({versions:[{id:'v1',amount:'100.00',version:1},{id:'v2',amount:'50.00',version:1,note:'Часть объекта: ПОДГОТОВИТЕЛЬНЫЕ РАБОТЫ. Из файла Акт.xlsx, лист «Акт»'},{id:'v3',amount:null,version:1}],
  documents:[],c3aReports:[{version_id:'v3',document_id:'s',smr:'150.00',equipment:'0',target_offset:'0',current_offset:'0',to_pay:'150.00'}],
  docMarks:[{document_id:'a1',part:'Жилая часть'}],files:[]});
 const list=[{id:'a2',kind:'c2b',number:'2',current_version:'v2'},{id:'s',kind:'c3a',number:'04/2026',current_version:'v3'},{id:'a1',kind:'c2b',number:'1',current_version:'v1'}];
@@ -11,7 +11,7 @@ const list=[{id:'a2',kind:'c2b',number:'2',current_version:'v2'},{id:'s',kind:'c
 test('kit rows: C-3a on top, acts below by number, part in its own column, green when acts match',()=>{
  const html=kitRows({data:data(),list,contract:{id:'c'},canEdit:true});
  assert.ok(html.indexOf('С-3а № 04/2026')<html.indexOf('С-2б № 1')&&html.indexOf('С-2б № 1')<html.indexOf('С-2б № 2'));
- assert.match(html,/class="kt-part" title="Жилая часть">Жилая часть/);
+ assert.match(html,/class="kt-part" title="Жилая часть">Жилая часть/);assert.match(html,/class="kt-part" title="ПОДГОТОВИТЕЛЬНЫЕ РАБОТЫ">ПОДГОТОВИТЕЛЬНЫЕ РАБОТЫ</,'часть из загрузки Excel');
  assert.match(html,/class="kt-ok">150,00 ✓/);assert.match(html,/class="kt-ok">100,00/);
  assert.doesNotMatch(html,/new-c3a/,'справка есть — ссылки на новую справку нет');assert.match(html,/data-action="new-doc" data-id="c">\+ акт/);
 });
