@@ -4,7 +4,7 @@ import {contractsList} from './contracts.js';
 import {portfolioPage,objectListPage} from './portfolio.js';
 import {conveyorPage} from './conveyor.js';
 import {objectPage} from './object-page.js';
-import {todayPage as todayView} from './today.js';
+import {todayPage as todayView,retentionReturns} from './today.js';
 import {registersPage as registersView} from './registers.js';
 
 export function renderWorkspace({ui,data,profile}) {
@@ -70,7 +70,13 @@ function flowPage(){return conveyorPage({ui,data,profile,month:ui.month});}
 // Страница объекта: docs/object.md, разметка в object-page.js.
 function projectPage(){return objectPage({ui,data,profile,today:todayKey});}
 function registersPage(){return registersView({ui,data,profile,cum:ui.genCum});}
-function deadlinesPage(){const list=data.documents.filter(d=>!isDone(d));return heading('Сроки','Документы за отчётный месяц, комплекты которых ещё не отмечены как принятые бухгалтерией.')+actionList(list);}
+function deadlinesPage(){const list=data.documents.filter(d=>!isDone(d));return heading('Сроки','Документы за отчётный месяц, комплекты которых ещё не отмечены как принятые бухгалтерией.')+actionList(list)+retentionDues();}
+// Возврат гарантийных удержаний: сроки от даты ввода объекта (договор → «Гарантийное удержание»).
+function retentionDues(){
+ const rows=retentionReturns(data);if(!rows.length)return '';
+ const date=d=>new Date(d+'T12:00:00Z').toLocaleDateString('ru-RU',{day:'numeric',month:'short',year:'numeric',timeZone:'Europe/Minsk'});
+ return `<h2>Возврат гарантийных удержаний</h2>`+rows.map(r=>`<button class="act" data-action="contract" data-id="${e(r.contract_id)}"><span class="av">${e(projectName(r.project_id).slice(0,1)||'П')}</span><span class="t"><b>${e(r.what)} · ${e(money(r.amount))}</b><small>${e(r.sub)} · ${e(projectName(r.project_id))}</small></span><span class="pill ${r.date<todayKey?'g':'w'}">${e(date(r.date))}</span></button>`).join('');
+}
 function contractsPage(){return contractsList({data,ui,profile,today:todayKey});}
 function partiesPage(){return partiesList({data,ui,canEdit:['head','engineer'].includes(profile?.role)});}
 function settingsPage(){return `<button type="button" class="cp-drawer-close settings-close" data-action="settings-close" data-id="">Закрыть ×</button>`+heading('Настройки','Тема и размер текста сохраняются в вашем профиле и действуют на любом устройстве.')+`<h2>Тема оформления</h2><div class="theme-options">${[['light','Светлая'],['dark','Тёмная'],['system','Как в системе']].map(([id,label])=>`<button class="theme-option ${ui.theme===id?'on':''}" data-action="theme" data-id="${id}" aria-pressed="${ui.theme===id}"><span class="theme-preview ${id}"><i></i><b></b></span><span>${label}${ui.theme===id?' ✓':''}</span></button>`).join('')}</div><p class="muted">«Как в системе» следует настройке вашего устройства.</p><h2>Размер текста</h2><div class="theme-options">${[[100,'Обычный'],[115,'Крупнее'],[130,'Крупный']].map(([id,label])=>`<button class="theme-option scale-option ${ui.textScale===id?'on':''}" data-action="text-scale" data-id="${id}" aria-pressed="${ui.textScale===id}"><span class="scale-preview" style="font-size:${13*id/100}px">Аа 12 486,91</span><span>${label} · ${id} %${ui.textScale===id?' ✓':''}</span></button>`).join('')}</div><p class="muted">Увеличивает всю страницу, как Ctrl +. Выбор сохраняется в профиле и действует на любом компьютере.</p><h2>Учётная запись</h2><p>${e(profile.display_name)} · ${e(roleNames[profile.role])}</p>${btn('Сменить пароль','password')} ${btn('Выйти из системы','logout')}`;}

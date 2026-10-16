@@ -13,7 +13,7 @@ import './contracts.css';
 import './conveyor.css';
 import './object.css';
 import {signingPanel} from './signing-panel.js';
-import {documentCard,scanName} from './document-card.js';
+import {documentCard,scanName,retentionOf,retentionBaseText} from './document-card.js';
 import {subMonthCard} from './sub-card.js';
 import {parseSheets,sheetsOf,matchContract,importCard,importPlan,createPayload,importResult} from './excel-import.js';
 import {expectedCards,subExpected} from './conveyor.js';
@@ -78,8 +78,10 @@ async function load(){
  // Отметки месяца (docs/month.md): субподрядчик в месяце, что будет в месяце, отметки документов. Действует последняя запись.
  const [subMonth,monthMarks,docMarks]=await Promise.all([ids.length?all('pto_sub_month_current',q=>q.in('period_id',ids)):[],ids.length?all('pto_month_marks_current',q=>q.in('period_id',ids)):[],dids.length?all('pto_document_marks_current',q=>q.in('document_id',dids)):[]]);
  const events=await query(client.from('pto_events').select('*').order('id',{ascending:false}).limit(150));
+ // Гарантийные удержания: за месяц (наши справки С-3а и субподрядчики) и итог по договорам со сроками возврата.
+ const [retention,retentionSummary]=await Promise.all([ids.length?query(client.from('pto_retention').select('*').in('period_id',ids)):[],query(client.from('pto_retention_summary').select('*'))]);
  if(generation!==loadId)return;
- data={files,contractParts,subMonth,monthMarks,docMarks,prevMatrix,prevPeriods,prevWorkflows,addenda,c3aReports,projects,contracts,periods,profiles,memberships,documents,allocations,register,matrix,versions,events,workflows,skips,templates,steps,parties,partyRoles,participants,partyContacts};
+ data={retention,retentionSummary,files,contractParts,subMonth,monthMarks,docMarks,prevMatrix,prevPeriods,prevWorkflows,addenda,c3aReports,projects,contracts,periods,profiles,memberships,documents,allocations,register,matrix,versions,events,workflows,skips,templates,steps,parties,partyRoles,participants,partyContacts};
  if(ui.project&&!projects.some(p=>p.id===ui.project))ui.project=null;
  render();
 }
@@ -104,8 +106,8 @@ async function loadGenCumulative(pid){
  if(!pid||(ui.genCum?.pid===pid&&ui.genCum.month===ui.month))return;
  const periods=await all('pto_periods',q=>q.eq('project_id',pid).lte('month',ui.month+'-01'));
  const months=[...new Set(periods.map(p=>String(p.month).slice(0,10)))];
- const [matrices,subMonths]=await Promise.all([Promise.all(months.map(m=>query(client.rpc('pto_register_matrix',{p_month:m})).catch(()=>emptyMatrix))),periods.length?all('pto_sub_month_current',q=>q.in('period_id',periods.map(p=>p.id))):[]]);
- ui.genCum={pid,month:ui.month,value:genCumulative(pid,matrices,subMonths,periods)};render();
+ const [matrices,subMonths,retention]=await Promise.all([Promise.all(months.map(m=>query(client.rpc('pto_register_matrix',{p_month:m})).catch(()=>emptyMatrix))),periods.length?all('pto_sub_month_current',q=>q.in('period_id',periods.map(p=>p.id))):[],periods.length?query(client.from('pto_retention').select('*').in('period_id',periods.map(p=>p.id))):[]]);
+ ui.genCum={pid,month:ui.month,value:genCumulative(pid,matrices,subMonths,periods,retention)};render();
 }
 function prevMonth(month){const [y,m]=month.split('-').map(Number),d=new Date(Date.UTC(y,m-2,1));return d.toISOString().slice(0,7);}
 function render(){app.innerHTML=renderWorkspace({ui,data,profile});}
@@ -143,6 +145,7 @@ function redateForm(id){
 function subMonthForm(id){
  const c=contractOf(id),p=currentPeriod();if(!p)return toast('Откройте месяц');
  const s=(data.subMonth||[]).find(x=>x.contract_id===id&&x.period_id===p.id)||{},w=(data.workflows||[]).find(x=>x.template_code==='sub_claim'&&x.contract_id===id);
+ const r=(data.retention||[]).find(x=>x.side==='sub'&&x.contract_id===id&&x.period_id===p.id),ret=retentionOf(data,id);
  form(`${c.party||''} · № ${c.number}`,`${w?`<p><button type="button" class="link" data-action="workflow" data-id="${e(w.id)}">Процентовка: ${e(w.step_label)} →</button></p>`:''}
   ${select('expected','В этом месяце',ordered([['true','Подаёт процентовку'],['false','Не подаёт']],s.expected===false?'false':'true'))}
   ${field('plan','План, их цены, руб.','number',s.plan??'',false)}
@@ -151,8 +154,12 @@ function subMonthForm(id){
   ${field('equipment','Оборудование по их С-3а, руб.','number',s.equipment??'',false)}
   ${field('target_offset','Зачёт целевого аванса, руб.','number',s.target_offset??'',false)}
   ${field('current_offset','Зачёт текущего аванса, руб.','number',s.current_offset??'',false)}
+  ${field('retention',`Гарантийное удержание по их С-3а, руб. · пусто — по расчёту${r?` ${money(r.calc)}`:ret?'':', по договору удержания нет'}`,'number',r?.manual??'',false)}
   <p class="muted">Каждое сохранение — запись в журнале. Изменение сумм возвращает месяц на проверку.</p>`,
-  async x=>{await mutate({op:'set_sub_month',period_id:p.id,contract_id:id,...blankNull(x),expected:x.expected==='true'});subCardModal(id);dialog.dataset.keepOpen='1';});
+  async x=>{const {retention,...rest}=x,now=String(retention??'').replace(/[\s\u00a0]/g,'').replace(',','.')||null,was=r?.manual??null;
+   if((now===null)!==(was===null)||now!==null&&Math.abs(Number(now)-Number(was))>=0.005)
+    await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'set_retention_amount',period_id:p.id,contract_id:id,amount:now}}));
+   await mutate({op:'set_sub_month',period_id:p.id,contract_id:id,...blankNull(rest),expected:x.expected==='true'});subCardModal(id);dialog.dataset.keepOpen='1';});
 }
 function docMarkForm(id){
  const d=data.documents.find(x=>x.id===id);if(!d)throw Error('Документ не найден');
@@ -196,7 +203,10 @@ function docEditForm(id){
  const rates=Object.fromEntries(parts.map(p=>[p.id,vatRateOf(data,d.contract_id,p.id)]));
  const versionFields=act?field('amount','Сумма акта с НДС, руб.','number',v.amount)+vatField(v.smr_vat,{rate:vatRateOf(data,d.contract_id,m.part_id),key:parts.length?'part_id':'',rates}):c3a?c3aHint+c3aFields(v,{vat:false}):'';
  const head=field('number','Номер','text',d.number)+(signed?field('signed_on','Дата подписания процентовки (весь комплект)','date',signed):'');
- const fields=head+(act?versionFields+markFields:c3a?(parts.length?partField:'')+versionFields+note('note','Содержание / основание',v.note||'').replace(' required',''):'')
+ // Гарантийное удержание: пусто — по расчёту (процент договора × база); введённое вручную действует, расхождение подсвечивается.
+ const rep=c3a?(data.c3aReports||[]).find(r=>r.document_id===id&&r.is_current):null,ret=retentionOf(data,d.contract_id);
+ const retField=c3a?field('retention',`Гарантийное удержание, руб. · пусто — по расчёту${ret?` ${money(rep?.retention_calc??0)} (${String(Number(ret.percent)).replace('.',',')} % ${retentionBaseText(ret)})`:', по договору удержания нет'}`,'number',rep?.retention_manual??'',false):'';
+ const fields=head+(act?versionFields+markFields:c3a?(parts.length?partField:'')+versionFields+retField+note('note','Содержание / основание',v.note||'').replace(' required',''):'')
   +'<p class="muted">Договор, объект и месяц не меняются: если документ внесён не туда, удалите его и внесите заново. Изменение проверенного комплекта ставит замечание, комплект в бухгалтерии меняется только после отмены перехода.</p>';
  form(`Изменить: ${kindNames[d.kind]} № ${d.number}`,fields,async x=>{
   const clean=s=>String(s??'').trim();
@@ -221,6 +231,7 @@ function docEditForm(id){
     await rpc({op:'revise',period_id:d.period_id,expected_revision:p.revision,document_id:id,...Object.fromEntries(keys.map(k=>[k,dec(x[k])])),note:x.note??v.note??'',reason:'Изменено в карточке'});changed=true;
    }
   }
+  if(c3a&&!same(x.retention,rep?.retention_manual)){await rpc({op:'set_retention_amount',document_id:id,amount:dec(x.retention)});changed=true;}
   if(clean(x.number)!==clean(d.number)){await rpc({op:'set_document_number',document_id:id,number:clean(x.number)});changed=true;}
   if(signed&&clean(x.signed_on)!==String(signed).slice(0,10)){await rpc({op:'workflow_redate',workflow_id:w.id,step:'check',date:clean(x.signed_on),note:`в карточке ${kindNames[d.kind]} № ${clean(x.number)}`});changed=true;}
   // Справка С-3а: смена части пересчитывает её по актам новой части (новая версия в базе).
@@ -395,7 +406,9 @@ async function applyExcelImport(form){
    const m=f.doc.month+'-01';
    periodIds[m]??=(await rpc({op:'open_period',project_id:projectId,month:m})).period_id;
    if(f.renumber){await rpc({op:'set_document_number',document_id:f.renumber,number:f.number});renumbered++;continue;}
-   created.push((await rpc({...createPayload(f),period_id:periodIds[m],expected_revision:await rev(periodIds[m])})).document_id);
+   const id=(await rpc({...createPayload(f),period_id:periodIds[m],expected_revision:await rev(periodIds[m])})).document_id;created.push(id);
+   // Удержание из справки — как в файле (подписанный документ); расхождение с расчётом карточка покажет предупреждением.
+   if(f.doc.type==='c3a'&&f.doc.retention!==null&&f.doc.retention!==undefined)await rpc({op:'set_retention_amount',document_id:id,amount:String(f.doc.retention)});
   }catch(err){failed.push(`${label}: ${errorMessage(err)}`);}
  }
  let moved=0;
@@ -417,8 +430,14 @@ const contractOf=id=>{const c=data.contracts.find(x=>x.id===id);if(!c)throw Erro
 function contractModal(id,editing=false){
  const c=contractOf(id),canEdit=editor(c.project_id);
  contractDrawer(contractCard({data,contract:c,canEdit,editing,today:todayKey(),profile}),'contract-form',canEdit&&editing?async form=>{
-  const {files,...x}=Object.fromEntries(form),paths=String(files||'').split('\n').map(t=>t.trim()).filter(Boolean);
+  const {files,retention_percent,retention_base,retention_first_share,retention_first_years,retention_final_years,...x}=Object.fromEntries(form),paths=String(files||'').split('\n').map(t=>t.trim()).filter(Boolean);
   await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'update_contract',...x,vat_rate:rateOf(x.initial_amount,x.vat_amount)}}));
+  // Удержание — своей командой, только если что-то изменилось.
+  const rs=(data.retentionSummary||[]).find(r=>r.contract_id===id),n=v=>String(v??'').replace(/[\s\u00a0]/g,'').replace(',','.');
+  const ret={percent:n(retention_percent),base:retention_base||'net',first_share:n(retention_first_share)||'50',first_years:n(retention_first_years)||'1',final_years:n(retention_final_years)||'2'};
+  const was={percent:rs?.percent??'',base:rs?.base||'net',first_share:rs?.first_share??50,first_years:rs?.first_years??1,final_years:rs?.final_years??2};
+  if(Object.keys(ret).some(k=>k==='base'?ret[k]!==was[k]:(ret[k]===''?'':Number(ret[k]))!==(was[k]===''||was[k]===null?'':Number(was[k]))))
+   await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'set_retention',contract_id:id,...ret}}));
   if(paths.join('\n')!==(c.files||[]).map(f=>f.path).join('\n'))await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'set_contract_files',contract_id:id,files:paths}}));
   await load();toast('Сохранено');contractModal(id);}:null);
 }
@@ -427,7 +446,9 @@ function objectModal(id,editing=false){
  const p=data.projects.find(x=>x.id===id);if(!p)throw Error('Объект не найден');
  const canEdit=['head','admin'].includes(profile?.role);
  contractDrawer(objectCard({data,project:p,canEdit,editing}),'project-form',canEdit&&editing?async form=>{
-  await mutate({op:'update_project',...Object.fromEntries(form)});objectModal(id);}:null);
+  const {commissioned_on,...x}=Object.fromEntries(form);
+  if(String(commissioned_on||'')!==String(p.commissioned_on||''))await query(client.rpc('pto_command',{request_id:crypto.randomUUID(),payload:{op:'set_commissioning',project_id:id,commissioned_on:commissioned_on||null}}));
+  await mutate({op:'update_project',...x});objectModal(id);}:null);
 }
 // Карточка сотрудника («Команда и права»): имя, роль и доступ — команда profile; объекты — member по изменённым;
 // почта и пароль — функция pto-team-add (action update). Почты учётных записей видит только начальник ПТО.

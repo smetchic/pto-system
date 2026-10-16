@@ -59,6 +59,9 @@ export function todayPage({ui,data,profile,today,now=Date.now(),lastVisit=null})
   dues.push({pid:c.project_id,date:c.current_end_date,act:`data-action="contract" data-id="${e(c.id)}"`,what:`Окончание договора № ${c.number}`,sub:c.party||''});
  for(const d of (data.documents||[]).filter(d=>inScope(d.project_id)&&d.due_date&&d.due_date<=end7&&d.step_code!=='accepted'))
   dues.push({pid:d.project_id,date:d.due_date,act:`data-action="doc" data-id="${e(d.id)}"`,what:`Срок документа № ${d.number}`,sub:d.step_label||''});
+ // Возврат гарантийных удержаний по срокам от ввода объекта. Пока возврат не отмечается документом, прошедшие сроки не показываются.
+ for(const r of retentionReturns(data).filter(r=>inScope(r.project_id)&&r.date>=today&&r.date<=end7))
+  dues.push({pid:r.project_id,date:r.date,act:`data-action="contract" data-id="${e(r.contract_id)}"`,what:r.what,sub:r.sub});
  dues.sort((a,b)=>a.date.localeCompare(b.date));
  const late=dues.filter(d=>d.date<today).length,soon=dues.filter(d=>d.date<=end7);
  const dueRow=d=>`<button class="td-row" ${d.act} style="--oc:${color(d.pid)}"><i class="td-dot"></i><span class="td-t"><b>${e(name(d.pid))}</b> <span class="td-what">${e(d.what)}</span><small>${e(d.sub)}</small></span><span class="td-r"><span class="st ${d.date<today?'e':d.date<=end7?'w':''}">${d.date<today?'просрочено · ':''}${e(dm(d.date))}</span></span></button>`;
@@ -95,4 +98,18 @@ export function todayPage({ui,data,profile,today,now=Date.now(),lastVisit=null})
  <div class="td-grid">${list(lists[f])}${list(second_)}</div>
  <div class="td-grid"><section class="td-box"><h2>Ближайшие 7 дней</h2><div class="td-week">${week.map(d=>`<div class="${d.n?'has':''}${d.k===today?' now':''}"><b>${d.n||'—'}</b><span>${e(dm(d.k))}</span></div>`).join('')}</div></section>
  <section class="td-box"><h2>${fresh.length?`Изменилось с прошлого входа <span>${fresh.length}</span>`:'Последние изменения'}</h2>${changes.length?changes.map(x=>`<div class="td-ev" style="--oc:${color(x.project_id)}"><i class="td-dot"></i><span>${e(actionNames[x.action]||x.action)} <span class="muted">· ${e(name(x.project_id))}</span></span><small>${e(who(x.actor))} · ${e(when(x.created_at))}</small></div>`).join(''):'<div class="td-empty">Событий пока нет.</div>'}</section></div></div>`;
+}
+
+// Сроки возврата удержаний: строка на каждый возврат (первый и окончательный) по договорам с удержанной суммой.
+export function retentionReturns(data){
+ const out=[];
+ for(const r of data.retentionSummary||[]){
+  if(!Number(r.retained))continue;
+  const c=(data.contracts||[]).find(x=>x.id===r.contract_id);if(!c)continue;
+  const who=r.direction==='incoming'?'вернуть субподрядчику':'вернёт заказчик';
+  const sub=`дог. № ${c.number} · ${c.party||''}`;
+  if(r.first_due&&Number(r.first_amount))out.push({project_id:r.project_id,contract_id:r.contract_id,date:String(r.first_due).slice(0,10),amount:r.first_amount,what:`Возврат удержания ${String(Number(r.first_share)).replace('.',',')} % · ${who}`,sub});
+  if(r.final_due&&Number(r.final_amount))out.push({project_id:r.project_id,contract_id:r.contract_id,date:String(r.final_due).slice(0,10),amount:r.final_amount,what:`Возврат остатка удержания · ${who}`,sub});
+ }
+ return out.sort((a,b)=>a.date.localeCompare(b.date));
 }

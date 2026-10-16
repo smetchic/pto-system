@@ -16,6 +16,17 @@ const ORIG={party:'у заказчика',ours:'у нас',accounting:'пере�
 export const C3A_ROWS=[['smr','СМР с НДС',1],['smr_vat','в т. ч. НДС',2],['equipment','Оборудование с НДС',1],['equipment_vat','в т. ч. НДС',2],
  ['target_offset','Зачёт целевого аванса',1],['current_offset','Зачёт текущего аванса',1],['to_pay','К оплате',3]];
 
+// Удержание по договору (процент, база) из pto_retention_summary; null — удержания по договору нет.
+export const retentionOf=(data,contractId)=>{const r=(data.retentionSummary||[]).find(x=>x.contract_id===contractId);return r&&has(r.percent)?r:null;};
+const pct=x=>String(Number(x)).replace('.',',');
+export const retentionBaseText=r=>r?.base==='gross'?'от СМР с НДС':'от СМР без НДС';
+// Ручное удержание, не совпадающее с расчётом, — предупреждение, не запрет.
+export function retentionNote(report,ret){
+ if(!report||!has(report.retention_manual))return '';
+ const diff=Math.abs(Number(report.retention_manual)-Number(report.retention_calc))>=0.005;
+ return `<p class="dc-check ${diff?'dc-warn':'mo-ok'}">Удержание введено вручную${diff?`: ${money(report.retention_manual)}, по расчёту ${money(report.retention_calc)}${ret?` (${pct(ret.percent)} % ${retentionBaseText(ret)})`:''} — проверьте`:' и совпадает с расчётом ✓'}</p>`;
+}
+
 export function scanName({project,contract,doc,version=1,month,index=1,ext='pdf'}){
  const clean=s=>String(s||'').replace(/[\\/:*?"<>|]+/g,'-').replace(/\s+/g,' ').trim();
  const m=String(month||'').slice(0,7),mm=m?`${m.slice(5,7)}.${m.slice(0,4)}`:'';
@@ -71,10 +82,14 @@ export function documentCard({data,doc:d,files=[],checks=[],canEdit=false,cum=fa
   middle=`<dl class="ct-kv dc-kv">${rows.map(([k,x])=>`<dt>${k}</dt><dd>${e(x)}</dd>`).join('')||'<dt>Отметки</dt><dd class="muted">не внесены</dd>'}</dl>`;
  } else if(c3a){
   const cell=(k,pre='')=>{const x=report?.[pre+k];return has(x)?money(x):'<span class="muted">—</span>';};
-  const ytd=report&&C3A_ROWS.some(([k])=>Number(report['ytd_'+k]||0)!==Number(report['total_'+k]||0));
+  // Гарантийное удержание — строкой перед «к оплате», если оно есть по договору (процент) или введено вручную.
+  const ret=retentionOf(data,d.contract_id),showRet=!!ret||Number(report?.retention)>0||Number(report?.total_retention)>0;
+  const rows=showRet?[...C3A_ROWS.slice(0,-1),['retention',`Гарантийное удержание${ret?' '+pct(ret.percent)+' %':''}`,1],C3A_ROWS.at(-1)]:C3A_ROWS;
+  const ytd=report&&rows.some(([k])=>Number(report['ytd_'+k]||0)!==Number(report['total_'+k]||0));
   const head=cum?`<th class="num">С начала работ</th>${ytd?'<th class="num">С начала года</th>':''}`:'';
   middle=`<div class="dc-c3a${cum?' cum':''}"><table><thead><tr><th>Раздел справки</th>${head}<th class="num dc-now">За ${e(monthWord(month).split(' ')[0]||'месяц')}</th></tr></thead><tbody>
-   ${C3A_ROWS.map(([k,l,lv])=>`<tr class="${lv===2?'dc-in':lv===3?'total':''}"><td>${l}</td>${cum?`<td class="num">${cell(k,'total_')}</td>${ytd?`<td class="num">${cell(k,'ytd_')}</td>`:''}`:''}<td class="num dc-now">${cell(k)}</td></tr>`).join('')}</tbody></table></div>
+   ${rows.map(([k,l,lv])=>`<tr class="${lv===2?'dc-in':lv===3?'total':''}"><td>${l}</td>${cum?`<td class="num">${cell(k,'total_')}</td>${ytd?`<td class="num">${cell(k,'ytd_')}</td>`:''}`:''}<td class="num dc-now">${cell(k)}</td></tr>`).join('')}</tbody></table></div>
+   ${retentionNote(report,ret)}
    <button type="button" class="link dc-cum" data-action="c3a-cum" data-id="${e(d.id)}" aria-pressed="${cum}">${cum?'Без накопления':'С накоплением'}</button>`;
  }
 

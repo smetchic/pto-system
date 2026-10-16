@@ -79,10 +79,10 @@ function parseC3a(grid){
  const smrVat=vats.find(([r])=>smr&&r>smr[0]&&(!eq||r<eq[0])),eqVat=vats.find(([r])=>eq&&r>eq[0]);
  const v={smr:at(smr),smr_vat:at(smrVat),equipment_amount:at(eq),equipment_vat:at(eqVat),
   advance_target_offset:at(rowsWithLabel(grid,/^зачет целевого аванса/)[0]),advance_current_offset:at(rowsWithLabel(grid,/^зачет текущего аванса/)[0]),
-  to_pay:at(rowsWithLabel(grid,/^всего к оплате/)[0])};
+  retention:at(rowsWithLabel(grid,/^(гарантийн\S* )?удержан/)[0]),to_pay:at(rowsWithLabel(grid,/^всего к оплате/)[0])};
  if(v.smr===null)problems.push('не найдена строка «Всего стоимость выполненных работ»');if(!month)problems.push('не найден месяц');
- // К оплате = СМР + оборудование − зачёты (AGENTS.md §2); расхождение показываем, не исправляем.
- const calc=round((v.smr||0)+(v.equipment_amount||0)-(v.advance_target_offset||0)-(v.advance_current_offset||0));
+ // К оплате = СМР + оборудование − зачёты − гарантийное удержание (AGENTS.md §2, удержания 12.10.2026); расхождение показываем, не исправляем.
+ const calc=round((v.smr||0)+(v.equipment_amount||0)-(v.advance_target_offset||0)-(v.advance_current_offset||0)-(v.retention||0));
  if(v.to_pay!==null&&Math.abs(calc-v.to_pay)>0.05)problems.push(`к оплате в файле ${money(v.to_pay)}, по формуле ${money(calc)}`);
  // Номер справки: из файла, иначе «09/2026» (решение пользователя 11.10.2026).
  return {type:'c3a',kind:'c3a',number:no||(month?`${month.slice(5)}/${month.slice(0,4)}`:''),contract,month,...v,correction:false,corrects:'',unps:unps(grid,15),problems};

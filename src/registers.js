@@ -39,12 +39,14 @@ export function genRows(data,pid,month,cum=null){
  const cellsOf=key=>{const o={};for(const r of mrows)for(const [k,v] of Object.entries(r[key]||{}))o[k]=(o[k]||0)+Number(v);return o;};
  const D=cellsOf('cells'),F=cellsOf('customer_cells');
  const sm=id=>(data.subMonth||[]).find(x=>x.period_id===per?.id&&x.contract_id===id)||{};
+ // Гарантийное удержание субподрядчика за месяц входит в вычеты вместе с зачётом авансов: к оплате = D + оборудование − вычеты.
+ const ret=id=>(data.retention||[]).find(x=>x.side==='sub'&&x.period_id===per?.id&&x.contract_id===id);
  const T=reports.length?rs('smr'):mrows.reduce((t,r)=>t+Number(r.total||0),0);
- const our={label:'Всего по генподряду',month:{D:T,F:T,H:null,eq:reports.length?rs('equipment'):null,off:reports.length?rs('target_offset')+rs('current_offset'):null,pay:reports.length?rs('to_pay'):null},
-  total:reports.length?{D:rs('smr','total'),F:rs('smr','total'),H:null,eq:rs('equipment','total'),off:rs('target_offset','total')+rs('current_offset','total'),pay:rs('to_pay','total')}:cum?.our||null};
+ const our={label:'Всего по генподряду',month:{D:T,F:T,H:null,eq:reports.length?rs('equipment'):null,off:reports.length?rs('target_offset')+rs('current_offset')+rs('retention'):null,pay:reports.length?rs('to_pay'):null},
+  total:reports.length?{D:rs('smr','total'),F:rs('smr','total'),H:null,eq:rs('equipment','total'),off:rs('target_offset','total')+rs('current_offset','total')+rs('retention','total'),pay:rs('to_pay','total')}:cum?.our||null};
  const subs=subsOf(data,pid,month,{all:true}).filter(s=>s.expected||D[s.contract.id]||cum?.subs?.[s.contract.id]).map(s=>{
   const m=sm(s.contract.id),d=D[s.contract.id]??(s.workflow&&!s.skip&&Number(s.workflow.acts_amount)?Number(s.workflow.acts_amount):null);
-  const f=num(m.on_customer)??F[s.contract.id]??null,eq=num(m.equipment),off=(num(m.target_offset)||0)+(num(m.current_offset)||0);
+  const f=num(m.on_customer)??F[s.contract.id]??null,eq=num(m.equipment),off=(num(m.target_offset)||0)+(num(m.current_offset)||0)+(num(ret(s.contract.id)?.amount)||0);
   const c=cum?.subs?.[s.contract.id];
   return {label:s.contract.party||s.contract.number,number:s.contract.number,id:s.contract.id,filed:d!==null,
    month:{D:d,F:f,H:d!==null&&f!==null?f-d:null,eq,off:off||null,pay:d!==null?d+(eq||0)-off:null},
@@ -59,7 +61,7 @@ export function genRows(data,pid,month,cum=null){
 
 export function genTable(data,pid,month,cum=null){
  const g=genRows(data,pid,month,cum);
- const cols=[['D','СМР, их цены (D)'],['F','На заказчика, цены СУ-22 (F)'],['H','Генуслуги H = F − D'],['eq','Оборудование'],['off','Зачёт авансов'],['pay','К оплате']];
+ const cols=[['D','СМР, их цены (D)'],['F','На заказчика, цены СУ-22 (F)'],['H','Генуслуги H = F − D'],['eq','Оборудование'],['off','Зачёт авансов и удержание'],['pay','К оплате']];
  const vals=(x,part)=>cols.map(([k])=>{const v=x[part]?.[k];return k==='H'&&v!==null&&v!==undefined?`<td class="num${v<0?' neg':''}">${money(v)}</td>`:cell(v??null);}).join('');
  const line=(x,cls='')=>`<tr class="${cls}"><td>${e(x.label)}${x.number?` <span class="muted">№ ${e(x.number)}</span>`:''}${x.filed===false?' <small class="muted">не подал</small>':''}</td>${vals(x,'month')}${vals(x,'total')}</tr>`;
  const ownLine=`<tr class="rg-own"><td>Собственные силы${g.pre?' <small class="rg-pre">предв.</small>':''}<small>по D · по F</small></td>${negCell(g.own.month.D)}${negCell(g.own.month.F)}<td colspan="4"></td>${g.own.total?negCell(g.own.total.D)+negCell(g.own.total.F):'<td></td><td></td>'}<td colspan="4"></td></tr>`;
@@ -72,7 +74,7 @@ export function genSheetRows(data,pid,month,cum=null){
  const g=genRows(data,pid,month,cum),k=['D','F','H','eq','off','pay'],v=(x,p)=>k.map(c=>x[p]?.[c]??null);
  return [{values:['Реестр по генуслугам · '+((data.projects||[]).find(p=>p.id===pid)?.name||'')+' · '+month],bold:true},
   {values:['','За месяц','','','','','','С начала работ'],bold:true},
-  {values:['Строка','D, их цены','F, на заказчика','H = F − D','Оборудование','Зачёт авансов','К оплате','D, их цены','F, на заказчика','H = F − D','Оборудование','Зачёт авансов','К оплате'],bold:true},
+  {values:['Строка','D, их цены','F, на заказчика','H = F − D','Оборудование','Зачёт авансов и удержание','К оплате','D, их цены','F, на заказчика','H = F − D','Оборудование','Зачёт авансов и удержание','К оплате'],bold:true},
   {values:[g.our.label,...v(g.our,'month'),...v(g.our,'total')],bold:true},
   ...g.subs.map(s=>({values:[`${s.label} № ${s.number}`,...v(s,'month'),...v(s,'total')]})),
   {values:[g.itog.label,...v(g.itog,'month'),...v(g.itog,'total')],bold:true},
@@ -81,7 +83,7 @@ export function genSheetRows(data,pid,month,cum=null){
 }
 
 // Сумма «с начала» по субподрядчикам из реестров всех месяцев объекта (main.js загружает их при открытии вкладки).
-export function genCumulative(pid,matrices,subMonths,periods){
+export function genCumulative(pid,matrices,subMonths,periods,retention=[]){
  const subs={},our={D:0,F:0,H:null,eq:null,off:null,pay:null};
  const add=(id,k,v)=>{const s=subs[id]||(subs[id]={D:0,F:0,eq:0,off:0});s[k]+=Number(v)||0;};
  for(const m of matrices)for(const r of (m?.rows||[]).filter(r=>r.kind==='contract'&&r.project_id===pid)){
@@ -91,6 +93,7 @@ export function genCumulative(pid,matrices,subMonths,periods){
  }
  const ids=new Set(periods.filter(p=>p.project_id===pid).map(p=>p.id));
  for(const x of subMonths.filter(x=>ids.has(x.period_id))){add(x.contract_id,'eq',x.equipment);add(x.contract_id,'off',(Number(x.target_offset)||0)+(Number(x.current_offset)||0));}
+ for(const x of retention.filter(x=>x.side==='sub'&&ids.has(x.period_id)))add(x.contract_id,'off',x.amount);
  return {our,subs};
 }
 

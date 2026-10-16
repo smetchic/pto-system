@@ -947,3 +947,62 @@ test('step dates are compared with today in Minsk, not UTC',async()=>{
  assert.equal(rows.length,4);
  for(const r of rows)assert.ok((r.proconfig||[]).includes('TimeZone=Europe/Minsk')||(r.proconfig||[]).includes('timezone=Europe/Minsk'),r.proname+': '+JSON.stringify(r.proconfig));
 });
+test('retention: percent and base per contract, C-3a retention computed or manual, sub retention by acts, return dates from commissioning',async()=>{
+ await as(users.head);const month='2027-02-01';
+ const pid=(await command({op:'create_project',name:'Удержания'})).project_id;
+ const per=(await command({op:'open_period',project_id:pid,month})).period_id;
+ const op=async(name,extra)=>command({op:name,period_id:per,expected_revision:await periodRev(per),...extra});
+ await command({op:'create_contract',project_id:pid,number:'У-1',party:'Заказчик У',direction:'outgoing'});
+ await command({op:'create_contract',project_id:pid,number:'УС-1',party:'Субподрядчик У',direction:'incoming'});
+ await command({op:'create_contract',project_id:pid,number:'У-2',party:'Без удержания',direction:'outgoing'});
+ const cid=async n=>(await db.query('select id from pto_contracts where project_id=$1 and number=$2',[pid,n])).rows[0].id;
+ const [our,sub,free]=[await cid('У-1'),await cid('УС-1'),await cid('У-2')];
+ await command({op:'set_retention',contract_id:our,percent:'5'});
+ await command({op:'set_retention',contract_id:sub,percent:'5',base:'gross'});
+ await assert.rejects(command({op:'set_retention',contract_id:our,percent:'120'}),/от 0 до 100/);
+ await assert.rejects(command({op:'set_retention',contract_id:our,first_years:'3',final_years:'2'}),/не раньше первого/);
+ await op('create_document',{contract_id:our,kind:'c2a',number:'1',amount:'1200.00'});
+ const c3a=(await op('create_document',{contract_id:our,kind:'c3a',number:'1',equipment_amount:'100.00',advance_current_offset:'50.00'})).document_id;
+ const report=async()=>(await db.query('select * from pto_c3a_report where document_id=$1 and is_current',[c3a])).rows[0];
+ let r=await report();
+ // СМР 1 200,00 с НДС 200,00: удержание 5 % от 1 000,00 без НДС.
+ assert.deepEqual([r.retention_calc,r.retention_manual,r.retention,r.to_pay],['50.00',null,'50.00','1200.00'],'к оплате = 1200 + 100 − 50 − 50');
+ assert.deepEqual([r.ytd_retention,r.total_retention,r.total_to_pay],['50.00','50.00','1200.00']);
+ // Ручное удержание: действует оно, расчёт остаётся для сверки; пустое — снова расчёт. Проверенный месяц уходит на повторную проверку.
+ const before=await periodRev(per);
+ await command({op:'set_retention_amount',document_id:c3a,amount:'48.00',note:'по справке заказчика'});
+ assert.ok(await periodRev(per)>before);
+ r=await report();assert.deepEqual([r.retention_calc,r.retention_manual,r.retention,r.to_pay],['50.00','48.00','48.00','1202.00']);
+ await command({op:'set_retention_amount',document_id:c3a,amount:''});
+ r=await report();assert.deepEqual([r.retention_manual,r.retention],[null,'50.00']);
+ // Заказчик считает от СМР с НДС.
+ await command({op:'set_retention',contract_id:our,base:'gross'});
+ assert.equal((await report()).retention,'60.00');
+ // Договор без процента — удержания нет.
+ await op('create_document',{contract_id:free,kind:'c2a',number:'2',amount:'600.00'});
+ const c3free=(await op('create_document',{contract_id:free,kind:'c3a',number:'2'})).document_id;
+ assert.equal((await db.query('select retention from pto_c3a_report where document_id=$1 and is_current',[c3free])).rows[0].retention,'0.00');
+ // Субподрядчик: удержание по его актам за месяц (с НДС по договору) или вручную.
+ await op('create_document',{contract_id:sub,kind:'c2a',number:'с1',amount:'240.00'});
+ const ret=async c=>(await db.query('select side,base_amount,calc,manual,amount from pto_retention where contract_id=$1',[c])).rows;
+ assert.deepEqual(await ret(sub),[{side:'sub',base_amount:'240.00',calc:'12.00',manual:null,amount:'12.00'}]);
+ await command({op:'set_retention_amount',period_id:per,contract_id:sub,amount:'11.00'});
+ assert.equal((await ret(sub))[0].amount,'11.00');
+ await assert.rejects(command({op:'set_retention_amount',period_id:per,contract_id:our,amount:'1.00'}),/договор субподряда/);
+ assert.deepEqual(await ret(free),[]);
+ // Сроки возврата: от даты ввода объекта, 50 % через год, остаток через два.
+ const sum=async c=>(await db.query('select retained,first_due,final_due,first_amount,final_amount from pto_retention_summary where contract_id=$1',[c])).rows[0];
+ let s=await sum(our);assert.deepEqual([s.retained,s.first_due,s.final_amount],['60.00',null,'30.00']);
+ await command({op:'set_commissioning',project_id:pid,commissioned_on:'2027-06-30'});
+ s=await sum(our);
+ assert.deepEqual([String(s.first_due instanceof Date?s.first_due.toISOString().slice(0,10):s.first_due),s.first_amount],['2028-06-30','30.00']);
+ await command({op:'set_retention',contract_id:our,first_share:'40',final_years:'3'});
+ s=await sum(our);assert.deepEqual([s.first_amount,s.final_amount],['24.00','36.00']);
+ // Директор только смотрит; удаление ошибочной справки убирает и её ручное удержание.
+ await as(users.director);await assert.rejects(command({op:'set_retention',contract_id:our,percent:'3'}),/Недостаточно прав/);
+ await as(users.head);
+ await command({op:'set_retention_amount',document_id:c3a,amount:'1.00'});
+ await command({op:'delete_document',document_id:c3a,reason:'ошибка'});
+ await db.exec('reset role');
+ assert.equal((await db.query('select count(*)::int n from pto_retention_marks where document_id=$1',[c3a])).rows[0].n,0);
+});
